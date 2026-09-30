@@ -13,6 +13,38 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import json
+import math
+
+# FIX-A/B: requested window + date-normalised index
+_SPAN_DAYS = {'1mo': 31, '3mo': 92, '6mo': 183, '1y': 365, '2y': 735, '5y': 1826}
+
+
+def _normalise(df, period):
+    """
+    FIX-A: the TradingView branch ignored `period` (it always returned
+    n_bars=500 ≈ 2 years) while the NIFTY leg fell through to Yahoo and
+    DID honour period='6mo' — so "Relative Strength" subtracted a 6-month
+    index return from a 2-year stock return.
+    FIX-B: TradingView stamps bars with a 03:45:00 time component while
+    Yahoo uses midnight, so the inner join produced ZERO rows and
+    beta/correlation came out NaN (silently labelled 'Market').
+    """
+    if df is None or df.empty or len(df) < 20:
+        return df
+    df = df.copy()
+    idx = pd.to_datetime(df.index)
+    try:
+        idx = idx.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    df.index = idx.normalize()
+    df = df[~df.index.duplicated(keep='last')].sort_index()
+    days = _SPAN_DAYS.get(str(period).lower())
+    if days:
+        slice_ = df[df.index >= df.index[-1] - pd.Timedelta(days=days)]
+        if len(slice_) >= 20:
+            df = slice_
+    return df
 import requests as http_requests
 from datetime import datetime
 import warnings
@@ -35,7 +67,7 @@ def safe_download_deep(symbol, period='2y', interval='1d'):
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             df = df.dropna(subset=['Close'])
             if len(df) >= 60:
-                return df
+                return _normalise(df, period)   # FIX-A: honour `period`
     except Exception:
         pass
 
@@ -58,7 +90,7 @@ def safe_download_deep(symbol, period='2y', interval='1d'):
 
             df = df.dropna(subset=['Close'])
             if len(df) >= 60:
-                return df
+                return _normalise(df, period)   # FIX-A: honour `period`
     except Exception:
         pass
 
@@ -347,18 +379,23 @@ def sector_strength(symbol):
         n_returns = nifty['Close'].pct_change().dropna()
         common = s_returns.align(n_returns, join='inner')
         
-        corr = float(common[0].corr(common[1]))
-        beta = float(common[0].cov(common[1]) / (common[1].var() + 1e-10))
+        # FIX-B: only claim a beta/regime label when the numbers are finite
+        corr = float(common[0].corr(common[1])) if len(common[0]) > 5 else float('nan')
+        beta = float(common[0].cov(common[1]) / (common[1].var() + 1e-10)) if len(common[0]) > 5 else float('nan')
         rs = s_ret - n_ret
 
         return {
             'stock_return_6m': round(s_ret, 1),
             'nifty_return_6m': round(n_ret, 1),
             'relative_strength': round(rs, 1),
-            'correlation': round(corr, 2),
-            'beta': round(beta, 2),
+            'correlation': round(corr, 3) if math.isfinite(corr) else None,
+            'beta': round(beta, 3) if math.isfinite(beta) else None,
             'vs_nifty': 'OUTPERFORM' if rs > 0 else 'UNDERPERFORM',
-            'beta_type': 'Aggressive' if beta > 1.2 else 'Defensive' if beta < 0.8 else 'Market'
+            'beta_type': ('N/A (no overlapping sessions)' if not (math.isfinite(beta) and math.isfinite(corr))
+                          else 'Aggressive' if beta > 1.2 else 'Defensive' if beta < 0.8 else 'Market'),
+            'aligned_sessions': int(len(common[0])),
+            'stock_span_days': int((stock.index[-1] - stock.index[0]).days),
+            'nifty_span_days': int((nifty.index[-1] - nifty.index[0]).days)
         }
     except Exception:
         return {'stock_return_6m': 0, 'nifty_return_6m': 0, 'relative_strength': 0,
@@ -454,8 +491,24 @@ def run_deep_analysis(symbol):
     }
 
     filename = f'deep_{symbol}.json'
+    # FIX-C: valid strict JSON (NaN/Inf -> null). The old file contained
+    # literal NaN tokens, which JavaScript's JSON.parse rejects.
+    def _nan_safe(o):
+        if isinstance(o, dict):
+            return {k: _nan_safe(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [_nan_safe(v) for v in o]
+        if isinstance(o, (np.floating, float)):
+            f_ = float(o)
+            return None if (math.isnan(f_) or math.isinf(f_)) else f_
+        if isinstance(o, np.integer):
+            return int(o)
+        if isinstance(o, np.bool_):
+            return bool(o)
+        return o
+
     with open(filename, 'w') as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(_nan_safe(result), f, indent=2, allow_nan=False)
 
     print(f"\n  💾 Saved to {filename}")
     print(f"{'='*65}\n")

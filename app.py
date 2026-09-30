@@ -16,13 +16,21 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  V6.1 (2026-09-30) — 15 audit fixes applied in place.
+#  Search "FIX-" to see each change; see AUDIT_REPORT.md for evidence.
+# ─────────────────────────────────────────────────────────────
+
 import io
 import json
+import math
+import os
+import threading
 import time
 import warnings
 from datetime import datetime, timedelta
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 import numpy as np
 import pandas as pd
@@ -105,6 +113,12 @@ REGIME_CACHE = {
     'time': None
 }
 
+# FIX-03/14: negative caches so a blocked/unknown symbol fails fast
+_NSE_BLOCKED_UNTIL = [0.0]
+_FAIL_CACHE = {}
+_ML_CACHE = {}
+_ML_LOCK = threading.Lock()
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  DIRECT NSE LIVE QUOTE SCRAPER (Exact Moneycontrol & NSE Match)
@@ -112,59 +126,51 @@ REGIME_CACHE = {
 def fetch_nse_live_ltp(symbol):
     """
     Fetches real-time exact LTP, Change, and %Change from official NSE India API.
-    Used for instant price verification and zero-lag Moneycontrol matching.
+
+    FIX-03: NSE blocks datacentre / non-Indian IPs (403 on both the homepage and
+    /api/quote-equity — measured). The old code paid a 4s + 4s handshake on EVERY
+    call. We now remember the block for 5 minutes and return instantly.
     """
     clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
-    
+    if time.time() < _NSE_BLOCKED_UNTIL[0]:
+        return None
+
     try:
         session = http_requests.Session()
-        custom_headers = {
+        session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://www.nseindia.com/'
-        }
-        session.headers.update(custom_headers)
-        
-        # Step 1: Initial Cookie Handshake with NSE Homepage
+        })
         session.get('https://www.nseindia.com', timeout=4)
-        
-        # Step 2: Query Direct Equity Quote API
-        url = f"https://www.nseindia.com/api/quote-equity?symbol={clean_sym}"
-        res = session.get(url, timeout=4)
-        
+        res = session.get(f"https://www.nseindia.com/api/quote-equity?symbol={clean_sym}", timeout=4)
+
         if res.status_code == 200:
             data = res.json()
             price_info = data.get('priceInfo', {})
-            
             ltp = price_info.get('lastPrice')
-            change = price_info.get('change')
-            pChange = price_info.get('pChange')
-            close_price = price_info.get('close') or price_info.get('previousClose')
-            
             if ltp is not None:
-                parsed_ltp = float(ltp)
-                parsed_change = float(change) if change is not None else 0.0
-                parsed_pchange = float(pChange) if pChange is not None else 0.0
-                parsed_close = float(close_price) if close_price is not None else parsed_ltp
-                
-                day_high = price_info.get('intraDayHighLow', {}).get('max', ltp)
-                day_low = price_info.get('intraDayHighLow', {}).get('min', ltp)
-                
+                change = price_info.get('change')
+                pChange = price_info.get('pChange')
+                close_price = price_info.get('close') or price_info.get('previousClose')
+                day_hl = price_info.get('intraDayHighLow', {}) or {}
                 return {
                     'symbol': clean_sym,
-                    'price': round(parsed_ltp, 2),
-                    'change': round(parsed_change, 2),
-                    'pChange': round(parsed_pchange, 2),
-                    'close_price': round(parsed_close, 2),
-                    'dayHigh': round(float(day_high), 2),
-                    'dayLow': round(float(day_low), 2),
-                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                    'price': round(float(ltp), 2),
+                    'change': round(float(change), 2) if change is not None else 0.0,
+                    'pChange': round(float(pChange), 2) if pChange is not None else 0.0,
+                    'close_price': round(float(close_price), 2) if close_price is not None else round(float(ltp), 2),
+                    'dayHigh': round(float(day_hl.get('max') or ltp), 2),
+                    'dayLow': round(float(day_hl.get('min') or ltp), 2),
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'is_realtime': True
                 }
-                
     except Exception as e:
         print(f"⚠️ Live NSE Quote fetch error for {clean_sym}: {e}")
-        
+
+    # anything other than a clean 200 → assume blocked for 5 minutes
+    _NSE_BLOCKED_UNTIL[0] = time.time() + 300
     return None
 
 
@@ -253,57 +259,59 @@ class MultiTechDataSourceManager:
         return None
 
     def fetch_nse_direct(self, symbol, days=500):
-        """Tier 2 Fetch: Official Direct NSE India Scrapers"""
+        """
+        Tier 2 Fetch: Official Direct NSE India Scrapers
+
+        FIX-04 applied:
+          • The NSE endpoint returns the key `grapthData` (NSE's own typo); the
+            old code read `gRapData`, so Method A could never match.
+          • Even when it fires, chart-databyindex is ONE intraday session, not
+            daily history. The old code bolted Open=High=Low=Close and
+            Volume=100000 (constant) onto it — which poisons ATR / BB-width /
+            VCP / volume engines. Intraday-only payloads are now refused.
+          • Method C called `equity_history_volumes`, which does not exist in
+            nsepython; the real function is `equity_history(sym, series, from, to)`.
+        """
         clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
 
-        # Method A: Native Session API Scraper
+        # Method A: native session scraper (correct key + intraday guard)
         try:
             session = http_requests.Session()
             session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': 'https://www.nseindia.com/'
             })
-            
             session.get('https://www.nseindia.com', timeout=5)
-            url = f"https://www.nseindia.com/api/chart-databyindex?index={clean_sym}EQN"
-            res = session.get(url, timeout=6)
-            
+            res = session.get(f"https://www.nseindia.com/api/chart-databyindex?index={clean_sym}EQN", timeout=6)
             if res.status_code == 200:
-                data = res.json().get('gRapData', [])
-                if data and len(data) > 20:
-                    df = pd.DataFrame(data, columns=['Timestamp', 'Close'])
+                payload = res.json()
+                rows = payload.get('grapthData') or payload.get('gRapData') or []
+                if rows and len(rows) > 20:
+                    df = pd.DataFrame(rows, columns=['Timestamp', 'Close']).dropna()
                     df['Date'] = pd.to_datetime(df['Timestamp'], unit='ms')
                     df = df.set_index('Date').sort_index()
-                    df['Open'] = df['Close']
-                    df['High'] = df['Close']
-                    df['Low'] = df['Close']
-                    df['Volume'] = 100000.0
+                    if df.index.normalize().nunique() == 1:
+                        print(f"   ℹ️ NSE chart-databyindex = intraday only ({len(df)} ticks, 1 session) — refused as daily history")
+                        return None
+                    df['Open'], df['High'], df['Low'] = df['Close'], df['Close'], df['Close']
+                    df['Volume'] = 0.0
                     return df[['Open', 'High', 'Low', 'Close', 'Volume']]
         except Exception:
             pass
 
-        # Method B: jugaad-data Dynamic Import Fallback
+        # Method B: jugaad-data (real daily OHLCV) — dynamic import
         try:
             import importlib
             jugaad = importlib.import_module('jugaad_data.nse')
             stock_df_func = getattr(jugaad, 'stock_df', None)
-            
             if stock_df_func is not None:
                 end_d = datetime.now().date()
                 start_d = end_d - timedelta(days=days)
                 df = stock_df_func(symbol=clean_sym, from_date=start_d, to_date=end_d, series="EQ")
-                
                 if df is not None and not df.empty:
-                    df = df.rename(columns={
-                        'OPEN': 'Open',
-                        'HIGH': 'High',
-                        'LOW': 'Low',
-                        'CLOSE': 'Close',
-                        'VOLUME': 'Volume',
-                        'DATE': 'Date'
-                    })
+                    df = df.rename(columns={'OPEN': 'Open', 'HIGH': 'High', 'LOW': 'Low',
+                                            'CLOSE': 'Close', 'VOLUME': 'Volume', 'DATE': 'Date'})
                     df['Date'] = pd.to_datetime(df['Date'])
                     df = df.set_index('Date').sort_index()
                     for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
@@ -314,25 +322,19 @@ class MultiTechDataSourceManager:
         except Exception:
             pass
 
-        # Method C: nsepython Dynamic Import Fallback
+        # Method C: nsepython (FIX-04: correct function name + signature)
         try:
             import importlib
             nsep = importlib.import_module('nsepython')
-            eq_hist = getattr(nsep, 'equity_history_volumes', None)
-            
+            eq_hist = getattr(nsep, 'equity_history', None)
             if eq_hist is not None:
                 end_d = datetime.now()
                 start_d = end_d - timedelta(days=days)
-                df = eq_hist(clean_sym, start_d.strftime('%d-%m-%Y'), end_d.strftime('%d-%m-%Y'))
+                df = eq_hist(clean_sym, "EQ", start_d.strftime('%d-%m-%Y'), end_d.strftime('%d-%m-%Y'))
                 if df is not None and not df.empty:
-                    df = df.rename(columns={
-                        'CH_OPENING_PRICE': 'Open',
-                        'CH_TRADE_HIGH_PRICE': 'High',
-                        'CH_TRADE_LOW_PRICE': 'Low',
-                        'CH_CLOSING_PRICE': 'Close',
-                        'CH_TOT_TRADED_QTY': 'Volume',
-                        'CH_TIMESTAMP': 'Date'
-                    })
+                    df = df.rename(columns={'CH_OPENING_PRICE': 'Open', 'CH_TRADE_HIGH_PRICE': 'High',
+                                            'CH_TRADE_LOW_PRICE': 'Low', 'CH_CLOSING_PRICE': 'Close',
+                                            'CH_TOT_TRADED_QTY': 'Volume', 'CH_TIMESTAMP': 'Date'})
                     df['Date'] = pd.to_datetime(df['Date'])
                     df = df.set_index('Date').sort_index()
                     for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
@@ -416,17 +418,19 @@ def favicon():
 
 def clean_json(data):
     """
-    Recursively converts NumPy, Pandas, NaN, and Infinity types into standard Python types.
-    Ensures Python 3.14 native JSON serialization compatibility without runtime crashes.
+    Recursively converts NumPy/Pandas/NaN/Inf into standard Python types.
+
+    FIX-02: missing values now serialise as `null` instead of `0.0`. The old
+    behaviour turned a NaN SMA-200 into a real-looking 0, and the dashboard then
+    drew a fake "DEATH CROSS" from it.
     """
     if isinstance(data, dict):
         return {k: clean_json(v) for k, v in data.items()}
     elif isinstance(data, list):
         return [clean_json(v) for v in data]
     elif isinstance(data, (np.float32, np.float64, np.floating)):
-        if np.isnan(data) or np.isinf(data):
-            return 0.0
-        return round(float(data), 6)
+        v = float(data)
+        return None if (math.isnan(v) or math.isinf(v)) else round(v, 6)
     elif isinstance(data, (np.int32, np.int64, np.integer)):
         return int(data)
     elif isinstance(data, (np.bool_, bool)):
@@ -438,17 +442,13 @@ def clean_json(data):
     elif data is None:
         return None
     elif isinstance(data, float):
-        if np.isnan(data) or np.isinf(data):
-            return 0.0
-        return round(data, 6)
+        return None if (math.isnan(data) or math.isinf(data)) else round(data, 6)
     try:
         if pd.isna(data):
             return None
     except Exception:
         pass
-        
     return data
-
 
 def sf(val, default=0.0):
     """Safely cast value to rounded float."""
@@ -613,30 +613,69 @@ def dynamic_search():
 
 
 def resolve_symbol(user_input):
-    """Smart resolver that maps company names and queries to accurate stock symbols"""
-    ic = user_input.upper().strip().replace('.NS', '').replace('.BO', '')
-    
-    for s in DYNAMIC_STOCK_DB:
-        if ic == s['sym'].upper():
-            return s['sym']
-            
-    for s in DYNAMIC_STOCK_DB:
-        if ic in s['name'].upper() or s['name'].upper() in ic:
-            return s['sym']
-            
-    cw = ic.replace("LTD", "").replace("LIMITED", "").replace("ENERGY", "").strip()
-    if len(cw) >= 3:
-        for s in DYNAMIC_STOCK_DB:
-            if cw in s['name'].upper() or cw in s['sym'].upper():
-                return s['sym']
-                
-    return ic
+    """
+    Smart resolver: company name / ticker → NSE symbol.
+
+    FIX-01: the old third pass did a raw substring test over 2,565 names and
+    returned the first hit, so "INFOSYS LTD" resolved to HCL-INSYS (because
+    "INFOSYS" is inside "HCL INSYSTEMS") and "TATA" → TATACAP. Matching is now
+    ranked and word-boundary aware, and prefers the SHORTEST candidate name.
+    """
+    import re as _re
+    STOP = {'LTD', 'LIMITED', 'INDIA', 'CO', 'CORP', 'CORPORATION', 'THE'}
+    q = (user_input or '').upper().strip().replace('.NS', '').replace('.BO', '')
+    if not q:
+        return q
+
+    for s_ in DYNAMIC_STOCK_DB:                      # 1. exact ticker
+        if q == s_['sym'].upper():
+            return s_['sym']
+
+    prefix = [s_ for s_ in DYNAMIC_STOCK_DB if s_['sym'].upper().startswith(q)]
+    if prefix:                                       # 2. ticker prefix, shortest wins
+        return sorted(prefix, key=lambda x: len(x['sym']))[0]['sym']
+
+    tokens = [t for t in _re.findall(r'[A-Z0-9&]+', q) if t not in STOP]
+    if tokens:                                       # 3. every token a whole word in the name
+        hits = []
+        for s_ in DYNAMIC_STOCK_DB:
+            name_tokens = set(_re.findall(r'[A-Z0-9&]+', s_['name'].upper()))
+            if all(t in name_tokens for t in tokens):
+                hits.append(s_)
+        if hits:
+            return sorted(hits, key=lambda x: len(x['name']))[0]['sym']
+
+    return q
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  REAL MACHINE LEARNING ENGINE (4-Model Ensemble + Walk-Forward)
 # ═══════════════════════════════════════════════════════════════════════════
 def ml_engine(df):
+    """
+    FIX-06: cached wrapper. The 4-model ensemble + 19 walk-forward fits cost
+    ~8.1s per call; results are cached on (last bar date, bars) so repeats are
+    instant. Adds the walk-forward noise band to the payload.
+    """
+    try:
+        key = (str(df.index[-1])[:10], len(df))
+    except Exception:
+        key = None
+    if key and key in _ML_CACHE:
+        return _ML_CACHE[key]
+
+    res = _ml_engine_uncached(df)
+    if isinstance(res, dict):
+        res['wf_window_sigma'] = round(math.sqrt(0.25 / 20) * 100, 1)
+        wf, bl = res.get('walk_forward_accuracy'), res.get('baseline_accuracy')
+        res['walk_forward_edge'] = round(wf - bl, 1) if (wf is not None and bl is not None) else None
+    if key:
+        with _ML_LOCK:
+            _ML_CACHE[key] = res
+    return res
+
+
+def _ml_engine_uncached(df):
     """
     Real Machine Learning Pipeline with 28 engineered features, Expanding Window
     Walk-Forward Validation, 4-Model Ensemble, and Class Imbalance Edge Analysis.
@@ -974,9 +1013,14 @@ def calculate_all_indicators(df):
     df['Plus_DI'] = plus_di
     df['Minus_DI'] = minus_di
 
-    # Cumulative Volume Weighted Average Price (VWAP)
+    # Volume Weighted Average Price
+    # FIX-05: this used to be a CUMULATIVE VWAP since the first downloaded
+    # bar (~2 years) while the intraday KPI and the indicator table used it
+    # as if it were a session VWAP. Now 20-session rolling; the old series is
+    # kept as VWAP_CUMULATIVE for reference.
     tp = (h + l + c) / 3
-    df['VWAP'] = (tp * v).cumsum() / (v.cumsum() + 1e-10)
+    df['VWAP_CUMULATIVE'] = (tp * v).cumsum() / (v.cumsum() + 1e-10)
+    df['VWAP'] = (tp * v).rolling(20).sum() / (v.rolling(20).sum() + 1e-10)
 
     # Stochastic RSI
     rsi_s = df['RSI']
@@ -1631,40 +1675,106 @@ def ensemble_score(engines):
     }
 
 
-def calculate_risk(price, atr, score, capital=None):
-    if capital is None:
-        capital = CONFIG['DEFAULT_CAPITAL']
+def ensemble_v2(engines, ens):
+    """
+    FIX-08: DIAGNOSTIC re-centred score.
 
-    sl_multiplier = 1.5 if score >= 78 else 2.0 if score >= 60 else 2.5
-    sl = price - (atr * sl_multiplier)
-    t1 = price + (atr * 2.5)
-    t2 = price + (atr * 4.0)
-    t3 = price + (atr * 6.0)
+    The six engines are not on a common 0-100 scale: VCP's additive base is 30,
+    Multi-Timeframe divided by a hardcoded 4 even when only 2-3 timeframes
+    loaded, Volume Profile returns only {35,50,70,75} and Market Regime returns
+    the SAME value for every stock. Measured effect: the weighted mean sits at
+    ~42 and the documented bands (65 / 78) are effectively unreachable — 0 BUYs
+    in 10 symbols, mean 42.4, max 56.
 
+    This re-centres VCP and normalises MTF so the number is readable. It is NOT
+    a calibrated model: thresholds still have to be fitted on the score's own
+    historical distribution (see AUDIT_REPORT.md §C-3).
+    """
+    w = CONFIG['ENGINE_WEIGHTS']
+    adj, notes = {}, []
+    for e in engines:
+        s, n = e['score'], e['name']
+        if n == 'VCP V2':
+            s = max(5, min(98, 50 + (s - 30)))
+            notes.append('VCP re-centred (+20)')
+        if n == 'Multi-Timeframe' and e.get('total'):
+            s = round(100 * e.get('bullish_count', 0) / e['total'])
+            notes.append('MTF normalised by loaded TFs')
+        adj[n] = s
+    tw = sum(w.get(e['name'], 0.1) for e in engines) or 1
+    v2 = round(sum(adj[e['name']] * w.get(e['name'], 0.1) for e in engines) / tw, 1)
+    return {
+        'score': int(round(v2)),
+        'raw_score': ens['score'],
+        'delta': round(v2 - ens['score'], 1),
+        'adjustments': notes,
+        'note': 'UNCALIBRATED diagnostic — re-centres VCP/MTF only; fit thresholds on history before trading',
+    }
+
+
+def calculate_risk(price, atr, score, capital=None, action=None):
+    """
+    Institutional Kelly risk plan.
+
+    FIX-07 (three bugs fixed):
+      a) Quantity had NO notional cap: on a ₹1,00,000 account the old code
+         returned qty=454 for RELIANCE = ₹5,39,942 notional = 5.4x leverage.
+         Quantity is now capped at 1x capital.
+      b) Kelly used a hardcoded b=2.5 while the function's own rr_ratio was 1.0
+         → at R:R 1.0 with a 45% win-rate the true Kelly is NEGATIVE ("no
+         trade"), yet the code still emitted a 23% allocation. b is now derived
+         from the actual levels, and kelly<=0 → qty=0.
+      c) A SHORT_SELL verdict produced a long-side plan. Direction is now
+         mirrored, and non-directional verdicts produce no trade at all.
+    """
+    capital = capital if capital is not None else CONFIG['DEFAULT_CAPITAL']
+    if action is None:
+        action = ensemble_score([{'name': 'x', 'score': score}])['action']
+    direction = 'SHORT' if 'SHORT' in action else ('LONG' if action.startswith('BUY') else 'NONE')
+
+    atr = max(float(atr or 0), price * 0.005)
+    sl_mult = 1.5 if score >= 78 else 2.0 if score >= 60 else 2.5
     win_rate = 0.62 if score >= 78 else 0.55 if score >= 60 else 0.45
-    loss_rate = 1.0 - win_rate
-    reward_risk_ratio = 2.5
-    kelly_fraction = (win_rate * reward_risk_ratio - loss_rate) / reward_risk_ratio
-    kelly_capped = max(0.0, min(kelly_fraction, CONFIG['MAX_KELLY_PCT']))
 
-    risk_per_share = price - sl
-    quantity = int((capital * kelly_capped) / risk_per_share) if risk_per_share > 0 else 0
-    entry_low = round(price - (0.3 * atr), 2)
-    entry_high = round(price + (0.2 * atr), 2)
+    if direction == 'SHORT':
+        sl, t1, t2, t3 = price + atr * sl_mult, price - atr * 2.5, price - atr * 4.0, price - atr * 6.0
+    else:
+        sl, t1, t2, t3 = price - atr * sl_mult, price + atr * 2.5, price + atr * 4.0, price + atr * 6.0
+
+    risk_per_share = abs(price - sl)
+    b = abs(t1 - price) / risk_per_share if risk_per_share > 0 else 0.0
+    kelly = ((win_rate * b - (1 - win_rate)) / b) if b > 0 else 0.0
+    kelly = max(0.0, min(kelly, CONFIG['MAX_KELLY_PCT']))
+
+    qty_by_risk = int((capital * kelly) / risk_per_share) if risk_per_share > 0 else 0
+    qty_by_notional = int(capital / price) if price > 0 else 0
+    qty = max(0, min(qty_by_risk, qty_by_notional))
+    if direction == 'NONE' or kelly <= 0:
+        qty = 0
+    notional = round(qty * price, 2)
 
     return {
+        'direction': direction,
         'sl': round(sl, 2),
-        'sl_pct': round((price - sl) / price * 100, 2),
+        'sl_pct': round(risk_per_share / price * 100, 2),
         't1': round(t1, 2),
         't2': round(t2, 2),
         't3': round(t3, 2),
-        'kelly_pct': round(kelly_capped * 100, 1),
-        'qty': quantity,
-        'risk_amount': round(capital * kelly_capped, 0),
-        'rr_ratio': round((t1 - price) / risk_per_share, 2) if risk_per_share > 0 else 1.5,
-        'entry_zone': f"₹{entry_low} - ₹{entry_high}",
+        'kelly_pct': round(kelly * 100, 1),
+        'kelly_rr_used': round(b, 2),
+        'qty': qty,
+        'qty_uncapped': qty_by_risk,
+        'capital': capital,
+        'notional': notional,
+        'leverage': round(notional / capital, 2) if capital else 0.0,
+        'risk_amount': round(qty * risk_per_share, 0),
+        'rr_ratio': round(b, 2),
+        'entry_zone': f"₹{round(price - 0.3 * atr, 2)} - ₹{round(price + 0.2 * atr, 2)}",
         'trail_sl_plan': f"T1 hit hone ke baad SL ko ₹{round(price, 2)} (Cost) pe shift karein",
-        'exec_status': "🟢 READY TO BUY" if score >= 78 else "🟡 WAIT FOR DIP" if score >= 65 else "⚠️ WATCHLIST / NO TRADE"
+        'exec_status': ("🟢 READY TO BUY" if score >= 78 else
+                        "🟡 WAIT FOR DIP" if score >= 65 else
+                        "🔴 SHORT SETUP" if direction == 'SHORT' else
+                        "⚠️ WATCHLIST / NO TRADE")
     }
 
 
@@ -1708,6 +1818,7 @@ def quick_quote_api(symbol):
 # ═══════════════════════════════════════════════════════════════════════════
 @app.route('/api/stream/<symbol>')
 def sse_live_stream(symbol):
+    """FIX-12: proper no-cache headers + heartbeats so the dashboard can use SSE."""
     def event_stream():
         resolved = resolve_symbol(symbol)
         while True:
@@ -1718,17 +1829,19 @@ def sse_live_stream(symbol):
                 df, src = DATA_MANAGER.smart_fetch(resolved, period='5d', interval='5m', n_bars=10)
                 if df is not None and not df.empty:
                     last = df.iloc[-1]
-                    tick = {
-                        'symbol': resolved,
-                        'source': src,
+                    yield "data: " + json.dumps({
+                        'symbol': resolved, 'source': src, 'stale': True,
                         'price': round(sf(last['Close']), 2),
                         'volume': si(last['Volume']),
-                        'time': datetime.now().strftime('%H:%M:%S')
-                    }
-                    yield f"data: {json.dumps(tick)}\n\n"
+                        'time': datetime.now().strftime('%H:%M:%S')}) + "\n\n"
+                else:
+                    yield ": keep-alive\n\n"
             time.sleep(CONFIG['SSE_STREAM_INTERVAL'])
 
-    return Response(event_stream(), mimetype='text/event-stream')
+    resp = Response(event_stream(), mimetype='text/event-stream')
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    return resp
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1736,10 +1849,17 @@ def sse_live_stream(symbol):
 # ═══════════════════════════════════════════════════════════════════════════
 @app.route('/api/stock/<symbol>')
 def stock_api(symbol):
+    # FIX-14: an unresolvable symbol used to cost ~15s on EVERY call
+    # (3 tiers x 2 exchanges with 4-6s timeouts). Cache the miss.
+    _hit = _FAIL_CACHE.get(symbol.upper(), 0)
+    if time.time() < _hit:
+        return jsonify({'error': f"Symbol '{symbol}' could not be resolved "
+                                  f"(cached miss, retry in {int(_hit - time.time())}s)"}), 404
     resolved = resolve_symbol(symbol)
     df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d', n_bars=CONFIG['CHART_CANDLES'] * 2)
 
     if df is None or len(df) < 20:
+        _FAIL_CACHE[symbol.upper()] = time.time() + 300
         return jsonify({'error': f"Stock '{symbol}' data not available across all 3 engines!"}), 404
 
     try:
@@ -1784,11 +1904,19 @@ def stock_api(symbol):
         engines = [e1, e2, e3, e4, e5, e6]
 
         ens = ensemble_score(engines)
-        risk = calculate_risk(price, atr, ens['score'])
+        risk = calculate_risk(price, atr, ens['score'], action=ens['action'])
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 
         # Assemble Chart Array
+        # FIX-09: modern yfinance already returns dividendYield / returnOnEquity
+        # in PERCENT (0.5 == 0.50%). The old code multiplied by 100 and the
+        # dashboard showed a 50.00% dividend yield for RELIANCE.
+        _dy = info.get('dividendYield')
+        _dy = (_dy / 100.0) if (_dy and _dy > 25) else _dy
+        _roe = info.get('returnOnEquity')
+        _roe = (_roe / 100.0) if (_roe and _roe > 5) else _roe
+
         chart_data = []
         for idx, row in df.tail(CONFIG['CHART_CANDLES']).iterrows():
             t_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)[:10]
@@ -1859,9 +1987,9 @@ def stock_api(symbol):
             'fundamentals': {
                 'pe': f"{fund_data['pe_val']:.1f}" if fund_data['pe_val'] else 'N/A',
                 'pb': f"{info.get('priceToBook', 0):.2f}" if info.get('priceToBook') else 'N/A',
-                'roe': f"{fund_data['roe_val'] * 100:.1f}%" if fund_data['roe_val'] else 'N/A',
+                'roe': f"{_roe:.2f}%" if _roe else 'N/A',
                 'debt_equity': f"{fund_data['debt_val']:.1f}" if fund_data['debt_val'] else 'N/A',
-                'div_yield': f"{info.get('dividendYield', 0) * 100:.2f}%" if info.get('dividendYield') else 'N/A',
+                'div_yield': f"{_dy:.2f}%" if _dy else 'N/A',
                 'mcap': f"₹{info.get('marketCap', 0) / 1e7:,.0f}Cr" if info.get('marketCap') else 'N/A',
                 'sector': info.get('sector', 'NSE Equity'),
                 'industry': info.get('industry', 'Equities')
@@ -1871,6 +1999,11 @@ def stock_api(symbol):
                 'low': round(l52, 2),
                 'position': pos52
             },
+            # FIX-08/09: re-centred diagnostic score + honest data-source flags
+            'ensemble_v2': ensemble_v2(engines, ens),
+            'is_realtime': ('NSE' in str(active_source) and 'TradingView' not in str(active_source)),
+            'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
+                           'ML accuracy is a single 80/20 split unless walk_forward_accuracy is quoted.'),
             'chart': chart_data
         }
 
@@ -1882,16 +2015,53 @@ def stock_api(symbol):
         return jsonify({'error': f"Internal Server Error: {str(e)}"}), 500
 
 
+@app.errorhandler(404)
+def handle_not_found(e):
+    # FIX-10: without this, the Exception handler below swallowed werkzeug's
+    # NotFound and every 404 was reported as "500 Server Exception: 404".
+    return jsonify({'error': 'Not found',
+                    'hint': 'Dashboard: /  •  API: /api/stock/<SYMBOL>  •  /api/search?q=…'}), 404
+
+
 @app.errorhandler(Exception)
 def handle_global_exception(e):
-    print(f"❌ Unhandled Server Exception: {e}")
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return jsonify({'error': e.name, 'code': e.code}), e.code
+    import traceback
+    traceback.print_exc()
     return jsonify({'error': f"Server Exception: {str(e)}"}), 500
+
+@app.route('/')
+@app.route('/dashboard.html')
+@app.route('/Dashboard.html')
+def dashboard_page():
+    """FIX-11: app.py served NO html at all — `GET /` used to be a 500."""
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Dashboard.html')
+
+
+@app.route('/icon/<path:fname>')
+def icon_file(fname):
+    return send_from_directory(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon'), fname)
+
+
+@app.route('/static/<path:fname>')
+def static_file(fname):
+    return send_from_directory(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'), fname)
+
+
+@app.after_request
+def _no_store(resp):
+    if resp.mimetype == 'application/json':
+        resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 if __name__ == '__main__':
+    PORT = int(os.environ.get('PORT', 5000))
     print("=" * 78)
-    print("🚀 StockAI V6.0 Multi-Tech Hybrid Server Running on http://127.0.0.1:5000")
-    print("👉 Tier 1: TradingView (tvdatafeed) | Tier 2: NSE Direct | Tier 3: Yahoo")
-    print("👉 100% Full Expanded Codebase Loaded Successfully.")
+    print(f"🚀 StockAI V6.1 Multi-Tech Hybrid Server → http://0.0.0.0:{PORT}")
+    print("👉 Tier 1: TradingView | Tier 2: NSE Direct | Tier 3: Yahoo  (dashboard at /)")
+    print("👉 15 audit fixes applied — see AUDIT_REPORT.md")
     print("=" * 78)
-    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)

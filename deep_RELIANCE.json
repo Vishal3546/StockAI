@@ -1,0 +1,117 @@
+{
+  "symbol": "RELIANCE",
+  "price": 1192.7,
+  "timestamp": "2026-09-30T06:45:35.749457",
+  "ml": {
+    "walk_forward_accuracy": 53.9,
+    "walk_forward_stability": 9.8,
+    "walk_forward_windows": 18,
+    "baseline_accuracy": 55.0,
+    "pos_rate": 45.0,
+    "models": {
+      "GradientBoosting": {
+        "accuracy": 52.0,
+        "edge": -3.0,
+        "precision": 47.7,
+        "recall": 68.9,
+        "f1": 56.4,
+        "prob_up": 53.1
+      },
+      "RandomForest": {
+        "accuracy": 53.0,
+        "edge": -2.0,
+        "precision": 48.5,
+        "recall": 71.1,
+        "f1": 57.7,
+        "prob_up": 53.5
+      },
+      "LogisticRegression": {
+        "accuracy": 60.0,
+        "edge": 5.0,
+        "precision": 53.7,
+        "recall": 80.0,
+        "f1": 64.3,
+        "prob_up": 39.7
+      },
+      "XGBoost": {
+        "accuracy": 51.0,
+        "edge": -4.0,
+        "precision": 47.0,
+        "recall": 68.9,
+        "f1": 55.9,
+        "prob_up": 54.1
+      }
+    },
+    "ensemble_prob": 51.4,
+    "prediction": "NEUTRAL",
+    "confidence": "LOW",
+    "top_features": [
+      {
+        "name": "vol_change",
+        "importance": 8.8
+      },
+      {
+        "name": "obv_slope",
+        "importance": 6.6
+      },
+      {
+        "name": "close_pos",
+        "importance": 6.5
+      },
+      {
+        "name": "atr_pct",
+        "importance": 5.2
+      },
+      {
+        "name": "vwap_dist",
+        "importance": 5.0
+      },
+      {
+        "name": "adx",
+        "importance": 4.9
+      },
+      {
+        "name": "vol_5",
+        "importance": 4.9
+      },
+      {
+        "name": "ret_5",
+        "importance": 4.6
+      }
+    ],
+    "train_days": 400,
+    "test_days": 100,
+    "total_features": 28
+  },
+  "risk": {
+    "annual_return": -9.1,
+    "annual_volatility": 21.2,
+    "sharpe_ratio": -0.74,
+    "sortino_ratio": -1.17,
+    "max_drawdown": -25.8,
+    "calmar_ratio": -0.35,
+    "var_95": -2.12,
+    "win_rate": 49.3,
+    "profit_factor": 0.93,
+    "rating": "POOR"
+  },
+  "sector": {
+    "stock_return_6m": -12.9,
+    "nifty_return_6m": 0.1,
+    "relative_strength": -13.0,
+    "correlation": 0.624,
+    "beta": 1.053,
+    "vs_nifty": "UNDERPERFORM",
+    "beta_type": "Market",
+    "aligned_sessions": 124,
+    "stock_span_days": 182,
+    "nifty_span_days": 182
+  },
+  "fundamentals": {
+    "pe": 21.84621,
+    "roe": null,
+    "mcap": 16109054984192,
+    "debt_equity": 36.653,
+    "div_yield": 0.5
+  }
+}

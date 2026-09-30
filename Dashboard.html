@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StockAI Pro V6.0 — Institutional AI & ML Dashboard</title>
+<title>StockAI Pro V6.1 — Institutional AI & ML Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/icon/favicon.svg">
 
 <!-- Bootstrap 5 -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -12,7 +13,8 @@
 <!-- Google Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <!-- TradingView Lightweight Charts -->
-<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/static/lightweight-charts.standalone.production.js"></script>
+<script>if(!window.LightweightCharts){document.write('<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"><\/script>');}</script>
 
 <style>
 :root {
@@ -460,8 +462,8 @@ body::after {
 <nav class="nav-top">
   <div class="container-fluid px-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
     <div class="d-flex align-items-center gap-3">
-      <div class="brand">StockAI <span style="font-weight:400;opacity:0.6">V6.0</span></div>
-      <div class="live-b"><div class="live-dot"></div>NSE REALTIME TICK</div>
+      <div class="brand">StockAI <span style="font-weight:400;opacity:0.6">V6.1</span></div>
+      <div class="live-b" id="liveBadge"><div class="live-dot"></div><span id="liveBadgeText">SOURCE…</span></div>
       <span class="badge-tag" id="activeEngineTag" style="background:var(--accent-purple-dim);color:var(--accent-purple-light)">NSE DIRECT LIVE</span>
     </div>
     <div class="d-flex align-items-center gap-2">
@@ -635,6 +637,21 @@ setInterval(() => {
 
 // TradingView Chart Integration
 let chart, candleSeries, ema9s, ema21s, volS;
+// FIX(D3): default to same-origin so the dashboard works behind any host /
+// proxy / tunnel; override with ?api=http://host:port or window.STOCKAI_API
+const API = new URLSearchParams(location.search).get('api')
+          || window.STOCKAI_API
+          || (location.protocol === 'file:' ? 'http://127.0.0.1:5000' : '');
+const FALLBACK_ORIGIN = 'http://127.0.0.1:5000';
+async function apiFetch(path, opts) {
+  const urls = [API + path];
+  if (API !== FALLBACK_ORIGIN) urls.push(FALLBACK_ORIGIN + path);
+  let lastErr;
+  for (const u of urls) {
+    try { return await fetch(u, opts); } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
 let activeSymbol = "RELIANCE";
 let lastKnownPrice = 0;
 let liveTickerInterval = null;
@@ -703,8 +720,12 @@ function sc(s) {
 }
 
 function sv(value, fallbackValue) {
-  return value !== undefined && value !== null ? value : fallbackValue;
+  // FIX(D4): null / undefined / '' / NaN → fallback, so a missing indicator
+  // renders as '—' instead of a misleading 0.
+  if (value === null || value === undefined || value === '' || (typeof value === 'number' && Number.isNaN(value))) return fallbackValue;
+  return value;
 }
+function sf2(v, d) { return (v === null || v === undefined || v === '' || v === 0) ? (d === undefined ? '—' : d) : v; }
 
 function setGauge(id, val) {
   const el = document.getElementById(id);
@@ -729,7 +750,7 @@ symInput.addEventListener('input', function() {
 
   searchTimeout = setTimeout(async () => {
     try {
-      const r = await fetch(`http://127.0.0.1:5000/api/search?q=${encodeURIComponent(q)}`);
+      const r = await apiFetch(`/api/search?q=${encodeURIComponent(q)}`);
       const data = await r.json();
 
       if (data.length === 0) {
@@ -768,12 +789,28 @@ document.addEventListener('click', function(e) {
 });
 
 // ⚡ MONEYCONTROL STYLE LIVE TICKER (Selective Number Update without Full Reload)
+let liveSource = null;
 function startLiveTicker(symbol) {
   if (liveTickerInterval) clearInterval(liveTickerInterval);
-  
+  if (liveSource) { liveSource.close(); liveSource = null; }
+  // FIX(D9): prefer the server-sent-events stream; poll only if it fails.
+  try {
+    liveSource = new EventSource(`${API}/api/stream/${symbol}`);
+    let gotData = false;
+    liveSource.onmessage = (ev) => {
+      gotData = true;
+      try { const t = JSON.parse(ev.data); if (t && t.price) updatePriceDOM(t.price, t.change, t.pChange); } catch (e) {}
+    };
+    liveSource.onerror = () => {
+      if (liveSource) { liveSource.close(); liveSource = null; }
+      if (!gotData) startPolling(symbol);
+    };
+  } catch (e) { startPolling(symbol); }
+}
+function startPolling(symbol) {
   liveTickerInterval = setInterval(async () => {
     try {
-      const res = await fetch(`http://127.0.0.1:5000/api/quote/${symbol}`);
+      const res = await apiFetch(`/api/quote/${symbol}`);
       const tick = await res.json();
       if (tick && tick.price) {
         updatePriceDOM(tick.price, tick.change, tick.pChange);
@@ -811,6 +848,15 @@ function updatePriceDOM(newPrice, change, pChange) {
     </span>`;
 }
 
+function showBanner(msg, color) {
+  let el = document.getElementById('errBanner');
+  if (!el) { el = document.createElement('div'); el.id = 'errBanner';
+    el.style.cssText = 'position:sticky;top:70px;z-index:200;margin:10px 16px 0;padding:10px 14px;border-radius:10px;font-size:0.85rem;font-weight:600;background:rgba(255,61,0,0.1);border:1px solid rgba(255,61,0,0.3)';
+    document.body.insertBefore(el, document.body.firstChild); }
+  el.style.color = color || 'var(--color-red)'; el.textContent = msg;
+  clearTimeout(el._t); el._t = setTimeout(() => el.remove(), 9000);
+}
+
 // Fetch Core Stock Data (With Advanced Fetch Control)
 async function loadStock() {
   const sym = symInput.value.trim().toUpperCase();
@@ -824,23 +870,23 @@ async function loadStock() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 40000); // Robust 40s Fetch window
 
-    const r = await fetch(`http://127.0.0.1:5000/api/stock/${sym}`, {
+    const r = await apiFetch(`/api/stock/${sym}`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
 
     const d = await r.json();
     if (d.error) {
-      alert(`Stock Error: ${d.error}`);
+      showBanner(`⚠️ ${d.error}`, 'var(--color-red)');
       return;
     }
     render(d);
     startLiveTicker(sym);
   } catch (e) {
     if (e.name === 'AbortError') {
-      alert('Request Timeout! System is taking longer than expected. Please retry.');
+      showBanner('⏱️ Request timed out — the ML walk-forward needs 5-10s on a cold cache. Retry.', 'var(--color-yellow)');
     } else {
-      alert('Local API is disconnected! Check if your python app.py is running on port 5000.');
+      showBanner('🔌 API unreachable. Start the backend (python app.py) or pass ?api=http://host:port', 'var(--color-red)');
     }
     console.error('Fetch Error:', e);
   } finally {
@@ -861,7 +907,15 @@ function render(d) {
 
   // DOM Insertion for Header Info
   document.getElementById('stockName').textContent = `${d.symbol} — NSE / BSE`;
-  document.getElementById('activeEngineTag').textContent = sv(d.data_source, 'NSE DIRECT LIVE');
+  const src = sv(d.data_source, 'UNKNOWN');
+  const srcBadge = document.getElementById('activeEngineTag');
+  srcBadge.textContent = src;
+  const isLive = /NSE/i.test(src) && !/TradingView/i.test(src);
+  srcBadge.style.background = isLive ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)';
+  srcBadge.style.color = isLive ? 'var(--color-green)' : 'var(--color-yellow)';
+  document.getElementById('liveBadgeText').textContent = isLive ? 'NSE LIVE' : 'DELAYED (15-20 min)';
+  document.getElementById('liveBadge').style.background = isLive ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)';
+  document.getElementById('liveBadge').style.color = isLive ? 'var(--color-green)' : 'var(--color-yellow)';
   
   // Initialize Live Price Ticker
   updatePriceDOM(d.price, d.change, d.pChange);
@@ -939,10 +993,23 @@ function render(d) {
         </div>`;
     });
     
+    const wf = sv(ml.walk_forward_accuracy, null);
+    const wfEdge = (wf !== null && ml.baseline_accuracy !== undefined) ? (wf - ml.baseline_accuracy) : null;
+    const honest = wfEdge === null ? 'UNKNOWN'
+        : wfEdge > 5 ? 'POSSIBLE EDGE (verify)'
+        : wfEdge > 0 ? 'MARGINAL / NOISE'
+        : 'NO EDGE (below baseline)';
+    mlh += `
+        <div style="font-size:0.65rem;margin-top:6px;padding:5px;border-radius:6px;background:rgba(255,179,0,0.08);color:var(--color-yellow)">
+          🧪 Walk-forward OOS accuracy: <b>${wf === null ? '—' : wf + '%'}</b>
+          (baseline ${sv(ml.baseline_accuracy, '?')}%, edge ${wfEdge === null ? '—' : (wfEdge > 0 ? '+' : '') + wfEdge.toFixed(1) + 'pp'})
+          → <b>${honest}</b><br>
+          <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.</span>
+        </div>`;
     mlh += `
         <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Trained: ${sv(ml.train_days, 0)}D | Tested: ${sv(ml.test_days, 0)}D</div>
         <div style="font-size:0.65rem;color:var(--color-yellow);margin-top:2px">
-          📊 Baseline: ${sv(ml.baseline_accuracy, '?')}% | Best Edge: +${sv(ml.best_edge, 0)}% | UP Days: ${sv(ml.pos_rate, '?')}%
+          📊 Baseline: ${sv(ml.baseline_accuracy, '?')}% | Single-split best edge: ${sv(ml.best_edge, 0) > 0 ? '+' : ''}${sv(ml.best_edge, 0)}% | UP Days: ${sv(ml.pos_rate, '?')}%
         </div>
       </div>`;
     document.getElementById('mlBox').innerHTML = mlh;
@@ -989,8 +1056,9 @@ function render(d) {
     ['OBV', sv(ind.obv, 0) > 0 ? (sv(ind.obv, 0) / 1e6).toFixed(1) + 'M' : '0', sv(ind.obv, 0) > 0 ? 'ACCUMULATE' : 'DISTRIBUTE'],
     ['Ichimoku Tenkan', sv(ind.ichi_tenkan, 0), sv(d.price, 0) > sv(ind.ichi_kijun, 0) ? 'ABOVE KIJUN' : 'BELOW KIJUN'],
     ['EMA 9/21', `${sv(ind.ema9, 0)} / ${sv(ind.ema21, 0)}`, sv(ind.ema9, 0) > sv(ind.ema21, 0) ? 'BULL CROSS' : 'BEAR CROSS'],
-    ['SMA 50/200', `${sv(ind.sma50, 0)} / ${sv(ind.sma200, 0)}`, sv(ind.sma50, 0) > sv(ind.sma200, 0) ? 'GOLDEN' : 'DEATH'],
+    ['SMA 50/200', `${sf2(ind.sma50)} / ${sf2(ind.sma200)}`, (ind.sma50 === null || ind.sma200 === null) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? 'GOLDEN' : 'DEATH')],
     ['ATR (14)', sv(ind.atr, 0), ''],
+    ['Master (v2 diagnostic)', `${sv(d.ensemble_v2 && d.ensemble_v2.score, '—')}`, sv(d.ensemble_v2 && d.ensemble_v2.note, '')],
     ['Volume Ratio', `${sv(ind.vol_ratio, 0)}x avg`, sv(ind.vol_ratio, 1) > 1.5 ? 'SPIKE' : sv(ind.vol_ratio, 1) < 0.5 ? 'DRY' : 'NORMAL']
   ];
   
@@ -1109,7 +1177,11 @@ function render(d) {
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly %</div><div class="lvl-val mono" style="color:var(--color-yellow)">${sv(rk.kelly_pct, 0)}%</div></div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${sv(rk.qty, 0)}</div></div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">1:${sv(rk.rr_ratio, 1.5)}</div></div></div>
-    </div>`;
+    </div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Direction</span><span class="mono">${sv(rk.direction, 'NONE')}</span></div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${sv(rk.capital, 0).toLocaleString('en-IN')}</span></div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(sv(rk.notional, 0) > sv(rk.capital, 1)) ? 'var(--color-red)' : 'var(--color-green)'}">₹${sv(rk.notional, 0).toLocaleString('en-IN')} (${sv(rk.leverage, 0)}x)</span></div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${sv(rk.risk_amount, 0).toLocaleString('en-IN')}</span></div>`;
 
   // Technical SMC & Contraction Patterns Sizer
   const smc = (d.engines && d.engines.smc) || {};

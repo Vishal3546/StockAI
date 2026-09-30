@@ -12,7 +12,41 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import json
+import math
+import threading
 import time
+from datetime import time as _dtime
+from zoneinfo import ZoneInfo
+
+# ── FIX-S1: ONE shared TradingView socket (was: a new TvDatafeed() per
+#    symbol; with 5 threads that is 30 sockets and the feed kept dropping)
+_TV, _TV_LOCK, _TV_OK = None, threading.RLock(), [True]
+_IST = ZoneInfo('Asia/Kolkata')
+
+
+def _tv_connection():
+    global _TV
+    with _TV_LOCK:
+        if _TV is None:
+            from tvDatafeed import TvDatafeed
+            _TV = TvDatafeed()
+        return _TV
+
+
+def _nan_safe(o):
+    """FIX-S4: scan_results.json used to contain literal NaN tokens."""
+    if isinstance(o, dict):
+        return {k: _nan_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_nan_safe(v) for v in o]
+    if isinstance(o, (np.floating, float)):
+        f = float(o)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.bool_):
+        return bool(o)
+    return o
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as http_requests
@@ -45,27 +79,32 @@ SECTOR_MAP = {
 #  3-TIER SMART DATA FETCH FOR SCANNER
 # ═══════════════════════════════════════════════════════════
 def fetch_scanner_data(symbol):
+    """FIX-S1: shared TradingView connection, then a pure Yahoo fallback."""
     clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
-    
-    # Tier 1: TradingView Direct
-    try:
-        from tvDatafeed import TvDatafeed, Interval
-        tv = TvDatafeed()
-        df = tv.get_hist(symbol=clean_sym, exchange='NSE', interval=Interval.in_daily, n_bars=300)
-        if df is not None and not df.empty:
-            df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'})
-            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            df = df.dropna(subset=['Close'])
-            if len(df) >= 30:
-                return df, 'TradingView Direct'
-    except Exception:
-        pass
 
-    # Tier 2: Yahoo Finance Fallback
+    if _TV_OK[0]:
+        try:
+            from tvDatafeed import Interval
+            with _TV_LOCK:
+                df = _tv_connection().get_hist(symbol=clean_sym, exchange='NSE',
+                                               interval=Interval.in_daily, n_bars=300)
+            if df is not None and not df.empty:
+                df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low',
+                                        'close': 'Close', 'volume': 'Volume'})
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                df = df.dropna(subset=['Close'])
+                if len(df) >= 30:
+                    return df, 'TradingView Direct'
+            else:
+                _TV_OK[0] = False      # feed degraded → stop retrying for this scan
+        except Exception:
+            _TV_OK[0] = False
+
     try:
-        target = f"{clean_sym}.NS"
-        df = yf.download(target, period='2y', interval='1d', progress=False, threads=False)
+        df = yf.download(f"{clean_sym}.NS", period='2y', interval='1d', progress=False, threads=False)
+        if (df is None or df.empty):
+            df = yf.download(f"{clean_sym}.BO", period='2y', interval='1d', progress=False, threads=False)
         if df is not None and not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
@@ -79,7 +118,6 @@ def fetch_scanner_data(symbol):
         pass
 
     return None, 'None'
-
 
 def calculate_indicators(df):
     c = df['Close'].astype(float)
@@ -114,6 +152,23 @@ def calculate_indicators(df):
     valid_v = v.replace(0, np.nan).ffill().fillna(10000)
     df['Vol_SMA'] = valid_v.rolling(20).mean()
     df['Vol_Ratio'] = valid_v / (df['Vol_SMA'] + 1)
+
+    # FIX-S2: RVOL from the last COMPLETED session. Measured before the fix:
+    # vol_ratio was 0.21-0.92 for ALL 30 stocks because the in-progress
+    # session was divided by a full-day average — a permanent market-wide
+    # penalty. Only applies during market hours on a trading day.
+    partial = False
+    try:
+        _last = pd.to_datetime(df.index[-1])
+        _last = _last.tz_localize(None) if getattr(_last, 'tzinfo', None) else _last
+        _now = datetime.now(_IST)
+        partial = (_last.date() == _now.date()) and (_now.time() < _dtime(15, 30))
+    except Exception:
+        partial = False
+    if partial and len(valid_v) > 22:
+        hist = valid_v.iloc[:-1]
+        df.loc[df.index[-1], 'Vol_Ratio'] = float(hist.iloc[-1]) / (float(hist.iloc[-21:-1].mean()) + 1)
+    df['SESSION_IN_PROGRESS'] = partial
 
     return df
 
@@ -273,6 +328,10 @@ def scan_stock(symbol):
             'ml_acc': ml_acc,
             'ml_baseline': ml_baseline,
             'ml_edge': ml_edge,
+            # FIX-S3: the probability the composite ACTUALLY used (a negative-edge
+            # name is neutralised to 50 — the old UI showed the raw 93% anyway)
+            'ml_effective': 50.0 if ml_edge < 0 else ml_prob,
+            'ml_used_in_composite': ml_edge >= 0,
             'composite': composite,
             'signal': signal,
             'sl': round(price - 1.5 * atr, 2),
@@ -327,8 +386,9 @@ def run_full_scan():
         'scan_time_seconds': elapsed,
         'results': results
     }
+    # FIX-S4: strict-JSON output (no NaN/Infinity tokens)
     with open('scan_results.json', 'w') as f:
-        json.dump(scan_data, f, indent=2, default=str)
+        json.dump(_nan_safe(scan_data), f, indent=2, allow_nan=False)
 
     print(f"\n{'='*78}")
     print(f"  🏆 RANKED LEADERBOARD (⏱️ {elapsed}s)")
