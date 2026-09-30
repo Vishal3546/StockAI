@@ -28,7 +28,7 @@ import os
 import threading
 import time
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -119,6 +119,17 @@ _FAIL_CACHE = {}
 _ML_CACHE = {}
 _ML_LOCK = threading.Lock()
 
+# FIX-22: LIVE QUOTE CACHE (TTL + single-flight)
+#   Client 2.5s par poll karta hai; 10 tabs = 10x upstream load. Isliye ek hi
+#   TTL-cached upstream call sab clients ko serve karti hai (Yahoo/NSE ko safe
+#   rakhta hai, rate-limit se bachata hai).
+IST = timezone(timedelta(hours=5, minutes=30))   # NSE clock (FIX-23)
+BROWSER_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+LIVE_TTL = 2.0                      # seconds — se chhota mat karo (upstream load)
+_LIVE_CACHE = {}                    # symbol -> (ts, payload)
+_LIVE_LOCK = threading.Lock()
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  DIRECT NSE LIVE QUOTE SCRAPER (Exact Moneycontrol & NSE Match)
@@ -172,6 +183,120 @@ def fetch_nse_live_ltp(symbol):
     # anything other than a clean 200 → assume blocked for 5 minutes
     _NSE_BLOCKED_UNTIL[0] = time.time() + 300
     return None
+
+
+def fetch_yahoo_live_ltp(symbol):
+    """
+    FIX-23: Yahoo Finance v8 chart se LIVE LTP (measured 2026-09-30, market hours).
+
+    `interval=1d&range=1d` ka **meta block** hi live price deta hai:
+        • 1,297 bytes (1m candle wale call ka 22 KB nahi — 17x sasta)
+        • regularMarketPrice = live LTP, ~2s fresh, 66ms latency (measured)
+        • chartPreviousClose / regularMarketDayHigh / regularMarketDayLow bhi isi me
+
+    Gotchas (measured, isliye code me handle kar rahe hain):
+        • Bina browser User-Agent → **HTTP 429**. UA dena mandatory hai.
+        • v7 `/finance/quote` → 401 (crumb chahiye) — use mat karo.
+        • Endpoint unofficial hai → TTL cache + fallback chain zaroori.
+    """
+    clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
+    for suffix in ('.NS', '.BO'):
+        try:
+            r = http_requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{clean_sym}{suffix}",
+                params={'interval': '1d', 'range': '1d'},
+                headers={'User-Agent': BROWSER_UA, 'Accept': 'application/json'},
+                timeout=5)
+            if r.status_code != 200:
+                continue
+            meta = (r.json().get('chart', {}).get('result') or [{}])[0].get('meta', {})
+            ltp = meta.get('regularMarketPrice')
+            if ltp is None:
+                continue
+            prev = meta.get('chartPreviousClose') or meta.get('previousClose') or ltp
+            change = float(ltp) - float(prev)
+            pChange = (change / float(prev) * 100.0) if float(prev) else 0.0
+            mkt_time = meta.get('regularMarketTime')
+            ts = (datetime.fromtimestamp(mkt_time, tz=IST).strftime('%H:%M:%S')
+                  if mkt_time else datetime.now().strftime('%H:%M:%S'))
+            return {
+                'symbol': clean_sym,
+                'price': round(float(ltp), 2),
+                'change': round(change, 2),
+                'pChange': round(pChange, 2),
+                'close_price': round(float(prev), 2),
+                'dayHigh': round(float(meta.get('regularMarketDayHigh') or ltp), 2),
+                'dayLow': round(float(meta.get('regularMarketDayLow') or ltp), 2),
+                'timestamp': ts,
+                'is_realtime': True,
+                'source': f'yahoo{suffix.lower()}',
+            }
+        except Exception as e:
+            print(f"⚠️ Live Yahoo Quote fetch error for {clean_sym}{suffix}: {e}")
+    return None
+
+
+def get_live_quote(symbol, force=False):
+    """
+    FIX-24: ONE function, ONE payload shape — chahe data kisi bhi tier se aaye.
+
+    Order:  TTL cache → NSE official (agar block na ho) → Yahoo v8 chart → daily close (stale)
+
+    Har payload me ye keys GUARANTEED hain (UI kabhi `undefined` nahi dikhayega):
+        price · change · pChange · close_price · dayHigh · dayLow · timestamp · is_realtime · source
+    """
+    clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
+    now = time.time()
+
+    if not force:
+        with _LIVE_LOCK:
+            hit = _LIVE_CACHE.get(clean_sym)
+        if hit and (now - hit[0]) < LIVE_TTL:
+            payload = dict(hit[1])
+            payload['cached'] = True
+            return payload
+
+    quote = fetch_nse_live_ltp(clean_sym) or fetch_yahoo_live_ltp(clean_sym)
+
+    if quote is None:
+        # Tier 3 — last daily close (STALE). Change phir bhi compute hota hai,
+        # warna UI me "undefined" aa jaata hai (jaisa pehle SSE path me hota tha).
+        try:
+            df, src = DATA_MANAGER.smart_fetch(clean_sym, period='5d', interval='1d')
+            if df is not None and not df.empty:
+                price = sf(df['Close'].iloc[-1])
+                prev = sf(df['Close'].iloc[-2]) if len(df) > 1 else price
+                change = round(price - prev, 2)
+                quote = {
+                    'symbol': clean_sym, 'price': price,
+                    'change': change,
+                    'pChange': round((change / prev) * 100, 2) if prev else 0.0,
+                    'close_price': prev,
+                    'dayHigh': sf(df['High'].iloc[-1]), 'dayLow': sf(df['Low'].iloc[-1]),
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'is_realtime': False, 'stale': True, 'source': src or 'daily-close',
+                }
+        except Exception as e:
+            print(f"⚠️ Live quote tier-3 error for {clean_sym}: {e}")
+
+    if quote is None:
+        return None
+
+    quote.setdefault('change', 0.0)
+    quote.setdefault('pChange', 0.0)
+    quote.setdefault('close_price', quote.get('price'))
+    quote.setdefault('dayHigh', quote.get('price'))
+    quote.setdefault('dayLow', quote.get('price'))
+    quote.setdefault('is_realtime', False)
+    quote.setdefault('source', 'unknown')
+
+    with _LIVE_LOCK:
+        _LIVE_CACHE[clean_sym] = (now, dict(quote))
+        if len(_LIVE_CACHE) > 256:           # memory bound
+            for k in sorted(_LIVE_CACHE, key=lambda s: _LIVE_CACHE[s][0])[:64]:
+                _LIVE_CACHE.pop(k, None)
+    quote['cached'] = False
+    return quote
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1787,29 +1912,11 @@ def quick_quote_api(symbol):
     Lightweight <100ms API endpoint returning real-time exact LTP tick.
     Targeted for live DOM number updates without reloading heavy ML models or charts.
     """
-    resolved = resolve_symbol(symbol)
-    live_quote = fetch_nse_live_ltp(resolved)
-    
-    if live_quote:
-        return jsonify(clean_json(live_quote))
-        
-    df, _ = DATA_MANAGER.smart_fetch(resolved, period='5d', interval='1d')
-    if df is not None and not df.empty:
-        last = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else last
-        price = sf(last['Close'])
-        prev_close = sf(prev['Close'])
-        change = round(price - prev_close, 2)
-        pChange = round((change / prev_close) * 100, 2) if prev_close else 0.0
-        
-        return jsonify(clean_json({
-            'symbol': resolved,
-            'price': price,
-            'change': change,
-            'pChange': pChange,
-            'timestamp': datetime.now().strftime('%H:%M:%S')
-        }))
-        
+    # FIX-24: ek hi source-of-truth. `?force=1` manual refresh (refresh icon) ke liye
+    force = request.args.get('force', '0') in ('1', 'true', 'yes')
+    quote = get_live_quote(resolve_symbol(symbol), force=force)
+    if quote:
+        return jsonify(clean_json(quote))
     return jsonify({'error': 'Live quote unavailable'}), 404
 
 
@@ -1822,20 +1929,14 @@ def sse_live_stream(symbol):
     def event_stream():
         resolved = resolve_symbol(symbol)
         while True:
-            live_quote = fetch_nse_live_ltp(resolved)
-            if live_quote:
-                yield f"data: {json.dumps(live_quote)}\n\n"
+            # FIX-24: wahi unified payload jo /api/quote deta hai — isliye
+            # change/pChange hamesha present rehte hain (pehle SSE fallback me
+            # ye keys gayab thi → UI "undefined (undefined%)" dikhata tha).
+            quote = get_live_quote(resolved)
+            if quote:
+                yield f"data: {json.dumps(clean_json(quote))}\n\n"
             else:
-                df, src = DATA_MANAGER.smart_fetch(resolved, period='5d', interval='5m', n_bars=10)
-                if df is not None and not df.empty:
-                    last = df.iloc[-1]
-                    yield "data: " + json.dumps({
-                        'symbol': resolved, 'source': src, 'stale': True,
-                        'price': round(sf(last['Close']), 2),
-                        'volume': si(last['Volume']),
-                        'time': datetime.now().strftime('%H:%M:%S')}) + "\n\n"
-                else:
-                    yield ": keep-alive\n\n"
+                yield ": keep-alive\n\n"
             time.sleep(CONFIG['SSE_STREAM_INTERVAL'])
 
     resp = Response(event_stream(), mimetype='text/event-stream')

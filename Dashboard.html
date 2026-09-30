@@ -85,6 +85,47 @@ body::after {
   100% { color: var(--text-primary); transform: scale(1); }
 }
 .flash-up { animation: flashGreen 1.2s ease-out; }
+
+/* ══ FIX-25: Live refresh icon + LIVE/DELAYED chip (price ke bilkul baju) ══ */
+.live-chip{
+  display:inline-flex;align-items:center;gap:5px;font-size:0.62rem;font-weight:800;letter-spacing:.8px;
+  padding:3px 8px;border-radius:999px;text-transform:uppercase;transition:.3s;
+}
+.live-chip.live{color:#04140d;background:linear-gradient(135deg,#00e676,#00c853);box-shadow:0 0 14px rgba(0,230,118,.25)}
+.live-chip.stale{color:#2b1a02;background:linear-gradient(135deg,#ffd54f,#ffb300);box-shadow:0 0 14px rgba(255,179,0,.2)}
+.live-chip .lc-dot{width:5px;height:5px;border-radius:50%;background:#04331f;animation:lcPulse 1.6s ease-in-out infinite}
+.live-chip.stale .lc-dot{background:#4a2c02;animation:none}
+@keyframes lcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.live-src{font-size:0.65rem;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+.rf-btn{
+  position:relative;width:36px;height:36px;border-radius:50%;flex:0 0 auto;
+  border:1px solid rgba(255,255,255,.10);
+  background:linear-gradient(145deg,rgba(0,240,255,.14),rgba(167,139,250,.12));
+  display:grid;place-items:center;cursor:pointer;color:var(--text-primary);
+  transition:transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .28s, border-color .28s;
+  -webkit-tap-highlight-color:transparent;
+}
+.rf-btn svg{width:17px;height:17px;transition:transform .38s cubic-bezier(.2,.8,.2,1)}
+.rf-btn:hover{transform:translateY(-1.5px) scale(1.07);border-color:rgba(0,240,255,.45);
+  box-shadow:0 8px 22px rgba(0,240,255,.20), inset 0 1px 0 rgba(255,255,255,.14)}
+.rf-btn:hover svg{transform:rotate(38deg)}
+.rf-btn:active{transform:scale(.93)}
+.rf-btn:focus-visible{outline:2px solid var(--accent-cyan);outline-offset:3px}
+.rf-btn.busy{pointer-events:none;border-color:rgba(0,240,255,.45)}
+.rf-btn.busy svg{animation:rfSpin .8s linear infinite}
+.rf-btn .rf-ring{position:absolute;inset:-3px;border-radius:50%;border:2px solid transparent;
+  border-top-color:var(--accent-cyan);border-right-color:rgba(167,139,250,.5);opacity:0;transition:opacity .18s}
+.rf-btn.busy .rf-ring{opacity:1;animation:rfSpin 1.05s linear infinite}
+@keyframes rfSpin{to{transform:rotate(360deg)}}
+.rf-btn.ok{animation:rfOk .72s ease-out}
+@keyframes rfOk{0%{box-shadow:0 0 0 0 rgba(0,230,118,.55)}100%{box-shadow:0 0 0 14px rgba(0,230,118,0)}}
+.rf-btn.err{animation:rfShake .42s ease-in-out;border-color:rgba(255,61,0,.6)}
+@keyframes rfShake{20%{transform:translateX(-3px)}60%{transform:translateX(3px)}100%{transform:translateX(0)}}
+@media (prefers-reduced-motion:reduce){
+  .rf-btn svg,.rf-btn.busy svg,.rf-btn .rf-ring,.rf-btn.busy .rf-ring,.live-chip .lc-dot{animation:none!important}
+  .rf-btn{transition:none}
+}
 .flash-down { animation: flashRed 1.2s ease-out; }
 
 .wrap {
@@ -491,10 +532,31 @@ body::after {
     <div class="d-flex align-items-end justify-content-between flex-wrap gap-3 mb-3">
       <div>
         <div style="color:var(--text-secondary);font-size:0.85rem" id="stockName">RELIANCE — NSE / BSE</div>
-        <div class="d-flex align-items-baseline gap-3">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
           <!-- ⚡ Price Number with Selective Refresh Animation -->
           <div class="price-big mono" id="stockPrice">₹—</div>
           <div id="priceChange" class="mono" style="font-size:1rem;font-weight:600"></div>
+          <!-- FIX-25: LIVE/DELAYED badge + manual refresh icon (Moneycontrol style) -->
+          <span class="live-chip live" id="liveChip" title="Price source">
+            <span class="lc-dot"></span><span id="liveChipTxt">LIVE</span>
+          </span>
+          <span class="live-src" id="liveSrc"></span>
+          <button class="rf-btn" id="refreshBtn" onclick="manualRefresh()"
+                  aria-label="Refresh live price" title="Live refresh (R)">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <defs>
+                <linearGradient id="rfGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#00f0ff"/>
+                  <stop offset="1" stop-color="#a78bfa"/>
+                </linearGradient>
+              </defs>
+              <path d="M20.2 12a8.2 8.2 0 1 1-2.4-5.8" fill="none" stroke="url(#rfGrad)"
+                    stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M20.4 4.2v5.4h-5.4" fill="none" stroke="url(#rfGrad)"
+                    stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="rf-ring"></span>
+          </button>
         </div>
         <div style="font-size:0.72rem;color:var(--text-muted)" id="stockMeta"></div>
       </div>
@@ -799,7 +861,11 @@ function startLiveTicker(symbol) {
     let gotData = false;
     liveSource.onmessage = (ev) => {
       gotData = true;
-      try { const t = JSON.parse(ev.data); if (t && t.price) updatePriceDOM(t.price, t.change, t.pChange); } catch (e) {}
+      try {
+        const t = JSON.parse(ev.data);
+        if (t && t.price) updatePriceDOM(t.price, t.change, t.pChange,
+                                         { stale: t.stale || !t.is_realtime, source: t.source });
+      } catch (e) {}
     };
     liveSource.onerror = () => {
       if (liveSource) { liveSource.close(); liveSource = null; }
@@ -813,7 +879,8 @@ function startPolling(symbol) {
       const res = await apiFetch(`/api/quote/${symbol}`);
       const tick = await res.json();
       if (tick && tick.price) {
-        updatePriceDOM(tick.price, tick.change, tick.pChange);
+        updatePriceDOM(tick.price, tick.change, tick.pChange,
+                       { stale: tick.stale || !tick.is_realtime, source: tick.source });
       }
     } catch (e) {
       console.log('Live tick polling error:', e);
@@ -821,32 +888,87 @@ function startPolling(symbol) {
   }, 2500); // 2.5-second background refresh
 }
 
-function updatePriceDOM(newPrice, change, pChange) {
+// FIX-25: har field ko guard karo — koi bhi missing value UI me `undefined` nahi dikhayegi
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '' || (typeof v === 'number' && !isFinite(v))) return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+function setLiveChip(stale, source) {
+  const chip = document.getElementById('liveChip');
+  const txt = document.getElementById('liveChipTxt');
+  const src = document.getElementById('liveSrc');
+  if (chip) chip.className = 'live-chip ' + (stale ? 'stale' : 'live');
+  if (txt) txt.textContent = stale ? 'DELAYED' : 'LIVE';
+  if (src) {
+    const t = new Date().toLocaleTimeString('en-IN', { hour12: false });
+    src.textContent = source ? `${source} · ${t}` : t;
+  }
+}
+function updatePriceDOM(newPrice, change, pChange, opts) {
   const priceEl = document.getElementById('stockPrice');
   const changeEl = document.getElementById('priceChange');
-  
   if (!priceEl) return;
-  
+
+  const p = numOrNull(newPrice);
+  if (p === null) return;                       // price hi nahi hai to kuch mat chhero
+
+  const chg = numOrNull(change);
+  const pct = numOrNull(pChange);
+
   // Trigger Green/Red Flash Animation if price changed
-  if (lastKnownPrice > 0 && newPrice !== lastKnownPrice) {
+  if (lastKnownPrice > 0 && p !== lastKnownPrice) {
     priceEl.classList.remove('flash-up', 'flash-down');
     void priceEl.offsetWidth; // Trigger DOM reflow
-    if (newPrice > lastKnownPrice) {
-      priceEl.classList.add('flash-up');
-    } else {
-      priceEl.classList.add('flash-down');
-    }
+    priceEl.classList.add(p > lastKnownPrice ? 'flash-up' : 'flash-down');
   }
-  
-  lastKnownPrice = newPrice;
-  priceEl.textContent = `₹${newPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-  
-  const isPos = pChange >= 0;
-  changeEl.innerHTML = `
-    <span style="color:${isPos ? 'var(--color-green)' : 'var(--color-red)'}">
-      ${isPos ? '▲' : '▼'} ${change >= 0 ? '+' : ''}${change} (${isPos ? '+' : ''}${pChange}%)
-    </span>`;
+  lastKnownPrice = p;
+  priceEl.textContent = `₹${p.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  if (chg !== null && pct !== null) {
+    const isPos = pct >= 0;
+    changeEl.innerHTML = `
+      <span style="color:${isPos ? 'var(--color-green)' : 'var(--color-red)'}">
+        ${isPos ? '▲' : '▼'} ${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${isPos ? '+' : ''}${pct.toFixed(2)}%)
+      </span>`;
+  } else {
+    // pehle yahan "undefined (undefined%)" print ho jaata tha
+    changeEl.innerHTML = '<span style="color:var(--text-muted)">— change unavailable</span>';
+  }
+
+  if (opts) setLiveChip(!!opts.stale, opts.source);
 }
+
+// Manual refresh — round icon par click (ya keyboard "R")
+async function manualRefresh() {
+  const b = document.getElementById('refreshBtn');
+  if (!b || b.classList.contains('busy')) return;
+  b.classList.add('busy');
+  const t0 = Date.now();
+  try {
+    const res = await apiFetch(`/api/quote/${activeSymbol}?force=1`);
+    const t = await res.json();
+    if (!t || t.error || t.price === undefined) throw new Error((t && t.error) || 'no data');
+    updatePriceDOM(t.price, t.change, t.pChange,
+                   { stale: t.stale || !t.is_realtime, source: t.source });
+    const wait = 700 - (Date.now() - t0);       // 360° spin poora dikhe
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    b.classList.remove('busy');
+    b.classList.add('ok');
+    setTimeout(() => b.classList.remove('ok'), 720);
+  } catch (e) {
+    b.classList.remove('busy');
+    b.classList.add('err');
+    setTimeout(() => b.classList.remove('err'), 600);
+    if (typeof showBanner === 'function') showBanner('⚠️ Refresh fail — purana price dikh raha hai', 'var(--color-red)');
+  }
+}
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (e.key && e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+    manualRefresh();
+  }
+});
 
 function showBanner(msg, color) {
   let el = document.getElementById('errBanner');
