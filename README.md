@@ -139,11 +139,30 @@ Both abort on a changed anchor instead of producing a half-applied patch.
 
 ---
 
+## Research: is the ML edge real? → [`RESEARCH_REPORT.md`](RESEARCH_REPORT.md)
+
+That question is now **answered with evidence**, not opinion: a cost-aware study in `research/`
+(20 NSE symbols, purged walk-forward, execution lag = 1 bar, real delivery costs of **0.3276%**
+round trip, shuffled-label permutation null) ran **17,885 out-of-sample predictions** over 5 years.
+
+**Result: the ML has no measurable edge** — 50.79% accuracy vs 51.26% majority-class baseline
+(±0.73 pp), i.e. a coin flip; and it pays ₹46,755 in costs on ₹1 L of capital (137 round-trips,
+≈12 pp/year) versus +32.5% for buy & hold. The one structural fix that helps is a **turnover cap**
+(minimum-hold 5 bars): +18.7 pp, but still no profit. Reproduce with:
+
+```bash
+python3 research/run_study.py --period 5y && python3 research/analyze.py 5y
+```
+
+---
+
 ## Still open (honest list)
 
-1. **ML edge.** The target is 1-day direction with raw indicator features. Realistic next step:
-   volatility-adjusted multi-day label, purged/embargoed CV, a handful of decorrelated features,
-   and a rolling ≥500-prediction study before any accuracy number is shown.
+1. **ML edge.** Measured, and it isn't there (see [`RESEARCH_REPORT.md`](RESEARCH_REPORT.md)).
+   The proposed redesign (volatility-adjusted multi-day label + decorrelated features + purged CV)
+   was *also* tested and **also failed** (−7.2 pp vs baseline, 0/20 symbols positive). Until a
+   design shows a positive edge with CI, ML stays advisory-only — no accuracy number in the UI
+   without a ≥500-prediction rolling sample behind it.
 2. **Score calibration.** Thresholds (65/78) are hardcoded on an arbitrary scale. Fit them on the
    score's own 1-year distribution (e.g. BUY = 80th percentile). Volume Profile returns only
    `{35,50,70,75}` and Market Regime is constant across stocks — both need redesign, and Market
@@ -151,8 +170,10 @@ Both abort on a changed anchor instead of producing a half-applied patch.
 3. **Ops.** `CORS(*)` with no auth/rate-limit (do not expose the port), NSE master-list parse
    survives only because the CSV header really is `' SERIES'`, network call at import time,
    `innerHTML` search rendering.
-4. **Backtesting.** There is no slippage/cost-aware backtest. Without it, none of the scores can
-   claim predictive value.
+4. **Backtesting.** ✅ A slippage/cost-aware backtester now exists (`research/backtest.py`,
+   5/5 invariants passing: zero-cost B&H ≡ price return, no look-ahead, costs bite). It is a
+   *research* tool — it is not yet wired into the app's scoring path, and no score in the UI
+   has been validated with it.
 
 ---
 

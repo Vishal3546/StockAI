@@ -27,3 +27,7 @@ Thumbs.db
 # Local run artefacts
 *.log
 deep_*.json.tmp
+
+# research artifacts
+reports/.cache/
+reports/*.log
