@@ -778,6 +778,8 @@ function setChart(data) {
 
 // Utility Helpers
 function sc(s) {
+  // FIX-29: missing score ko neutral color (pehle caller 50 bhejta tha)
+  if (isMissing(s)) return 'sig-hold';
   return s >= 65 ? 'sig-buy' : s <= 35 ? 'sig-sell' : 'sig-hold';
 }
 
@@ -789,10 +791,29 @@ function sv(value, fallbackValue) {
 }
 function sf2(v, d) { return (v === null || v === undefined || v === '' || v === 0) ? (d === undefined ? '—' : d) : v; }
 
+// ══ FIX-29: DISPLAY-safe helpers ══
+// Pehle display me `sv(x, 50)` / `sv(x, 0)` likha jaata tha — matlab value missing
+// ho to UI par "50" ya "0" chhapta tha, jo asli reading jaisa lagta hai
+// (jaise RSI = 50 NEUTRAL, ya ML probability = 50%). Ab display positions
+// isMissing() check karti hain aur '—' dikhati hain. Comparison/arithmetic me
+// numeric fallback waise hi chalta hai.
+function isMissing(v) {
+  return v === null || v === undefined || v === ''
+      || (typeof v === 'number' && !isFinite(v));
+}
+function svd(v)          { return isMissing(v) ? '—' : v; }                    // display value
+function pctd(v)         { return isMissing(v) ? '—' : v + '%'; }              // display %
+function money(v)        { return isMissing(v) ? '—' : Number(v).toLocaleString('en-IN'); }
+function verdict(v, fn)  { return isMissing(v) ? '—' : fn(v); }                // missing → '—', fake verdict nahi
+
 function setGauge(id, val) {
   const el = document.getElementById(id);
   if (!el) return;
   const c = 2 * Math.PI * 47;
+  if (isMissing(val)) {            // FIX-29: data nahi → gauge khaali (needle 50 par nahi)
+    el.style.strokeDashoffset = c;
+    return;
+  }
   el.style.strokeDashoffset = c - (val / 100) * c;
 }
 
@@ -1020,7 +1041,9 @@ async function loadStock() {
 // Main Advanced Dashboard Render Engine (Fully Expanded)
 function render(d) {
   // Extract key modules safely
-  const ens = d.ensemble || { score: 50, action: 'HOLD', tradeable: false };
+  // FIX-29: pehle fallback {score: 50, action: 'HOLD'} tha — ensemble missing ho to
+  // UI "Score 50/100, HOLD" dikhata tha, jaise asli reading ho.
+  const ens = d.ensemble || { score: null, action: 'N/A', tradeable: false, unavailable: true };
   const rk = d.risk || {};
   const ml = d.ml || {};
   const kpi = d.kpi || {};
@@ -1043,14 +1066,14 @@ function render(d) {
   updatePriceDOM(d.price, d.change, d.pChange);
     
   document.getElementById('stockMeta').textContent = `
-    ${sv(d.fundamentals?.sector, 'General')} | ${sv(d.fundamentals?.industry, 'Equities')} | 52W Position: ${sv(d.week52?.position, 0)}%
+    ${sv(d.fundamentals?.sector, 'N/A')} | ${sv(d.fundamentals?.industry, 'N/A')} | 52W Position: ${pctd(d.week52?.position)}
   `;
 
   // Market Regime Insertion
   const rb = document.getElementById('regimeBadge');
   rb.textContent = sv(reg.regime, '—');
-  rb.className = 'badge-tag ' + sc(sv(reg.score, 50));
-  document.getElementById('vixBadge').textContent = `VIX: ${sv(reg.vix, '—')} (${sv(reg.vix_status, 'NORMAL')})`;
+  rb.className = 'badge-tag ' + sc(reg.score);
+  document.getElementById('vixBadge').textContent = `VIX: ${sv(reg.vix, '—')} (${sv(reg.vix_status, 'UNKNOWN')})`;
 
   // KPI Score Gauges Map
   const gaugeKeys = ['intraday', 'swing', 'longterm', 'master'];
@@ -1058,11 +1081,11 @@ function render(d) {
   const gaugePaths = ['gIntra', 'gSwing', 'gLong', 'gMaster'];
   
   gaugeKeys.forEach((key, index) => {
-    const v = kpi[key] || { score: 50, action: 'HOLD' };
+    const v = kpi[key] || { score: null, action: '—' };   // FIX-29
     document.getElementById(`kpi${gaugeIds[index]}Score`).textContent = sv(v.score, '—');
     document.getElementById(`kpi${gaugeIds[index]}Action`).textContent = sv(v.action, '—');
-    document.getElementById(`kpi${gaugeIds[index]}Action`).className = 'kpi-action ' + sc(sv(v.score, 50));
-    setGauge(gaugePaths[index], sv(v.score, 50));
+    document.getElementById(`kpi${gaugeIds[index]}Action`).className = 'kpi-action ' + sc(v.score);
+    setGauge(gaugePaths[index], v.score);                     // FIX-29: missing → khaali gauge
   });
 
   // Machine Learning Panel Insertion
@@ -1077,9 +1100,9 @@ function render(d) {
         <div style="font-size:0.75rem;color:var(--text-secondary)">Ensemble ML Prediction</div>
       </div>
       <div class="col-md-3 text-center">
-        <div class="mono" style="font-size:1.6rem;font-weight:900;color:${mlColor}">${sv(ml.probability, 50)}%</div>
+        <div class="mono" style="font-size:1.6rem;font-weight:900;color:${mlColor}">${pctd(ml.probability)}</div>
         <div style="font-size:0.75rem;color:var(--text-secondary)">UP Probability</div>
-        <div class="eng-sig ${ml.confidence === 'HIGH' ? 'sig-buy' : ml.confidence === 'LOW' ? 'sig-sell' : 'sig-hold'}">${sv(ml.confidence, 'LOW')} Confidence</div>
+        <div class="eng-sig ${ml.confidence === 'HIGH' ? 'sig-buy' : ml.confidence === 'LOW' ? 'sig-sell' : 'sig-hold'}">${sv(ml.confidence, 'UNKNOWN')} Confidence</div>
       </div>
       <div class="col-md-3">
         <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:6px">Model Backtest Accuracies</div>`;
@@ -1090,13 +1113,14 @@ function render(d) {
     algoKeys.forEach((algoKey, algoIdx) => {
       if (ml.models && ml.models[algoKey]) {
         const mObj = ml.models[algoKey];
-        const edgeColor = sv(mObj.edge, 0) > 0 ? 'var(--color-green)' : 'var(--color-red)';
+        const edgeColor = isMissing(mObj.edge) ? 'var(--text-muted)'
+                        : mObj.edge > 0 ? 'var(--color-green)' : 'var(--color-red)';   // FIX-29
         mlh += `
           <div class="ind-row">
             <span style="color:var(--text-muted)">${algoLabels[algoIdx]}</span>
             <span class="mono">
-              ${sv(mObj.accuracy, 0)}% 
-              <span style="color:${edgeColor};font-size:0.65rem">(${sv(mObj.edge, 0) > 0 ? '+' : ''}${sv(mObj.edge, 0)}%)</span>
+              ${pctd(mObj.accuracy)} 
+              <span style="color:${edgeColor};font-size:0.65rem">(${isMissing(mObj.edge) ? '—' : (mObj.edge > 0 ? '+' : '') + mObj.edge + '%'})</span>
             </span>
           </div>`;
       }
@@ -1111,7 +1135,7 @@ function render(d) {
       mlh += `
         <div class="ind-row">
           <span style="color:var(--text-muted)">${sv(f.name, '')}</span>
-          <span class="mono" style="color:var(--accent-cyan)">${sv(f.importance, 0)}%</span>
+          <span class="mono" style="color:var(--accent-cyan)">${pctd(f.importance)}</span>
         </div>`;
     });
     
@@ -1129,9 +1153,9 @@ function render(d) {
           <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.</span>
         </div>`;
     mlh += `
-        <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Trained: ${sv(ml.train_days, 0)}D | Tested: ${sv(ml.test_days, 0)}D</div>
+        <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Trained: ${svd(ml.train_days)}D | Tested: ${svd(ml.test_days)}D</div>
         <div style="font-size:0.65rem;color:var(--color-yellow);margin-top:2px">
-          📊 Baseline: ${sv(ml.baseline_accuracy, '?')}% | Single-split best edge: ${sv(ml.best_edge, 0) > 0 ? '+' : ''}${sv(ml.best_edge, 0)}% | UP Days: ${sv(ml.pos_rate, '?')}%
+          📊 Baseline: ${sv(ml.baseline_accuracy, '?')}% | Single-split best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'} | UP Days: ${sv(ml.pos_rate, '?')}%
         </div>
       </div>`;
     document.getElementById('mlBox').innerHTML = mlh;
@@ -1154,7 +1178,7 @@ function render(d) {
     document.getElementById(engObj.id + 's').textContent = sv(engineData.score, '—');
     const sigElement = document.getElementById(engObj.id + 'sig');
     sigElement.textContent = sv(engineData.signal, '—');
-    sigElement.className = 'eng-sig ' + sc(sv(engineData.score, 50));
+    sigElement.className = 'eng-sig ' + sc(engineData.score);      // FIX-29
   });
 
   // Chart Refresh Trigger
@@ -1164,24 +1188,26 @@ function render(d) {
 
   // Technical Indicators Mapping Table
   const techIndicatorTable = [
-    ['RSI (14)', sv(ind.rsi, 50), sv(ind.rsi, 50) < 30 ? 'OVERSOLD' : sv(ind.rsi, 50) > 70 ? 'OVERBOUGHT' : 'NEUTRAL'],
-    ['MACD', sv(ind.macd, 0), sv(ind.macd, 0) > sv(ind.macd_signal, 0) ? 'BUY' : 'SELL'],
-    ['MACD Hist', sv(ind.macd_hist, 0), sv(ind.macd_hist, 0) > 0 ? 'POSITIVE' : 'NEGATIVE'],
-    ['Supertrend', sv(ind.supertrend, 0), sv(ind.st_direction, 0) === 1 ? 'BUY' : 'SELL'],
-    ['Bollinger %B', sv(ind.bb_pctb, 0), sv(ind.bb_pctb, 0) < 0 ? 'OVERSOLD' : sv(ind.bb_pctb, 0) > 1 ? 'OVERBOUGHT' : 'MID'],
-    ['ADX', sv(ind.adx, 0), sv(ind.adx, 0) > 25 ? 'STRONG' : 'WEAK'],
-    ['+DI / -DI', `${sv(ind.plus_di, 0)} / ${sv(ind.minus_di, 0)}`, sv(ind.plus_di, 0) > sv(ind.minus_di, 0) ? 'BULLISH' : 'BEARISH'],
-    ['VWAP', `₹${sv(ind.vwap, 0)}`, sv(d.price, 0) > sv(ind.vwap, 0) ? 'ABOVE' : 'BELOW'],
-    ['StochRSI K/D', `${sv(ind.stochrsi_k, 50)}/${sv(ind.stochrsi_d, 50)}`, sv(ind.stochrsi_k, 50) < 20 ? 'OVERSOLD' : sv(ind.stochrsi_k, 50) > 80 ? 'OVERBOUGHT' : 'MID'],
-    ['CCI', sv(ind.cci, 0), sv(ind.cci, 0) < -100 ? 'OVERSOLD' : sv(ind.cci, 0) > 100 ? 'OVERBOUGHT' : 'NEUTRAL'],
-    ['Williams %R', sv(ind.williams_r, -50), sv(ind.williams_r, -50) < -80 ? 'OVERSOLD' : sv(ind.williams_r, -50) > -20 ? 'OVERBOUGHT' : 'MID'],
-    ['OBV', sv(ind.obv, 0) > 0 ? (sv(ind.obv, 0) / 1e6).toFixed(1) + 'M' : '0', sv(ind.obv, 0) > 0 ? 'ACCUMULATE' : 'DISTRIBUTE'],
-    ['Ichimoku Tenkan', sv(ind.ichi_tenkan, 0), sv(d.price, 0) > sv(ind.ichi_kijun, 0) ? 'ABOVE KIJUN' : 'BELOW KIJUN'],
-    ['EMA 9/21', `${sv(ind.ema9, 0)} / ${sv(ind.ema21, 0)}`, sv(ind.ema9, 0) > sv(ind.ema21, 0) ? 'BULL CROSS' : 'BEAR CROSS'],
-    ['SMA 50/200', `${sf2(ind.sma50)} / ${sf2(ind.sma200)}`, (ind.sma50 === null || ind.sma200 === null) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? 'GOLDEN' : 'DEATH')],
-    ['ATR (14)', sv(ind.atr, 0), ''],
+    // FIX-29: display '—' jab value missing ho; verdict bhi tab '—' (pehle missing
+    // RSI "50 / NEUTRAL" aur missing volume-ratio "NORMAL" jaisa dikhta tha).
+    ['RSI (14)', svd(ind.rsi), verdict(ind.rsi, v => v < 30 ? 'OVERSOLD' : v > 70 ? 'OVERBOUGHT' : 'NEUTRAL')],
+    ['MACD', svd(ind.macd), (isMissing(ind.macd) || isMissing(ind.macd_signal)) ? '—' : (ind.macd > ind.macd_signal ? 'BUY' : 'SELL')],
+    ['MACD Hist', svd(ind.macd_hist), verdict(ind.macd_hist, v => v > 0 ? 'POSITIVE' : 'NEGATIVE')],
+    ['Supertrend', svd(ind.supertrend), verdict(ind.st_direction, v => v === 1 ? 'BUY' : 'SELL')],
+    ['Bollinger %B', svd(ind.bb_pctb), verdict(ind.bb_pctb, v => v < 0 ? 'OVERSOLD' : v > 1 ? 'OVERBOUGHT' : 'MID')],
+    ['ADX', svd(ind.adx), verdict(ind.adx, v => v > 25 ? 'STRONG' : 'WEAK')],
+    ['+DI / -DI', `${svd(ind.plus_di)} / ${svd(ind.minus_di)}`, (isMissing(ind.plus_di) || isMissing(ind.minus_di)) ? '—' : (ind.plus_di > ind.minus_di ? 'BULLISH' : 'BEARISH')],
+    ['VWAP', isMissing(ind.vwap) ? '—' : `₹${ind.vwap}`, (isMissing(d.price) || isMissing(ind.vwap)) ? '—' : (d.price > ind.vwap ? 'ABOVE' : 'BELOW')],
+    ['StochRSI K/D', `${svd(ind.stochrsi_k)}/${svd(ind.stochrsi_d)}`, verdict(ind.stochrsi_k, v => v < 20 ? 'OVERSOLD' : v > 80 ? 'OVERBOUGHT' : 'MID')],
+    ['CCI', svd(ind.cci), verdict(ind.cci, v => v < -100 ? 'OVERSOLD' : v > 100 ? 'OVERBOUGHT' : 'NEUTRAL')],
+    ['Williams %R', svd(ind.williams_r), verdict(ind.williams_r, v => v < -80 ? 'OVERSOLD' : v > -20 ? 'OVERBOUGHT' : 'MID')],
+    ['OBV', isMissing(ind.obv) ? '—' : (ind.obv > 0 ? (ind.obv / 1e6).toFixed(1) + 'M' : '0'), isMissing(ind.obv) ? '—' : (ind.obv > 0 ? 'ACCUMULATE' : 'DISTRIBUTE')],
+    ['Ichimoku Tenkan', svd(ind.ichi_tenkan), (isMissing(d.price) || isMissing(ind.ichi_kijun)) ? '—' : (d.price > ind.ichi_kijun ? 'ABOVE KIJUN' : 'BELOW KIJUN')],
+    ['EMA 9/21', `${svd(ind.ema9)} / ${svd(ind.ema21)}`, (isMissing(ind.ema9) || isMissing(ind.ema21)) ? '—' : (ind.ema9 > ind.ema21 ? 'BULL CROSS' : 'BEAR CROSS')],
+    ['SMA 50/200', `${svd(ind.sma50)} / ${svd(ind.sma200)}`, (isMissing(ind.sma50) || isMissing(ind.sma200)) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? 'GOLDEN' : 'DEATH')],
+    ['ATR (14)', svd(ind.atr), ''],
     ['Master (v2 diagnostic)', `${sv(d.ensemble_v2 && d.ensemble_v2.score, '—')}`, sv(d.ensemble_v2 && d.ensemble_v2.note, '')],
-    ['Volume Ratio', `${sv(ind.vol_ratio, 0)}x avg`, sv(ind.vol_ratio, 1) > 1.5 ? 'SPIKE' : sv(ind.vol_ratio, 1) < 0.5 ? 'DRY' : 'NORMAL']
+    ['Volume Ratio', isMissing(ind.vol_ratio) ? '—' : `${ind.vol_ratio}x avg`, verdict(ind.vol_ratio, v => v > 1.5 ? 'SPIKE' : v < 0.5 ? 'DRY' : 'NORMAL')]
   ];
   
   const bullStatusValues = ['OVERSOLD', 'BUY', 'STRONG', 'BULLISH', 'ABOVE', 'ACCUMULATE', 'BULL CROSS', 'GOLDEN', 'POSITIVE', 'SPIKE', 'ABOVE KIJUN'];
@@ -1205,16 +1231,16 @@ function render(d) {
   // Stop Loss & Targets Section Rendering
   document.getElementById('targetsBox').innerHTML = `
     <div class="mb-2 text-center" style="font-size:0.8rem;font-weight:700;padding:6px;border-radius:8px;background:${ens.tradeable ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)'};color:${ens.tradeable ? 'var(--color-green)' : 'var(--color-yellow)'}">
-      ${sv(rk.exec_status, '🟡 WATCHLIST')}
+      ${sv(rk.exec_status, '—')}
     </div>
     <div class="ind-row" style="background:rgba(0,240,255,0.05);padding:6px 10px;border-radius:8px;margin-bottom:8px">
       <span style="color:var(--accent-cyan);font-weight:700;font-size:0.75rem">📍 Ideal Entry Zone:</span>
       <span class="mono" style="font-weight:700;color:var(--text-primary)">${sv(rk.entry_zone, 'N/A')}</span>
     </div>
     <div class="row g-2 mb-2">
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Stop Loss</div><div class="lvl-val mono" style="color:var(--color-red)">₹${sv(rk.sl, 0)}</div><div style="font-size:0.6rem;color:var(--text-muted)">${sv(rk.sl_pct, 0)}%</div></div></div>
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Target 1 (50%)</div><div class="lvl-val mono" style="color:var(--color-green)">₹${sv(rk.t1, 0)}</div></div></div>
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Target 2 (50%)</div><div class="lvl-val mono" style="color:var(--accent-cyan)">₹${sv(rk.t2, 0)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Stop Loss</div><div class="lvl-val mono" style="color:var(--color-red)">₹${svd(rk.sl)}</div><div style="font-size:0.6rem;color:var(--text-muted)">${pctd(rk.sl_pct)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Target 1 (50%)</div><div class="lvl-val mono" style="color:var(--color-green)">₹${svd(rk.t1)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Target 2 (50%)</div><div class="lvl-val mono" style="color:var(--accent-cyan)">₹${svd(rk.t2)}</div></div></div>
     </div>
     <div style="font-size:0.68rem;color:var(--text-muted);margin-top:6px;text-align:center">
       🛡️ <strong>Trailing Plan:</strong> ${sv(rk.trail_sl_plan, 'N/A')}
@@ -1252,8 +1278,8 @@ function render(d) {
     ['ROE', sv(f.roe, 'N/A')], 
     ['Debt/Equity', sv(f.debt_equity, 'N/A')], 
     ['Div Yield', sv(f.div_yield, 'N/A')], 
-    ['52W High', `₹${sv(d.week52?.high, 0)}`], 
-    ['52W Low', `₹${sv(d.week52?.low, 0)}`]
+    ['52W High', `₹${svd(d.week52?.high)}`], 
+    ['52W Low', `₹${svd(d.week52?.low)}`]
   ];
   fundamentalsRows.forEach(row => {
     fundHtmlMarkup += `
@@ -1278,7 +1304,7 @@ function render(d) {
           <div class="lvl-box" style="border-color:${isBullTrend ? 'rgba(0,230,118,0.2)' : 'rgba(255,61,0,0.2)'}">
             <div style="font-weight:800;font-size:0.8rem">${tf}</div>
             <div style="color:${isBullTrend ? 'var(--color-green)' : 'var(--color-red)'}"><strong>${tObj.trend}</strong></div>
-            <div style="font-size:0.6rem;color:var(--text-muted)">RSI: ${sv(tObj.rsi, 0)}</div>
+            <div style="font-size:0.6rem;color:var(--text-muted)">RSI: ${svd(tObj.rsi)}</div>
           </div>
         </div>`;
     } else {
@@ -1296,35 +1322,35 @@ function render(d) {
   // Position Sizing Output Sizer
   document.getElementById('riskPlan').innerHTML = `
     <div class="row g-2 mb-2">
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly %</div><div class="lvl-val mono" style="color:var(--color-yellow)">${sv(rk.kelly_pct, 0)}%</div></div></div>
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${sv(rk.qty, 0)}</div></div></div>
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">1:${sv(rk.rr_ratio, 1.5)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly %</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${svd(rk.qty)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">1:${svd(rk.rr_ratio)}</div></div></div>
     </div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Direction</span><span class="mono">${sv(rk.direction, 'NONE')}</span></div>
-    <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${sv(rk.capital, 0).toLocaleString('en-IN')}</span></div>
-    <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(sv(rk.notional, 0) > sv(rk.capital, 1)) ? 'var(--color-red)' : 'var(--color-green)'}">₹${sv(rk.notional, 0).toLocaleString('en-IN')} (${sv(rk.leverage, 0)}x)</span></div>
-    <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${sv(rk.risk_amount, 0).toLocaleString('en-IN')}</span></div>`;
+    <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${money(rk.capital)}</span></div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>`;
 
   // Technical SMC & Contraction Patterns Sizer
   const smc = (d.engines && d.engines.smc) || {};
   const vcp = (d.engines && d.engines.vcp) || {};
   document.getElementById('smcDetails').innerHTML = `
     <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">Liquidity Sweep:</span> <span class="eng-sig ${sv(smc.liquidity_sweep, '').includes('BULL') ? 'sig-buy' : 'sig-sell'}">${sv(smc.liquidity_sweep, 'NONE')}</span></div>
-    <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">VCP Contractions:</span> <span class="mono" style="color:var(--color-yellow);font-weight:700">${sv(vcp.contractions, 0)}</span> (Tightness: ${sv(vcp.tightness, 0)}%)</div>
+    <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">VCP Contractions:</span> <span class="mono" style="color:var(--color-yellow);font-weight:700">${svd(vcp.contractions)}</span> (Tightness: ${pctd(vcp.tightness)})</div>
     <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">FVG Bull:</span> <span class="mono">${(smc.fvg_bullish || []).length}</span> | <span style="color:var(--text-secondary);font-size:0.75rem">FVG Bear:</span> <span class="mono">${(smc.fvg_bearish || []).length}</span></div>
     <div><span style="color:var(--text-secondary);font-size:0.75rem">Order Blocks:</span> <span class="mono">${(smc.order_blocks || []).length}</span></div>`;
 
   // Deep AI Verdict Synthesis Output
   let finalVerdictHtml = '';
   if (ens.tradeable) {
-    finalVerdictHtml = `<strong style="color:var(--color-green)">🟢 ${sv(ens.action, 'HOLD')} — Master Score: ${sv(ens.score, 50)}/100</strong><br><br>`;
+    finalVerdictHtml = `<strong style="color:var(--color-green)">🟢 ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100</strong><br><br>`;
   } else {
-    finalVerdictHtml = `<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'HOLD')} — Master Score: ${sv(ens.score, 50)}/100 (Below Institutional Threshold)</strong><br><br>`;
+    finalVerdictHtml = `<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (Below Institutional Threshold)</strong><br><br>`;
   }
   
-  finalVerdictHtml += `<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${sv(ml.probability, 50)}% probability (${sv(ml.confidence, 'LOW')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: +${sv(ml.best_edge, 0)}%<br>`;
+  finalVerdictHtml += `<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} probability (${sv(ml.confidence, 'UNKNOWN')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
   finalVerdictHtml += `<strong>Engines:</strong> VolProfile: ${sv(d.engines?.vol_profile?.score, '?')} | RVOL: ${sv(d.engines?.rvol_cvd?.score, '?')} (${sv(d.engines?.rvol_cvd?.rvol, '?')}x) | VCP: ${sv(d.engines?.vcp?.score, '?')} | SMC: ${sv(d.engines?.smc?.score, '?')} | Regime: ${sv(d.engines?.regime?.score, '?')} | MTF: ${sv(d.engines?.mtf?.score, '?')}<br>`;
-  finalVerdictHtml += `<strong>Risk Plan:</strong> Stop Loss ₹${sv(rk.sl, 0)} (${sv(rk.sl_pct, 0)}%) | Target 1 ₹${sv(rk.t1, 0)} | Target 2 ₹${sv(rk.t2, 0)} | Position Size (Kelly): ${sv(rk.kelly_pct, 0)}%<br><br>`;
+  finalVerdictHtml += `<strong>Risk Plan:</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Position Size (Kelly): ${pctd(rk.kelly_pct)}<br><br>`;
   finalVerdictHtml += `<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Multi-layer verification complete. System operational. Always protect capital.</span>`;
   
   document.getElementById('aiVerdict').innerHTML = finalVerdictHtml;
