@@ -1,0 +1,11 @@
+flask==3.1.0
+flask-cors==5.0.0
+tvdatafeed==2.1.0
+jugaad-data==0.26
+nsepython==2.8
+yfinance==0.2.44
+pandas==2.2.3
+numpy==1.26.4
+requests==2.32.3
+scikit-learn==1.5.2
+xgboost==2.1.2
