@@ -173,6 +173,64 @@ try:
 except Exception as e:
     check('freshness guard checks', False, f'{type(e).__name__}: {e}')
 
+# ── 4c. FIX-27 market-regime honesty (hardcoded 23000 ka khatma) ───────────
+try:
+    import pandas as pd  # noqa
+    import numpy as _np  # noqa
+
+    # source-level: purane magic numbers gaye?
+    check('regime: NIFTY ke liye 2y fetch (6mo nahi)', "smart_fetch('^NSEI', period='2y')" in app_src)
+    check('regime: hardcoded 23000 gaya', 'else 23000' not in app_src)
+    check('regime: hardcoded 24000 gaya', 'else 24000' not in app_src)
+    check('regime: fake vix 15.0 gaya', 'else 15.0' not in app_src)
+    check('regime: cache TTL me .total_seconds()', ").total_seconds() < CONFIG['REGIME_CACHE_TTL']" in app_src)
+
+    import pandas as _pd
+    real_fetch = A.DATA_MANAGER.smart_fetch
+
+    # (a) data hi na mile → honest UNKNOWN (pehle chupchap fake regime banta tha)
+    A.DATA_MANAGER.smart_fetch = lambda *a, **k: (None, 'None')
+    A.REGIME_CACHE = {'data': None, 'time': None}
+    r = A.engine_market_regime()
+    check('regime: data na mile → UNKNOWN (fake nahi)', r['regime'] == 'UNKNOWN' and r['score'] == 50,
+          f"regime={r['regime']} note={r.get('note', '')[:60]}")
+
+    # (b) kam bars (126) → UNKNOWN, kyunki 200-EMA compute ho hi nahi sakti
+    few = _pd.DataFrame({'Close': _np.linspace(20000, 22600, 126)},
+                        index=_pd.date_range('2026-01-01', periods=126))
+    A.DATA_MANAGER.smart_fetch = lambda s, **k: (few if s == '^NSEI' else None, 'stub')
+    A.REGIME_CACHE = {'data': None, 'time': None}
+    r2 = A.engine_market_regime()
+    check('regime: 126 bars → UNKNOWN (hardcoded compare nahi)',
+          r2['regime'] == 'UNKNOWN' and 'kam hai' in r2.get('note', ''), r2.get('note', '')[:70])
+
+    # (c) kaafi bars → ASLI EMA-200 (23000 constant nahi)
+    many = _pd.DataFrame({'Close': _np.linspace(20000, 25000, 496)},
+                         index=_pd.date_range(end='2026-09-30', periods=496))
+    expected_ema = float(many['Close'].ewm(span=200, adjust=False).mean().iloc[-1])
+    A.DATA_MANAGER.smart_fetch = lambda s, **k: (many if s == '^NSEI'
+                                                 else _pd.DataFrame({'Close': [13.5]},
+                                                                    index=_pd.date_range('2026-09-01', periods=2)),
+                                                 'stub')
+    A.REGIME_CACHE = {'data': None, 'time': None}
+    r3 = A.engine_market_regime()
+    check('regime: EMA-200 asli compute hoti hai (23000 nahi)',
+          abs(r3['nifty_200ema'] - expected_ema) < 0.5 and r3['nifty_200ema'] != 23000.0,
+          f"ema={r3['nifty_200ema']:,.2f} expected={expected_ema:,.2f}")
+    check('regime: bars/source report hote hain', r3.get('data_bars') == 496 and r3.get('data_source') == 'stub')
+
+    # (d) VIX na mile → trend se regime, par vix_status UNKNOWN (fake 15.0 nahi)
+    A.DATA_MANAGER.smart_fetch = lambda s, **k: (many if s == '^NSEI' else None, 'stub')
+    A.REGIME_CACHE = {'data': None, 'time': None}
+    r4 = A.engine_market_regime()
+    check('regime: VIX missing → vix_status UNKNOWN, regime trend se',
+          r4['vix_status'] == 'UNKNOWN' and r4['vix'] == 0, f"regime={r4['regime']} vix={r4['vix']}")
+
+    A.DATA_MANAGER.smart_fetch = real_fetch
+    A.REGIME_CACHE = {'data': None, 'time': None}
+except Exception as e:
+    check('regime checks', False, f'{type(e).__name__}: {e}')
+
 # ── 5. Dashboard guards + UI elements ──────────────────────────────────────
 check('refresh icon maujood hai', 'id="refreshBtn"' in html and 'manualRefresh' in html)
 check('LIVE/DELAYED chip maujood hai', 'id="liveChip"' in html and 'setLiveChip' in html)

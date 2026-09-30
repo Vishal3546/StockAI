@@ -1725,64 +1725,93 @@ def engine_smc(df):
 
 # ENGINE 5: Market Macro Regime Analysis
 def engine_market_regime():
+    """
+    FIX-27 — Market Regime ke TEEN bug fix (user ke live log se pakde gaye):
+
+    1. `period='6mo'` → sirf ~126 bars aate the, aur EMA-200 ke liye `len(n) > 200`
+       check fail hota tha → `ne200` **hardcoded 23000** ho jaata tha. Matlab
+       "NIFTY above 200-EMA" asal me "NIFTY above 23000" tha — ek magic number.
+       (Test: aaj NIFTY 22,620.45 par hai, asli EMA-200 24,193.22 hai. Dono se
+       neeche hone ki wajah se aaj ka natija ittefaqan sahi tha — par agar NIFTY
+       23,000-24,193 ke beech hota to app "above 200-EMA" jhoot bolta.)
+       → Ab 2y data (~496 bars) fetch hoti hai aur EMA asli compute hoti hai.
+    2. `nc = 24000` / `vix = 15.0` jaise silent fallbacks: data na milne par app
+       fiction par regime bana deta tha. Ab honest 'UNKNOWN' (score 50 + note)
+       return hota hai — jhooti BULL/BEAR se better.
+    3. `(now - t).seconds` → timedelta ke `.seconds` me poore din chale jaate hain
+       (24h+ purani cache "fresh" dikh sakti thi). Sahi `.total_seconds()`.
+    """
     global REGIME_CACHE
     now = datetime.now()
-    if REGIME_CACHE['data'] and REGIME_CACHE['time'] and (now - REGIME_CACHE['time']).seconds < CONFIG['REGIME_CACHE_TTL']:
+    if (REGIME_CACHE['data'] and REGIME_CACHE['time']
+            and (now - REGIME_CACHE['time']).total_seconds() < CONFIG['REGIME_CACHE_TTL']):
         return REGIME_CACHE['data']
 
+    def _unknown(reason):
+        return {'name': 'Market Regime', 'score': 50, 'regime': 'UNKNOWN',
+                'nifty': 0, 'nifty_200ema': 0, 'nifty_above_200': False,
+                'vix': 0, 'vix_status': 'UNKNOWN', 'signal': 'UNKNOWN', 'note': reason}
+
     try:
-        n, _ = DATA_MANAGER.smart_fetch('^NSEI', period='6mo')
+        n, nsrc = DATA_MANAGER.smart_fetch('^NSEI', period='2y')     # EMA-200 ke liye 2y chahiye
         vd, _ = DATA_MANAGER.smart_fetch('^INDIAVIX', period='1mo')
 
-        nc = float(n['Close'].iloc[-1]) if n is not None and len(n) > 0 else 24000
-        ne200 = float(n['Close'].ewm(span=200, adjust=False).mean().iloc[-1]) if n is not None and len(n) > 200 else 23000
-        ne50 = float(n['Close'].ewm(span=50, adjust=False).mean().iloc[-1]) if n is not None and len(n) > 50 else 23500
+        have = 0 if n is None else len(n)
+        if have < 200:
+            res = _unknown(f'NIFTY history kam hai ({have} bars < 200) — 200-EMA compute nahi ho sakti')
+            REGIME_CACHE = {'data': res, 'time': now}
+            return res
 
+        c = n['Close']
+        nc = float(c.iloc[-1])
+        ne200 = float(c.ewm(span=200, adjust=False).mean().iloc[-1])
+        ne50 = float(c.ewm(span=50, adjust=False).mean().iloc[-1])
         na200 = nc > ne200
         na50 = nc > ne50
-        vix = float(vd['Close'].iloc[-1]) if vd is not None and len(vd) > 0 else 15.0
 
-        if na200 and na50 and vix < 18:
-            reg, rs = 'STRONG BULL', 85
-        elif na200 and vix < 22:
-            reg, rs = 'BULL', 70
-        elif na200:
-            reg, rs = 'VOLATILE BULL', 55
-        elif not na200 and na50:
-            reg, rs = 'RECOVERY', 50
-        elif not na200 and vix < 20:
-            reg, rs = 'WEAK BEAR', 35
+        vix = float(vd['Close'].iloc[-1]) if vd is not None and len(vd) > 0 else None
+
+        if vix is None:
+            # VIX nahi mila → regime sirf trend se, aur vix_status UNKNOWN (fake 15.0 nahi)
+            reg, rs = ('BULL', 70) if na200 else ('BEAR', 30)
+            vix_status = 'UNKNOWN'
         else:
-            reg, rs = 'STRONG BEAR', 20
+            vix_status = 'LOW' if vix < 18 else 'NORMAL' if vix < 22 else 'HIGH' if vix < 28 else 'EXTREME'
+            if na200 and na50 and vix < 18:
+                reg, rs = 'STRONG BULL', 85
+            elif na200 and vix < 22:
+                reg, rs = 'BULL', 70
+            elif na200:
+                reg, rs = 'VOLATILE BULL', 55
+            elif not na200 and na50:
+                reg, rs = 'RECOVERY', 50
+            elif not na200 and vix < 20:
+                reg, rs = 'WEAK BEAR', 35
+            else:
+                reg, rs = 'STRONG BEAR', 20
 
         res = {
             'name': 'Market Regime',
             'score': rs,
             'regime': reg,
             'nifty': round(nc, 2),
-            'nifty_200ema': round(ne200, 2),
+            'nifty_200ema': round(ne200, 2),      # ab ASLI EMA-200 (pehle constant 23000)
+            'nifty_50ema': round(ne50, 2),
             'nifty_above_200': na200,
-            'vix': round(vix, 2),
-            'vix_status': 'LOW' if vix < 18 else 'NORMAL' if vix < 22 else 'HIGH' if vix < 28 else 'EXTREME',
+            'vix': round(vix, 2) if vix is not None else 0,
+            'vix_status': vix_status,
+            'data_bars': have,
+            'data_source': nsrc,
             'signal': reg
         }
         REGIME_CACHE = {'data': res, 'time': now}
         return res
-        
-    except Exception:
-        res = {
-            'name': 'Market Regime',
-            'score': 50,
-            'regime': 'UNKNOWN',
-            'nifty': 0,
-            'nifty_200ema': 0,
-            'nifty_above_200': False,
-            'vix': 0,
-            'vix_status': 'UNKNOWN',
-            'signal': 'UNKNOWN'
-        }
+
+    except Exception as e:
+        res = _unknown(f'regime fetch error: {type(e).__name__}')
         REGIME_CACHE = {'data': res, 'time': now}
         return res
+
 
 
 # ENGINE 6: Real Multi-Timeframe Confluence Engine (5m, 15m, 1h, 1d)
