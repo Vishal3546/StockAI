@@ -23,6 +23,7 @@
 
 import io
 import json
+import logging
 import math
 import os
 import threading
@@ -124,6 +125,13 @@ _ML_LOCK = threading.Lock()
 #   TTL-cached upstream call sab clients ko serve karti hai (Yahoo/NSE ko safe
 #   rakhta hai, rate-limit se bachata hai).
 IST = timezone(timedelta(hours=5, minutes=30))   # NSE clock (FIX-23)
+
+# FIX-26: tvDatafeed apne socket errors ko ERROR level par spam karta hai
+# ("Connection to remote host was lost" / "no data for symbol") — chahe hum
+# usko retry me handle kar rahe hon. Apni honest summary log karte hain,
+# isliye library ka noise band kar rahe hain (warna terminal bhara rehta hai).
+logging.getLogger('tvDatafeed').setLevel(logging.CRITICAL)
+logging.getLogger('tvDatafeed.main').setLevel(logging.CRITICAL)
 BROWSER_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
               '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 LIVE_TTL = 2.0                      # seconds — se chhota mat karo (upstream load)
@@ -297,6 +305,64 @@ def get_live_quote(symbol, force=False):
                 _LIVE_CACHE.pop(k, None)
     quote['cached'] = False
     return quote
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-26 — DATA FRESHNESS GUARD ("0s Delay" claim ab verify hoti hai)
+# ═══════════════════════════════════════════════════════════════════════════
+#  Problem (user ke terminal log me dikha): tvDatafeed ka websocket gir jaata
+#  hai, app phir bhi "🔥 0s Delay Live Stream" print kar deta hai — bina ye
+#  check kiye ki bars asli me fresh hain. Stale chart + jhootha log.
+#
+#  Ab: market khula ho aur last bar purana ho → us tier ko REJECT karo aur
+#  agle tier par jao; agar sab purane hain to sabse fresh ko "STALE" label ke
+#  saath serve karo (silent stale se better hai honest stale).
+#  NOTE (real test me pakda gaya): daily bars ki timestamp midnight hoti hai
+#  (Yahoo/NSE dono), isliye 1d ko minute-scale se naapna false-positive deta hai
+#  — "aaj ka session" 890m 'purana' dikhta hai. Isliye:
+#      • 1d  → 4 calendar din (weekend + holiday cover) — date-level freshness
+#      • intraday → minute-level (yahan staleness asli matter karti hai)
+MAX_AGE_MIN = {'1d': 4 * 24 * 60, '5m': 45, '15m': 60, '1h': 150, '1w': 15 * 24 * 60}
+
+
+def is_market_open(now=None):
+    """NSE cash session: Mon-Fri 09:15–15:40 IST (close ke baad wale minutes bhi le lete hain)."""
+    now = now or datetime.now(IST)
+    if now.weekday() > 4:            # Sat/Sun
+        return False
+    hm = now.hour * 60 + now.minute
+    return (9 * 60 + 15) <= hm <= (15 * 60 + 40)
+
+
+def frame_age_minutes(df, now=None):
+    """Last bar kitna purana hai (minutes). Index parse na ho to None."""
+    try:
+        if df is None or len(df) == 0:
+            return None
+        ts = df.index[-1]
+        ts = pd.Timestamp(ts)
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert(IST).tz_localize(None)
+        now = now or datetime.now(IST).replace(tzinfo=None)
+        return max(0.0, (pd.Timestamp(now) - ts).total_seconds() / 60.0)
+    except Exception:
+        return None
+
+
+def frame_is_fresh(df, interval='1d', now=None):
+    """(fresh?, reason) — market band ho to freshness enforce nahi karte (kuch naya hai hi nahi)."""
+    open_now = is_market_open(now)
+    age = frame_age_minutes(df, now)
+    if age is None:
+        return True, ('market open' if open_now else 'market closed') + ', age unknown'
+    limit = MAX_AGE_MIN.get(interval, 150)
+    human = (f'{age/60:.1f}h' if age < 48 * 60 else f'{age/1440:.1f}d')
+    lim_h = (f'{limit/1440:.0f}d' if limit >= 24 * 60 else f'{limit}m')
+    if not open_now:
+        return True, f'market closed, last bar {human} old (fine)'
+    if age <= limit:
+        return True, f'last bar {human} old (fresh, limit {lim_h})'
+    return False, f'STALE: last bar {human} old > {lim_h} limit'
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -500,31 +566,60 @@ class MultiTechDataSourceManager:
             
         return None
 
-    def smart_fetch(self, symbol, period='2y', interval='1d', n_bars=500):
+    def smart_fetch(self, symbol, period='2y', interval='1d', n_bars=500, _now=None):
         """
         Executes strict 3-tier cascade with real-time terminal logging.
+
+        FIX-26: har tier ka data FRESHNESS-check hota hai (market khula hone par).
+        Pehle tvDatafeed ka socket girne ke baad bhi "0s Delay Live Stream" print
+        ho jaata tha; ab wahi tier reject hota hai aur agla try hota hai. Sab
+        stale ho to sabse fresh ko clearly "STALE" label ke saath return karte hain.
         """
         clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
+        stale_candidates = []          # (age_min, df, source)
 
         # ── TIER 1: TradingView Direct (0-Second Delay Live Stream) ──
         if not symbol.startswith('^'):
             df_tv = self.fetch_tradingview(clean_sym, n_bars=n_bars, interval_str=interval)
             if df_tv is not None:
-                print(f"🔥 [TradingView Direct Engine Used] {clean_sym} ({interval}) — 0s Delay Live Stream")
-                return df_tv, 'TradingView Direct'
+                fresh, why = frame_is_fresh(df_tv, interval, now=_now)
+                if fresh:
+                    print(f"🔥 [TradingView] {clean_sym} ({interval}) · {len(df_tv)} bars · {why}")
+                    return df_tv, 'TradingView Direct'
+                a = frame_age_minutes(df_tv, _now)
+                stale_candidates.append((a if a is not None else 1e9, df_tv, 'TradingView Direct'))
+                print(f"⚠️  [TradingView REJECTED] {clean_sym} ({interval}) — {why}, agla tier try kar rahe hain")
 
         # ── TIER 2: NSE Official Direct Scraper ──
         if interval == '1d' and not symbol.startswith('^'):
             df_nse = self.fetch_nse_direct(clean_sym, days=500)
             if df_nse is not None:
-                print(f"⚡ [NSE Official Direct Engine Used] {clean_sym} — Official Exchange Data")
-                return df_nse, 'NSE Direct'
+                fresh, why = frame_is_fresh(df_nse, interval, now=_now)
+                if fresh:
+                    print(f"⚡ [NSE Official Direct] {clean_sym} — Official Exchange Data · {len(df_nse)} bars · {why}")
+                    return df_nse, 'NSE Direct'
+                a = frame_age_minutes(df_nse, _now)
+                stale_candidates.append((a if a is not None else 1e9, df_nse, 'NSE Direct'))
+                print(f"⚠️  [NSE Direct REJECTED] {clean_sym} — {why}")
 
         # ── TIER 3: Yahoo Finance Universal Backup ──
         df_yf = self.fetch_yahoo(symbol, period=period, interval=interval)
         if df_yf is not None:
-            print(f"🌐 [Yahoo Finance Backup Engine Used] {symbol} — Global Data Stream")
-            return df_yf, 'Yahoo Finance'
+            fresh, why = frame_is_fresh(df_yf, interval, now=_now)
+            if fresh:
+                print(f"🌐 [Yahoo] {symbol} ({interval}) · {len(df_yf)} bars · {why}")
+                return df_yf, 'Yahoo Finance'
+            a = frame_age_minutes(df_yf, _now)
+            stale_candidates.append((a if a is not None else 1e9, df_yf, 'Yahoo Finance'))
+            print(f"⚠️  [Yahoo REJECTED] {symbol} — {why}")
+
+        # ── Last resort: sabse fresh stale frame (honest label ke saath) ──
+        if stale_candidates:
+            stale_candidates.sort(key=lambda t: t[0])
+            age, df, src = stale_candidates[0]
+            print(f"🟡 [STALE DATA] {symbol} {interval} — sab tiers purane; '{src}' "
+                  f"use kar rahe hain (last bar {age:.0f}m old). UI ko is_realtime=False milega.")
+            return df, src + ' (STALE)'
 
         print(f"❌ [Data Stream Failed] All 3 engines failed for symbol: {symbol}")
         return None, 'None'

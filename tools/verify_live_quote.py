@@ -118,6 +118,61 @@ else:
     A.fetch_nse_live_ltp, A.fetch_yahoo_live_ltp = real_nse, real_yahoo
     A._LIVE_CACHE.clear()
 
+# ── 4b. FIX-26 freshness guard (market hours me stale data reject hona chahiye) ──
+try:
+    import pandas as pd
+    import datetime as _dt
+    # ek trading day, market-open time (IST 11:00 = 05:30 UTC)
+    now_open = _dt.datetime(2026, 9, 30, 11, 0)          # Wednesday
+    now_closed = _dt.datetime(2026, 9, 30, 18, 0)
+    now_sun = _dt.datetime(2026, 9, 27, 11, 0)           # Sunday
+
+    check('market-open detect (Wed 11:00)', A.is_market_open(now_open) is True)
+    check('market-closed detect (Wed 18:00)', A.is_market_open(now_closed) is False)
+    check('weekend detect (Sun 11:00)', A.is_market_open(now_sun) is False)
+
+    def mk(last_ts, n=300):
+        idx = pd.date_range(end=last_ts, periods=n, freq='D')
+        return pd.DataFrame({'Open': 1.0, 'High': 1.0, 'Low': 1.0, 'Close': 1.0, 'Volume': 1}, index=idx)
+
+    fresh_df = mk(now_open)                                   # aaj ka bar
+    stale_df = mk(now_open - _dt.timedelta(days=6))           # 6 din purana
+    f1, w1 = A.frame_is_fresh(fresh_df, '1d', now=now_open)
+    f2, w2 = A.frame_is_fresh(stale_df, '1d', now=now_open)
+    f3, w3 = A.frame_is_fresh(stale_df, '1d', now=now_closed)
+    check('fresh bar accept (market open)', f1 is True, w1)
+    check('stale bar REJECT (market open)', f2 is False, w2)
+    check('stale bar accept (market closed — naya kuch hai hi nahi)', f3 is True, w3)
+
+    daily_ok = mk(now_open.replace(hour=0, minute=0), n=300)   # aaj ka daily bar (midnight stamp)
+    f5, w5 = A.frame_is_fresh(daily_ok, '1d', now=now_open)
+    check('daily bar today (midnight stamp) accept — false-positive fix', f5 is True, w5)
+
+    i5_stale = mk(now_open - _dt.timedelta(hours=5), n=100)
+    f4, w4 = A.frame_is_fresh(i5_stale, '5m', now=now_open)
+    check('intraday stale reject (5h old 5m bars)', f4 is False, w4)
+
+    # smart_fetch cascade: tier-1 stale → tier-2 fresh serve hona chahiye
+    orig_tv = A.DATA_MANAGER.fetch_tradingview
+    orig_nse = A.DATA_MANAGER.fetch_nse_direct
+    orig_yf = A.DATA_MANAGER.fetch_yahoo
+    A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: mk(now_open - _dt.timedelta(days=9))
+    A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: mk(now_open)
+    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: None
+    df_out, src_out = A.DATA_MANAGER.smart_fetch('TESTY', interval='1d', _now=now_open)
+    A.DATA_MANAGER.fetch_tradingview, A.DATA_MANAGER.fetch_nse_direct, A.DATA_MANAGER.fetch_yahoo = orig_tv, orig_nse, orig_yf
+    check('stale tier-1 → fresh tier-2 par fallback', src_out == 'NSE Direct', f'source={src_out}')
+
+    # sab stale → honest STALE label
+    A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: mk(now_open - _dt.timedelta(days=9))
+    A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: None
+    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: mk(now_open - _dt.timedelta(days=30))
+    _, src2 = A.DATA_MANAGER.smart_fetch('TESTZ', interval='1d', _now=now_open)
+    A.DATA_MANAGER.fetch_tradingview, A.DATA_MANAGER.fetch_nse_direct, A.DATA_MANAGER.fetch_yahoo = orig_tv, orig_nse, orig_yf
+    check('sab stale → "STALE" label (silent stale nahi)', 'STALE' in src2, f'source={src2}')
+except Exception as e:
+    check('freshness guard checks', False, f'{type(e).__name__}: {e}')
+
 # ── 5. Dashboard guards + UI elements ──────────────────────────────────────
 check('refresh icon maujood hai', 'id="refreshBtn"' in html and 'manualRefresh' in html)
 check('LIVE/DELAYED chip maujood hai', 'id="liveChip"' in html and 'setLiveChip' in html)
@@ -129,6 +184,8 @@ check('change unavailable fallback likha hai', 'change unavailable' in html)
 check('Yahoo live tier app.py me hai', 'def fetch_yahoo_live_ltp' in app_src)
 check('TTL cache app.py me hai', '_LIVE_CACHE' in app_src and 'LIVE_TTL' in app_src)
 check('SSE unified payload use karta hai', 'quote = get_live_quote(resolved)' in app_src)
+check('freshness guard app.py me hai', 'def frame_is_fresh' in app_src and 'smart_fetch' in app_src)
+check('tvDatafeed log noise suppressed', "getLogger('tvDatafeed').setLevel(logging.CRITICAL)" in app_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
