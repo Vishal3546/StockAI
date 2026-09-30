@@ -1027,7 +1027,10 @@ def _ml_engine_uncached(df):
             gb_wf.fit(X_tr_wf_s, y_tr_wf)
             wf_results.append(accuracy_score(y_te_wf, gb_wf.predict(X_te_wf_s)))
 
-        wf_accuracy = round(np.mean(wf_results) * 100, 1) if wf_results else 0.0
+        # FIX-28: pehle '0.0' tha — UI par ye 'model 0% accurate' jaisa padha
+        # jaata tha, jabki sach ye hai ki walk-forward chali hi nahi. Ab None
+        # (dashboard ise 'UNKNOWN' dikhata hai).
+        wf_accuracy = round(np.mean(wf_results) * 100, 1) if wf_results else None
 
         # ── Final Train/Test Split (80/20) ──
         train_n = int(len(d_clean) * 0.8)
@@ -1520,9 +1523,38 @@ def calculate_kpi_scores(df, fund_data):
 #  6 INSTITUTIONAL TRADING ENGINES
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _data_ok(df, min_bars=20):
+    """
+    FIX-28: degenerate data pakdo — pehle engines khali/all-zero frame par bhi
+    chupchap 'compute' kar dete the aur garbage score (50/28 aadi) de dete the,
+    jo ensemble me asli reading ki tarah chala jaata tha.
+    Returns (ok, reason).
+    """
+    try:
+        if df is None or len(df) == 0:
+            return False, 'data frame khali hai'
+        if len(df) < min_bars:
+            return False, f'bahut kam bars ({len(df)} < {min_bars})'
+        if 'Close' not in df.columns:
+            return False, 'Close column hi nahi hai'
+        c = pd.to_numeric(df['Close'], errors='coerce')
+        if c.notna().sum() < min_bars:
+            return False, f'Close me usable values kam ({int(c.notna().sum())})'
+        if float(c.abs().fillna(0).sum()) <= 0:
+            return False, 'Close sab 0/NaN hai'
+        if float(c.notna().iloc[-1]) == 0:
+            return False, 'last Close invalid (0/NaN)'
+        return True, ''
+    except Exception as e:
+        return False, f'data check error: {type(e).__name__}'
+
+
 # ENGINE 1: Volume Profile (Point of Control / HVN / LVN Analysis)
 def engine_volume_profile(df, bins=50):
     try:
+        _ok, _why = _data_ok(df)
+        if not _ok:
+            raise ValueError(_why)
         prices = df['Close'].values.astype(float)
         volumes = df['Volume'].values.astype(float)
         pbins = np.linspace(prices.min(), prices.max(), bins + 1)
@@ -1551,7 +1583,8 @@ def engine_volume_profile(df, bins=50):
             'poc_distance': round(pd_d, 2),
             'signal': 'ABOVE POC' if cur > poc else 'BELOW POC'
         }
-    except Exception:
+    except Exception as _e:
+        _why = str(_e)[:80] or type(_e).__name__
         return {
             'name': 'Volume Profile',
             'score': 50,
@@ -1559,13 +1592,18 @@ def engine_volume_profile(df, bins=50):
             'hvn': [],
             'lvn': [],
             'poc_distance': 0,
-            'signal': 'N/A'
+            'signal': 'N/A',
+            'degraded': True,          # FIX-28: fake 50 ensemble me nahi jayega
+            'note': f'Volume Profile available nahi: {_why} — averaging se exclude'
         }
 
 
 # ENGINE 2: RVOL + Cumulative Volume Delta (CVD) + Volume Spread Analysis (VSA)
 def engine_rvol_cvd(df):
     try:
+        _ok, _why = _data_ok(df)
+        if not _ok:
+            raise ValueError(_why)
         L = df.iloc[-1]
         avg20 = df['Volume'].tail(20).mean()
         rvol = float(L['Volume']) / (float(avg20) + 1)
@@ -1604,7 +1642,8 @@ def engine_rvol_cvd(df):
             'vsa': vsa,
             'signal': 'STRONG' if rvol >= 2.5 else 'WEAK' if rvol < 0.7 else 'NORMAL'
         }
-    except Exception:
+    except Exception as _e:
+        _why = str(_e)[:80] or type(_e).__name__
         return {
             'name': 'RVOL + CVD + VSA',
             'score': 50,
@@ -1613,13 +1652,18 @@ def engine_rvol_cvd(df):
             'cvd_divergence': 'NONE',
             'anchored_vwap': 0,
             'vsa': 'N/A',
-            'signal': 'N/A'
+            'signal': 'N/A',
+            'degraded': True,          # FIX-28
+            'note': f'RVOL/CVD available nahi: {_why} — averaging se exclude'
         }
 
 
 # ENGINE 3: Volatility Contraction Pattern (VCP V2)
 def engine_vcp(df):
     try:
+        _ok, _why = _data_ok(df)
+        if not _ok:
+            raise ValueError(_why)
         r = df.tail(60)
         h_v = r['High'].values.astype(float)
         l_v = r['Low'].values.astype(float)
@@ -1636,7 +1680,7 @@ def engine_vcp(df):
 
         l5r = float(r['High'].tail(5).max() - r['Low'].tail(5).min())
         l5m = float(r['Close'].tail(5).mean())
-        tight = (l5r / l5m * 100) if l5m > 0 else 99
+        tight = (l5r / l5m * 100) if l5m > 0 else None   # FIX-28: 99 sentinel hataya
 
         a5 = float((r['High'].tail(5) - r['Low'].tail(5)).mean())
         a20 = float((r['High'].tail(20) - r['Low'].tail(20)).mean())
@@ -1644,31 +1688,37 @@ def engine_vcp(df):
 
         score = 30
         score += 25 if vc >= 3 else 15 if vc >= 2 else 8 if vc >= 1 else 0
-        score += 20 if tight < 3 else 12 if tight < 5 else 0
+        score += 20 if (tight is not None and tight < 3) else 12 if (tight is not None and tight < 5) else 0
         score += 15 if ar < 0.4 else 8 if ar < 0.6 else 0
 
         return {
             'name': 'VCP V2',
             'score': int(max(5, min(98, score))),
             'contractions': vc,
-            'tightness': round(tight, 2),
+            'tightness': round(tight, 2) if tight is not None else None,
             'atr_ratio': round(ar, 2),
-            'signal': 'READY' if vc >= 2 and tight < 5 else 'FORMING' if vc >= 1 else 'NONE'
+            'signal': 'READY' if (vc >= 2 and tight is not None and tight < 5) else 'FORMING' if vc >= 1 else 'NONE'
         }
-    except Exception:
+    except Exception as _e:
+        _why = str(_e)[:80] or type(_e).__name__
         return {
             'name': 'VCP V2',
             'score': 30,
             'contractions': 0,
-            'tightness': 0,
+            'tightness': None,         # FIX-28: fake 0 ki jagah None (UI '—' dikhata hai)
             'atr_ratio': 0,
-            'signal': 'N/A'
+            'signal': 'N/A',
+            'degraded': True,
+            'note': f'VCP available nahi: {_why} — averaging se exclude'
         }
 
 
 # ENGINE 4: Smart Money Concepts (SMC / ICT Order Blocks & FVG)
 def engine_smc(df):
     try:
+        _ok, _why = _data_ok(df)
+        if not _ok:
+            raise ValueError(_why)
         L = df.iloc[-1]
         r = df.tail(20)
         rh = float(r['High'].iloc[:-3].max())
@@ -1711,7 +1761,8 @@ def engine_smc(df):
             'order_blocks': obs[:2],
             'signal': 'BULLISH' if score >= 65 else 'BEARISH' if score <= 35 else 'NEUTRAL'
         }
-    except Exception:
+    except Exception as _e:
+        _why = str(_e)[:80] or type(_e).__name__
         return {
             'name': 'SMC / ICT',
             'score': 50,
@@ -1719,7 +1770,9 @@ def engine_smc(df):
             'fvg_bullish': [],
             'fvg_bearish': [],
             'order_blocks': [],
-            'signal': 'N/A'
+            'signal': 'N/A',
+            'degraded': True,          # FIX-28
+            'note': f'SMC available nahi: {_why} — averaging se exclude'
         }
 
 
@@ -1750,7 +1803,8 @@ def engine_market_regime():
     def _unknown(reason):
         return {'name': 'Market Regime', 'score': 50, 'regime': 'UNKNOWN',
                 'nifty': 0, 'nifty_200ema': 0, 'nifty_above_200': False,
-                'vix': 0, 'vix_status': 'UNKNOWN', 'signal': 'UNKNOWN', 'note': reason}
+                'vix': 0, 'vix_status': 'UNKNOWN', 'signal': 'UNKNOWN',
+                'degraded': True, 'note': reason}
 
     try:
         n, nsrc = DATA_MANAGER.smart_fetch('^NSEI', period='2y')     # EMA-200 ke liye 2y chahiye
@@ -1872,7 +1926,8 @@ def engine_multitimeframe(symbol, daily_df=None):
             if tf not in results or results[tf] is None:
                 results[tf] = {'trend': 'N/A', 'rsi': 0}
 
-        score = int((bc / 4) * 100) if len(valid_tfs) >= 2 else 50
+        enough = len(valid_tfs) >= 2          # FIX-28
+        score = int((bc / 4) * 100) if enough else 50
         
         return {
             'name': 'Multi-Timeframe',
@@ -1881,7 +1936,9 @@ def engine_multitimeframe(symbol, daily_df=None):
             'bullish_count': bc,
             'total': total,
             'signal': 'STRONG' if bc >= 3 else 'MEDIUM' if bc >= 2 else 'WEAK',
-            'timeframes': results
+            'timeframes': results,
+            'degraded': not enough,
+            'note': None if enough else f'sirf {len(valid_tfs)} timeframe load hua (<2) — 50 placeholder, averaging se exclude'
         }
         
     except Exception:
@@ -1892,6 +1949,8 @@ def engine_multitimeframe(symbol, daily_df=None):
             'bullish_count': 0,
             'total': 0,
             'signal': 'ERROR',
+            'degraded': True,          # FIX-28
+            'note': 'Multi-Timeframe compute nahi hua (error) — averaging se exclude',
             'timeframes': {
                 '5m': {'trend': 'N/A', 'rsi': 0},
                 '15m': {'trend': 'N/A', 'rsi': 0},
@@ -1905,12 +1964,21 @@ def engine_multitimeframe(symbol, daily_df=None):
 #  ENSEMBLE SCORER & INSTITUTIONAL KELLY RISK ENGINE
 # ═══════════════════════════════════════════════════════════════════════════
 def ensemble_score(engines):
+    # FIX-28: degraded engines (jinka data hi nahi mila) ka placeholder '50'
+    # weighted average me ghus kar poora composite distort karta tha — jaise
+    # ek engine ne vote diya ho, jabki usne vote diya hi nahi. Ab unhe EXCLUDE
+    # karke baaki engines par weights renormalize hote hain, aur kaun exclude
+    # hua wo response me saaf-saaf likha jaata hai.
     w = CONFIG['ENGINE_WEIGHTS']
-    ws = sum(e['score'] * w.get(e['name'], 0.1) for e in engines)
-    tw = sum(w.get(e['name'], 0.1) for e in engines)
+    excluded = [e['name'] for e in engines if e.get('degraded')]
+    live = [e for e in engines if not e.get('degraded')]
+    if not live:                      # sab degraded → purana behaviour (safe fallback)
+        live, excluded = list(engines), []
+    ws = sum(e['score'] * w.get(e['name'], 0.1) for e in live)
+    tw = sum(w.get(e['name'], 0.1) for e in live)
     base = ws / tw if tw > 0 else 50
-    be = sum(1 for e in engines if e['score'] >= 65)
-    bre = sum(1 for e in engines if e['score'] <= 35)
+    be = sum(1 for e in live if e['score'] >= 65)
+    bre = sum(1 for e in live if e['score'] <= 35)
     cb = 8 if be >= 5 else 5 if be >= 4 else 2 if be >= 3 else -8 if bre >= 4 else 0
     final = int(max(5, min(98, base + cb)))
     
@@ -1920,7 +1988,11 @@ def ensemble_score(engines):
         'bullish_engines': be,
         'bearish_engines': bre,
         'confluence_bonus': cb,
-        'tradeable': final >= 78
+        'tradeable': final >= 78,
+        'engines_used': len(live),
+        'degraded_engines': excluded,
+        'note': (f'Degraded engines averaging se exclude kiye: {", ".join(excluded)}'
+                 if excluded else None)
     }
 
 
@@ -1941,7 +2013,10 @@ def ensemble_v2(engines, ens):
     """
     w = CONFIG['ENGINE_WEIGHTS']
     adj, notes = {}, []
+    live = [e for e in engines if not e.get('degraded')] or list(engines)   # FIX-28
     for e in engines:
+        if e.get('degraded') and e in live:
+            continue
         s, n = e['score'], e['name']
         if n == 'VCP V2':
             s = max(5, min(98, 50 + (s - 30)))
@@ -1950,8 +2025,8 @@ def ensemble_v2(engines, ens):
             s = round(100 * e.get('bullish_count', 0) / e['total'])
             notes.append('MTF normalised by loaded TFs')
         adj[n] = s
-    tw = sum(w.get(e['name'], 0.1) for e in engines) or 1
-    v2 = round(sum(adj[e['name']] * w.get(e['name'], 0.1) for e in engines) / tw, 1)
+    tw = sum(w.get(e['name'], 0.1) for e in live) or 1
+    v2 = round(sum(adj[e['name']] * w.get(e['name'], 0.1) for e in live) / tw, 1)
     return {
         'score': int(round(v2)),
         'raw_score': ens['score'],
