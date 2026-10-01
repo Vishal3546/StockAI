@@ -128,6 +128,19 @@ Verify offline: `python tools/verify_score_calibration.py` (64 checks) plus exis
 | `STOCKAI_HOST` | `0.0.0.0` | Bind address. Sirf apne machine par chalana ho to `127.0.0.1`. |
 | `STOCKAI_TRUST_PROXY` | `0` | `1` sirf tab jab sach me reverse proxy ho; warna `X-Forwarded-For` spoof ho sakta hai. |
 
+**Sabse aasaan tarika — `.env` file (FIX-36):** har baar `$env:…` set karne ki zaroorat nahi.
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+python app.py
+```
+
+`.env` repo root me rahti hai, **git me nahi jaati** (`.gitignore` me hai), aur **real
+environment variable usse jeetta hai** — yani temporary override ke liye `$env:…` phir bhi
+chalega. Koi nayi dependency nahi: loader `app.py` me hi hai (`load_dotenv_file()`).
+Values server restart par lagti hain.
+
 PowerShell me token ke saath:
 
 ```powershell

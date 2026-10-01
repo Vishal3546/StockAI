@@ -2,6 +2,22 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-36 addendum — 2026-10-01 (.env config)
+
+FIX-35 ke env knobs har PowerShell session me dobara set karne padte the, isliye token
+"jhanjhat" lag raha tha. Ab repo root ki `.env` automatically load hoti hai — chhota
+built-in loader (`load_dotenv_file()`), koi third-party `python-dotenv` dependency nahi.
+
+Rules: `KEY=VALUE`, `#` comments, optional `export` prefix, optional quotes; **real
+environment variable jeetta hai** (`.env` sirf default deta hai); missing file silently
+ignore hoti hai. `.env` `.gitignore` me hai, aur repo me sirf `.env.example` template
+jaata hai jisme token **khaali** hai — koi secret ship nahi hota. `refresh_security_from_env()`
+se `SECURITY` dobara env se ban jaata hai (tests/tools ke liye).
+
+Verified: `tools/verify_security.py` **84/84** (naye 20 checks: parsing, quotes, `export`,
+comment/blank/garbage lines, env-wins precedence, override, missing file, `.env` gitignore +
+untracked, `.env.example` tracked with empty token).
+
 ## FIX-35 addendum — 2026-10-01 (security hardening: M-11 + M-12)
 
 **M-11 — wildcard CORS, no auth, no rate limit.** `CORS(app)` put

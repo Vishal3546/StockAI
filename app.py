@@ -28,6 +28,7 @@ import json
 import logging
 import math
 import os
+import pathlib
 import threading
 import time
 import warnings
@@ -45,6 +46,45 @@ warnings.filterwarnings('ignore')
 
 # Initialize Flask Web Application
 app = Flask(__name__)
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-36: .env support — har baar $env:… set karne ki zaroorat nahi
+#  Chhota built-in loader (python-dotenv jaisi dependency nahi chahiye).
+#  Rules:
+#    • repo root ki `.env` padhi jaati hai (KEY=VALUE, `#` comment, quotes ok)
+#    • REAL environment variable jeetta hai — .env sirf default deta hai
+#    • `.env` git me NAHI jaati (.gitignore me hai); secret commit mat karna
+# ═══════════════════════════════════════════════════════════════════════════
+ENV_FILE = pathlib.Path(__file__).resolve().parent / '.env'
+
+
+def load_dotenv_file(path=None, override=False):
+    """`.env` ko os.environ me load karo. Return: {key: value} jo file me the."""
+    target = pathlib.Path(path) if path is not None else ENV_FILE
+    loaded = {}
+    try:
+        text = target.read_text(encoding='utf-8')
+    except OSError:
+        return loaded
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        if line.startswith('export '):
+            line = line[len('export '):].lstrip()
+        key, _, val = line.partition('=')
+        key, val = key.strip(), val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+            val = val[1:-1]          # quotes hatado, andar ka # comment nahi todta
+        if not key:
+            continue
+        loaded[key] = val
+        if override or key not in os.environ:
+            os.environ[key] = val
+    return loaded
+
+
+DOTENV_KEYS = load_dotenv_file()
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIX-35 (M-11): CORS allowlist + optional token auth + per-IP rate limit
@@ -87,6 +127,17 @@ def configure_security(token=None, cors_origins=None, rate_limit_per_min=None, t
     if trust_proxy is not None:
         SECURITY['TRUST_PROXY'] = bool(trust_proxy)
     reset_rate_limiter()
+
+
+def refresh_security_from_env():
+    """os.environ (ya dobara load ki gayi .env) se SECURITY ko refresh karo."""
+    SECURITY['TOKEN'] = (os.environ.get('STOCKAI_API_TOKEN') or '').strip()
+    SECURITY['CORS_ORIGINS'] = [o.strip().rstrip('/') for o in
+                                (os.environ.get('STOCKAI_CORS_ORIGINS') or '').split(',') if o.strip()]
+    SECURITY['RATE_LIMIT_PER_MIN'] = max(0, int(os.environ.get('STOCKAI_RATE_LIMIT') or 240))
+    SECURITY['TRUST_PROXY'] = (os.environ.get('STOCKAI_TRUST_PROXY') or '').strip().lower() in ('1', 'true', 'yes')
+    reset_rate_limiter()
+    return dict(SECURITY)
 
 
 def reset_rate_limiter():
@@ -2953,6 +3004,7 @@ if __name__ == '__main__':
     print("=" * 78)
     print(f"🚀 StockAI V6.1 Multi-Tech Hybrid Server → http://{HOST}:{PORT}")
     print("👉 Tier 1: TradingView | Tier 2: NSE Direct | Tier 3: Yahoo  (dashboard at /)")
+    print(f"👉 Config: {('.env loaded — ' + str(len(DOTENV_KEYS)) + ' keys') if DOTENV_KEYS else '.env nahi mila (env vars/defaults)'}")
     print(f"👉 CORS allowlist: {SECURITY['CORS_ORIGINS'] or 'same-origin only'} | "
           f"rate limit: {SECURITY['RATE_LIMIT_PER_MIN']}/min/IP")
     if SECURITY['TOKEN']:

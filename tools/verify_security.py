@@ -212,6 +212,76 @@ check("bind host configurable (STOCKAI_HOST)", "os.environ.get('STOCKAI_HOST'" i
 check("startup par token warning print hoti hai", 'STOCKAI_API_TOKEN set NAHI hai' in src)
 check("token cookie HttpOnly + SameSite", "httponly=True, samesite='Lax'" in src)
 
+# ── [7] .env support (FIX-36) ────────────────────────────────────────────
+print("\n[7] .env — local config file")
+import os
+import tempfile
+
+src_app = (ROOT / 'app.py').read_text(encoding='utf-8')
+check("load_dotenv_file() defined (koi third-party dotenv dependency nahi)",
+      'def load_dotenv_file(' in src_app
+      and 'import dotenv' not in src_app and 'from dotenv' not in src_app)
+check("loader SECURITY banne se PEHLE chalta hai",
+      src_app.index('DOTENV_KEYS = load_dotenv_file()') < src_app.index('SECURITY = {'))
+check("refresh_security_from_env() available", 'def refresh_security_from_env(' in src_app)
+
+# real parsing behaviour
+tmp = pathlib.Path(tempfile.mkdtemp()) / '.env'
+tmp.write_text(
+    "# comment line\n"
+    "\n"
+    "STOCKAI_RATE_LIMIT=7\n"
+    'STOCKAI_API_TOKEN="tok with spaces"\n'
+    "export STOCKAI_HOST=127.0.0.1\n"
+    "STOCKAI_CORS_ORIGINS=https://a.example, https://b.example\n"
+    "BADLINE_WITHOUT_EQUALS\n"
+    "  STOCKAI_TRUST_PROXY = 1 \n",
+    encoding='utf-8')
+loaded = A.load_dotenv_file(tmp, override=True)
+check("KEY=VALUE parse hota hai", loaded.get('STOCKAI_RATE_LIMIT') == '7', str(loaded.get('STOCKAI_RATE_LIMIT')))
+check("comment/blank lines skip", '# comment line' not in loaded and '' not in loaded)
+check("equals ke bina line ignore", 'BADLINE_WITHOUT_EQUALS' not in loaded)
+check("quotes hat jaate hain", loaded.get('STOCKAI_API_TOKEN') == 'tok with spaces', repr(loaded.get('STOCKAI_API_TOKEN')))
+check("`export ` prefix handle hota hai", loaded.get('STOCKAI_HOST') == '127.0.0.1')
+check("whitespace trim hota hai", loaded.get('STOCKAI_TRUST_PROXY') == '1')
+A.refresh_security_from_env()
+check("SECURITY .env se refresh hota hai (rate limit)", A.SECURITY['RATE_LIMIT_PER_MIN'] == 7,
+      str(A.SECURITY['RATE_LIMIT_PER_MIN']))
+check("SECURITY .env se refresh hota hai (token)", A.SECURITY['TOKEN'] == 'tok with spaces')
+check("CORS list comma-split + trim", A.SECURITY['CORS_ORIGINS'] == ['https://a.example', 'https://b.example'],
+      str(A.SECURITY['CORS_ORIGINS']))
+check("TRUST_PROXY '1' → True", A.SECURITY['TRUST_PROXY'] is True)
+
+# real env var jeetta hai (dotenv override=False default)
+os.environ['STOCKAI_RATE_LIMIT'] = '99'
+tmp2 = pathlib.Path(tempfile.mkdtemp()) / '.env'
+tmp2.write_text("STOCKAI_RATE_LIMIT=7\n", encoding='utf-8')
+A.load_dotenv_file(tmp2)
+check("real env var .env se jeetta hai (override=False)", os.environ['STOCKAI_RATE_LIMIT'] == '99',
+      os.environ['STOCKAI_RATE_LIMIT'])
+A.load_dotenv_file(tmp2, override=True)
+check("override=True par .env jeetti hai", os.environ['STOCKAI_RATE_LIMIT'] == '7')
+
+# missing file → crash nahi
+check(".env na ho to crash nahi, empty dict", A.load_dotenv_file(pathlib.Path(tempfile.mkdtemp()) / 'nope.env') == {})
+
+# secret hygiene
+gitignore = (ROOT / '.gitignore').read_text(encoding='utf-8')
+check(".gitignore me .env hai", '\n.env\n' in gitignore or gitignore.strip().endswith('.env'))
+import subprocess
+tracked = subprocess.run(['git', 'ls-files'], cwd=ROOT, capture_output=True, text=True).stdout.split()
+check(".env git me track NAHI hoti", '.env' not in tracked)
+check(".env.example track hoti hai (template team ke liye)", '.env.example' in tracked)
+example = (ROOT / '.env.example').read_text(encoding='utf-8')
+check(".env.example me token KHAALI hai (koi secret ship nahi hota)",
+      '\nSTOCKAI_API_TOKEN=\n' in example or example.rstrip().endswith('STOCKAI_API_TOKEN='))
+
+# defaults wapas
+for k in ('STOCKAI_API_TOKEN', 'STOCKAI_CORS_ORIGINS', 'STOCKAI_RATE_LIMIT',
+          'STOCKAI_HOST', 'STOCKAI_TRUST_PROXY'):
+    os.environ.pop(k, None)
+A.configure_security(token='', cors_origins=[], rate_limit_per_min=240)
+
 # ── result ───────────────────────────────────────────────────────────────
 A.configure_security(token='', cors_origins=[], rate_limit_per_min=240)
 A.reset_rate_limiter()
