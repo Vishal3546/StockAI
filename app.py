@@ -51,6 +51,11 @@ CORS(app)
 CONFIG = {
     'RISK_FREE_RATE': 0.065,
     'MAX_KELLY_PCT': 0.25,
+    # FIX-31: plan hit-rate measurement (Kelly ka 'p') ke tunables
+    'PLAN_T1_MULT': 2.5,          # target = 2.5x ATR (calculate_risk ke targets ke saath match)
+    'PLAN_MEASURE_HORIZON': 20,   # max bars — itne me na SL na T1 → 'unresolved'
+    'PLAN_MEASURE_MIN_N': 30,     # itne se kam setups par measurement 'insufficient'
+    'PLAN_LCB_Z': 1.0,            # conservative lower-bound (1 sd ≈ 84% one-sided)
     'REGIME_CACHE_TTL': 600,
     'ML_MIN_DAYS': 50,
     'SUPERTREND_MULTIPLIER': 3.0,
@@ -2036,8 +2041,132 @@ def ensemble_v2(engines, ens):
     }
 
 
+# ── FIX-31: plan geometry + ASLI measured hit-rate ────────────────────────
+MIN_PLAN_SAMPLE = 30          # default; asli value CONFIG['PLAN_MEASURE_MIN_N'] se aati hai
+
+
+def plan_geometry(score):
+    """Score bucket → (sl_mult, assumed_win_rate).
+
+    FIX-31: ye sirf FALLBACK hai. Pehle win-rate yahin se aata tha
+    (0.62/0.55/0.45) aur Kelly usi assumption par banti thi. Ab asli 'p'
+    measure_plan_hit_rate() se aata hai; ye values tabhi use hoti hain jab
+    measurement possible na ho (aur UI par 'assumed' likha jaata hai)."""
+    if score >= 78:
+        return 1.5, 0.62
+    if score >= 60:
+        return 2.0, 0.55
+    return 2.5, 0.45
+
+
+_PLAN_MEASURE_CACHE = {}
+
+
+def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
+                          min_n=None, symbol=None):
+    """
+    FIX-31 — is plan ka ASLI win-rate, symbol ke apne data se measure karo.
+
+    Kelly ko 'p' chahiye = P(win). Pehle wo 0.62/0.55/0.45 ASSUMED tha (kisi
+    verification se nahi aaya, par usi par qty aur risk_amount bante the).
+
+    Yahan wahi geometry — jo app aaj propose kar raha hai (SL = sl_mult x ATR,
+    T1 = t1_mult x ATR) — 2 saal ke daily bars par chalayi jaati hai:
+
+        entry = close[i],  j = i+1 … i+horizon
+        LONG : low[j]  <= SL → loss  |  high[j] >= T1 → win
+        SHORT: high[j] >= SL → loss  |  low[j]  <= T1 → win
+
+    Ek hi bar me SL aur T1 dono touch → loss (conservative).
+    horizon me na SL na T1 → 'unresolved' (rate me count nahi hota).
+
+    Return: dict(rate, wins, losses, unresolved, n, breakeven, ...) ya None
+    (data/sample kaafi nahi). Ye ek *unconditional* measurement hai — score
+    par conditioned nahi (score-conditional history reconstruct nahi hoti).
+    """
+    if direction not in ('LONG', 'SHORT'):
+        return None
+    t1_mult = CONFIG['PLAN_T1_MULT'] if t1_mult is None else t1_mult
+    horizon = CONFIG['PLAN_MEASURE_HORIZON'] if horizon is None else horizon
+    min_n = CONFIG['PLAN_MEASURE_MIN_N'] if min_n is None else min_n
+    key = None
+    if symbol:
+        try:
+            key = (str(symbol), direction, round(float(sl_mult), 3),
+                   str(df.index[-1])[:10], len(df))
+        except Exception:
+            key = None
+        if key and key in _PLAN_MEASURE_CACHE:
+            return _PLAN_MEASURE_CACHE[key]
+    try:
+        if df is None or len(df) < max(min_n, horizon) + 20:
+            return None
+        h = df['High'].astype(float).values
+        l = df['Low'].astype(float).values
+        c = df['Close'].astype(float).values
+        prev_c = np.roll(c, 1)
+        prev_c[0] = c[0]
+        tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+        atr = pd.Series(tr).ewm(alpha=1 / 14, min_periods=14, adjust=False).mean().values
+
+        wins = losses = unresolved = 0
+        for i in range(14, len(c) - 1):
+            a = atr[i]
+            if not np.isfinite(a) or a <= 0:
+                continue
+            entry = c[i]
+            if direction == 'LONG':
+                sl, t1 = entry - sl_mult * a, entry + t1_mult * a
+            else:
+                sl, t1 = entry + sl_mult * a, entry - t1_mult * a
+            end = min(i + horizon, len(c) - 1)
+            outcome = None
+            for j in range(i + 1, end + 1):
+                if direction == 'LONG':
+                    if l[j] <= sl:
+                        outcome = 'loss'; break
+                    if h[j] >= t1:
+                        outcome = 'win'; break
+                else:
+                    if h[j] >= sl:
+                        outcome = 'loss'; break
+                    if l[j] <= t1:
+                        outcome = 'win'; break
+            if outcome == 'win':
+                wins += 1
+            elif outcome == 'loss':
+                losses += 1
+            else:
+                unresolved += 1
+
+        n_eff = wins + losses
+        if n_eff < min_n:
+            return None
+        b = t1_mult / sl_mult
+        out = {
+            'rate': round(wins / n_eff, 4),
+            'wins': wins, 'losses': losses, 'unresolved': unresolved,
+            'n': n_eff,
+            'breakeven': round(1.0 / (1.0 + b), 4),
+            'sl_mult': sl_mult, 't1_mult': t1_mult, 'horizon': horizon,
+            'direction': direction,
+            'basis': (f"T1-before-SL backtest ({direction}, SL {sl_mult}x ATR / "
+                      f"T1 {t1_mult}x ATR, {horizon}-bar horizon, is symbol ka daily data)"),
+            'scope': ('unconditional — score par conditioned nahi (score-conditional '
+                      'history reconstruct nahi hoti), isliye ye ek floor hai'),
+        }
+        if key:
+            if len(_PLAN_MEASURE_CACHE) > 64:
+                _PLAN_MEASURE_CACHE.clear()
+            _PLAN_MEASURE_CACHE[key] = out
+        return out
+    except Exception:
+        return None
+
+
 def calculate_risk(price, atr, score, capital=None, action=None,
-                   measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None):
+                   measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None,
+                   plan_measure=None):
     """
     Institutional Kelly risk plan.
 
@@ -2056,10 +2185,31 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     if action is None:
         action = ensemble_score([{'name': 'x', 'score': score}])['action']
     direction = 'SHORT' if 'SHORT' in action else ('LONG' if action.startswith('BUY') else 'NONE')
+    _no_trade = (direction == 'NONE')
 
     atr = max(float(atr or 0), price * 0.005)
-    sl_mult = 1.5 if score >= 78 else 2.0 if score >= 60 else 2.5
-    win_rate = 0.62 if score >= 78 else 0.55 if score >= 60 else 0.45
+    sl_mult, win_rate_assumed = plan_geometry(score)
+
+    # FIX-31: ab 'p' MEASURED hota hai — is plan ka asli T1-before-SL hit-rate
+    _plan = plan_measure if isinstance(plan_measure, dict) else None
+    _measured_ok = bool(_plan and _plan.get('rate') is not None
+                        and (_plan.get('n') or 0) >= CONFIG['PLAN_MEASURE_MIN_N'])
+    # FIX-31: point estimate par seedha size dena over-confident hai — RELIANCE par
+    # 50.93% mila jabki breakeven 50% aur n=214 (se ≈ 3.4pp) — ye sampling error ke
+    # andar hai. Isliye sizing conservative LOWER CONFIDENCE BOUND (1 sd) se hoti hai.
+    _p_hat = _se = _p_lcb = None
+    if _measured_ok:
+        _p_hat = float(_plan['rate'])
+        _n_plan = max(int(_plan.get('n') or 0), 1)
+        _se = math.sqrt(max(_p_hat * (1.0 - _p_hat), 1e-9) / _n_plan)
+        _p_lcb = max(0.0, _p_hat - CONFIG['PLAN_LCB_Z'] * _se)
+        win_rate = round(_p_lcb, 4)
+    else:
+        win_rate = win_rate_assumed
+    _plan_breakeven = (float(_plan['breakeven']) if _measured_ok
+                       else round(1.0 / (1.0 + 2.5 / sl_mult), 4))
+    win_rate_basis_txt = ('measured (T1-before-SL backtest, is symbol ka data)'
+                          if _measured_ok else 'assumed (score-bucket heuristic)')
 
     # FIX-30: ye win_rate ASSUMED hai (score-bucket heuristic) — measured nahi.
     # Ye seedha Kelly sizing me jaata hai (win_rate -> kelly -> qty -> risk_amount),
@@ -2090,11 +2240,29 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         _checks.append(_wr_measured > 0.52)
     if _wf is not None:
         _checks.append((_wf >= _base) if _base is not None else (_wf > 51.0))
-    _edge_verified = bool(_checks) and all(_checks)
+    if _measured_ok:
+        # FIX-31: primary basis — measured plan hit-rate breakeven se upar hai?
+        _edge_verified = bool(win_rate > _plan_breakeven)
+    else:
+        _edge_verified = bool(_checks) and all(_checks)
 
-    if _wr_measured is None:
+    if direction == 'NONE':
+        _risk_note = ("Koi directional trade nahi (verdict neutral) — position size "
+                      "apply nahi hota.")
+    elif _measured_ok:
+        _risk_note = (f"Plan ka ASLI hit-rate measured: {_p_hat:.1%} (n={_plan.get('n')} setups, "
+                      f"breakeven {_plan_breakeven:.1%}). Sizing conservative lower-bound "
+                      f"{_p_lcb:.1%} (±{_se:.1%} sampling error) se — "
+                      f"{'measured edge hai.' if _edge_verified else 'measured edge NAHI (sampling error ke andar) — qty 0 rakha gaya.'}")
+        if _wf is not None:
+            _risk_note += (f" (ML walk-forward {_wf:.1f}%"
+                           + (f" vs baseline {_base:.1f}%" if _base is not None else '') + ")")
+        if _wf is not None:
+            _risk_note += (f" (ML walk-forward {_wf:.1f}%"
+                           + (f" vs baseline {_base:.1f}%" if _base is not None else '') + ")")
+    elif _wr_measured is None:
         _risk_note = (f"Position size {win_rate:.0%} ASSUMED win-rate par based hai "
-                      f"(verified nahi) — koi measured accuracy available nahi.")
+                      f"(verified nahi) — measured plan sample nahi mila.")
     else:
         _gap = (win_rate - _wr_measured) * 100
         _wf_txt = ""
@@ -2133,7 +2301,15 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         'kelly_rr_used': round(b, 2),
         # FIX-30: risk plan ka basis disclose karo (assumed vs measured)
         'win_rate_used': win_rate,
-        'win_rate_basis': 'assumed (score-bucket heuristic)',
+        'win_rate_basis': ('n/a (no directional trade)' if _no_trade else win_rate_basis_txt),
+        'win_rate_assumed': win_rate_assumed,
+        'plan_hit_rate': round(_p_hat, 4) if _measured_ok else None,
+        'plan_hit_rate_lcb': round(_p_lcb, 4) if _measured_ok else None,
+        'plan_std_err': round(_se, 4) if _measured_ok else None,
+        'plan_sample_size': int(_plan['n']) if _measured_ok else None,
+        'plan_breakeven': round(_plan_breakeven, 4) if _measured_ok else None,
+        'plan_basis': (_plan.get('basis') if _measured_ok else None),
+        'plan_scope': (_plan.get('scope') if _measured_ok else None),
         'win_rate_measured': _wr_measured,
         'accuracy_walk_forward': _wf,
         'accuracy_baseline': _base,
@@ -2148,7 +2324,8 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         'rr_ratio': round(b, 2),
         'entry_zone': f"₹{round(price - 0.3 * atr, 2)} - ₹{round(price + 0.2 * atr, 2)}",
         'trail_sl_plan': f"T1 hit hone ke baad SL ko ₹{round(price, 2)} (Cost) pe shift karein",
-        'exec_status': ("🟢 READY TO BUY" if score >= 78 else
+        'exec_status': ("⚠️ NO TRADE (measured edge nahi)" if (_measured_ok and direction != 'NONE' and kelly <= 0) else
+                        "🟢 READY TO BUY" if score >= 78 else
                         "🟡 WAIT FOR DIP" if score >= 65 else
                         "🔴 SHORT SETUP" if direction == 'SHORT' else
                         "⚠️ WATCHLIST / NO TRADE")
@@ -2262,10 +2439,18 @@ def stock_api(symbol):
         _ml_acc = ml_res.get('ensemble_accuracy') if isinstance(ml_res, dict) else None
         _ml_wf = ml_res.get('walk_forward_accuracy') if isinstance(ml_res, dict) else None
         _ml_base = ml_res.get('baseline_accuracy') if isinstance(ml_res, dict) else None
+        # FIX-31: is plan ka ASLI hit-rate measure karo — Kelly ka 'p' ab
+        # 0.62/0.55/0.45 assumption se nahi, balki symbol ke data se aata hai
+        _dir = ('SHORT' if 'SHORT' in str(ens['action'])
+                else 'LONG' if str(ens['action']).startswith('BUY') else 'NONE')
+        _sl_mult, _ = plan_geometry(ens['score'])
+        _plan = (measure_plan_hit_rate(df, _dir, _sl_mult, symbol=resolved)
+                 if _dir != 'NONE' else None)
         risk = calculate_risk(price, atr, ens['score'], action=ens['action'],
                               measured_accuracy=_ml_acc,
                               measured_wf_accuracy=_ml_wf,
-                              measured_baseline=_ml_base)
+                              measured_baseline=_ml_base,
+                              plan_measure=_plan)
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 

@@ -1331,6 +1331,8 @@ function render(d) {
     <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${money(rk.capital)}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>
+    ${(rk.plan_hit_rate === null || rk.plan_hit_rate === undefined) ? '' :
+      `<div class="ind-row"><span style="color:var(--text-secondary)">Measured plan win-rate</span><span class="mono" style="color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-red)'}">${(rk.plan_hit_rate * 100).toFixed(1)}% <span style="color:var(--text-muted);font-size:0.65rem">(n=${rk.plan_sample_size}, breakeven ${(rk.plan_breakeven * 100).toFixed(1)}%, lower-bound ${(rk.plan_hit_rate_lcb * 100).toFixed(1)}%)</span></span></div>`}
     ${(rk.win_rate_used === null || rk.win_rate_used === undefined) ? '' : `<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${rk.risk_note || ('Position size ' + (rk.win_rate_used * 100).toFixed(0) + '% ASSUMED win-rate par based hai — verified nahi.')}</div>`}`;
 
   // Technical SMC & Contraction Patterns Sizer
