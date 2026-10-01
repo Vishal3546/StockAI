@@ -1320,6 +1320,7 @@ function render(d) {
   document.getElementById('mtfGrid').innerHTML = mtfHtmlMarkup;
 
   // Position Sizing Output Sizer
+  // FIX-30: risk plan neeche apna win-rate ASSUMPTION disclose karta hai
   document.getElementById('riskPlan').innerHTML = `
     <div class="row g-2 mb-2">
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly %</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div></div></div>
@@ -1329,7 +1330,8 @@ function render(d) {
     <div class="ind-row"><span style="color:var(--text-secondary)">Direction</span><span class="mono">${sv(rk.direction, 'NONE')}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${money(rk.capital)}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
-    <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>`;
+    <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>
+    ${(rk.win_rate_used === null || rk.win_rate_used === undefined) ? '' : `<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${rk.risk_note || ('Position size ' + (rk.win_rate_used * 100).toFixed(0) + '% ASSUMED win-rate par based hai — verified nahi.')}</div>`}`;
 
   // Technical SMC & Contraction Patterns Sizer
   const smc = (d.engines && d.engines.smc) || {};

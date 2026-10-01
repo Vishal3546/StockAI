@@ -2036,7 +2036,8 @@ def ensemble_v2(engines, ens):
     }
 
 
-def calculate_risk(price, atr, score, capital=None, action=None):
+def calculate_risk(price, atr, score, capital=None, action=None,
+                   measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None):
     """
     Institutional Kelly risk plan.
 
@@ -2059,6 +2060,50 @@ def calculate_risk(price, atr, score, capital=None, action=None):
     atr = max(float(atr or 0), price * 0.005)
     sl_mult = 1.5 if score >= 78 else 2.0 if score >= 60 else 2.5
     win_rate = 0.62 if score >= 78 else 0.55 if score >= 60 else 0.45
+
+    # FIX-30: ye win_rate ASSUMED hai (score-bucket heuristic) — measured nahi.
+    # Ye seedha Kelly sizing me jaata hai (win_rate -> kelly -> qty -> risk_amount),
+    # to pehle UI par "Position Size (Kelly)" ek verified number jaisa lagta tha.
+    # Ab basis + measured comparison response me jaate hain aur dashboard label karta hai.
+    _wr_measured = None
+    if measured_accuracy is not None:
+        try:
+            _m = float(measured_accuracy)
+            _wr_measured = round(_m / 100.0, 4) if _m > 1 else round(_m, 4)
+        except (TypeError, ValueError):
+            _wr_measured = None
+    try:
+        _wf = float(measured_wf_accuracy) if measured_wf_accuracy is not None else None
+    except (TypeError, ValueError):
+        _wf = None
+    try:
+        _base = float(measured_baseline) if measured_baseline is not None else None
+    except (TypeError, ValueError):
+        _base = None
+
+    # edge_verified = conservative: sirf tab True jab measured accuracy > 52% AUR
+    # walk-forward accuracy bhi baseline se kam na ho. Ek hi achha number kaafi nahi
+    # (ensemble accuracy in-sample ho sakti hai — RELIANCE par 53.9% ensemble vs
+    #  49.4% walk-forward dekha gaya tha).
+    _checks = []
+    if _wr_measured is not None:
+        _checks.append(_wr_measured > 0.52)
+    if _wf is not None:
+        _checks.append((_wf >= _base) if _base is not None else (_wf > 51.0))
+    _edge_verified = bool(_checks) and all(_checks)
+
+    if _wr_measured is None:
+        _risk_note = (f"Position size {win_rate:.0%} ASSUMED win-rate par based hai "
+                      f"(verified nahi) — koi measured accuracy available nahi.")
+    else:
+        _gap = (win_rate - _wr_measured) * 100
+        _wf_txt = ""
+        if _wf is not None:
+            _wf_txt = f", walk-forward {_wf:.1f}%" + (f" vs baseline {_base:.1f}%" if _base is not None else "")
+        _risk_note = (f"Position size {win_rate:.0%} ASSUMED win-rate par based hai (verified nahi). "
+                      f"Model ki measured accuracy {_wr_measured:.1%}{_wf_txt} ({_gap:+.1f}pp gap) — "
+                      f"{'verified edge mila hai' if _edge_verified else 'verified edge NAHI mila'}; "
+                      f"Kelly allocation ko definite edge ki tarah na maanein.")
 
     if direction == 'SHORT':
         sl, t1, t2, t3 = price + atr * sl_mult, price - atr * 2.5, price - atr * 4.0, price - atr * 6.0
@@ -2086,6 +2131,14 @@ def calculate_risk(price, atr, score, capital=None, action=None):
         't3': round(t3, 2),
         'kelly_pct': round(kelly * 100, 1),
         'kelly_rr_used': round(b, 2),
+        # FIX-30: risk plan ka basis disclose karo (assumed vs measured)
+        'win_rate_used': win_rate,
+        'win_rate_basis': 'assumed (score-bucket heuristic)',
+        'win_rate_measured': _wr_measured,
+        'accuracy_walk_forward': _wf,
+        'accuracy_baseline': _base,
+        'edge_verified': _edge_verified,
+        'risk_note': _risk_note,
         'qty': qty,
         'qty_uncapped': qty_by_risk,
         'capital': capital,
@@ -2204,7 +2257,15 @@ def stock_api(symbol):
         engines = [e1, e2, e3, e4, e5, e6]
 
         ens = ensemble_score(engines)
-        risk = calculate_risk(price, atr, ens['score'], action=ens['action'])
+        # FIX-30: ML ka measured accuracy bhi bhejo — risk plan ab apna win-rate
+        # assumption disclose karta hai (pehle 0.62/0.55/0.45 chup-chaap use hote the)
+        _ml_acc = ml_res.get('ensemble_accuracy') if isinstance(ml_res, dict) else None
+        _ml_wf = ml_res.get('walk_forward_accuracy') if isinstance(ml_res, dict) else None
+        _ml_base = ml_res.get('baseline_accuracy') if isinstance(ml_res, dict) else None
+        risk = calculate_risk(price, atr, ens['score'], action=ens['action'],
+                              measured_accuracy=_ml_acc,
+                              measured_wf_accuracy=_ml_wf,
+                              measured_baseline=_ml_base)
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 

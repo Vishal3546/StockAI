@@ -76,6 +76,10 @@ if (payloadPath && fs.existsSync(payloadPath)) {
   if (p.ensemble?.score != null) check('real master score ' + p.ensemble.score, new RegExp('Master Score: ' + p.ensemble.score + '/100').test(v));
   if (p.ml?.probability != null) check('real ML probability ' + p.ml.probability + '%', v.includes(p.ml.probability + '%'));
   check('gauges fill hue (khaali nahi)', Math.abs(parseFloat(w.document.getElementById('gMaster').style.strokeDashoffset) - 2 * Math.PI * 47) > 0.01);
+  if (p.risk && p.risk.win_rate_used != null) {
+    check('risk basis disclosure dikhta hai (FIX-30)', /ASSUMED win-rate/.test(txt('riskPlan')));
+    check('disclosure me measured accuracy', /measured accuracy \d/.test(txt('riskPlan')));
+  }
 } else {
   console.log('\n[3] real payload — skip (koi payload path nahi diya)');
 }
