@@ -2,6 +2,51 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-40 addendum — 2026-10-01 (H-11 engine weights: measured, then left alone)
+
+Audit ka claim tha: *"Volume Profile aur Regime near-constant hain — weights redesign
+chahiye."* Regime ka hissa FIX-33 me nipat gaya tha (stock-rank weight 0). Volume
+Profile ka hissa maine **measure** kiya — aur evidence ne claim ko ulta kar diya,
+isliye weights **badle nahi gaye**.
+
+**Naya data (250 completed sessions × 29 stocks = 7,250 observations).** Builder ab har
+session/symbol ke chaaron daily engine scores bhi store karta hai (short keys), isliye
+composite ko engine scores se dobara banaya ja sakta hai — `verify_engine_history()`
+**0 mismatch** deta hai. Artifact me `engine_dispersion` block bhi hai.
+
+Cross-sectional spread (ek din, alag stocks — yahi ranking information hai):
+
+| engine | mean session SD | min | max | flat (<2) sessions | unique values | range | weight |
+|---|---|---|---|---|---|---|---|
+| Volume Profile | **14.63** | 7.63 | 18.39 | 0.0% | 4 | 35–75 | 0.12 |
+| RVOL + CVD + VSA | 13.01 | 6.71 | 17.64 | 0.0% | 28 | 18–90 | 0.20 |
+| VCP V2 | 8.59 | 3.95 | 11.84 | 0.0% | 14 | 30–75 | 0.15 |
+| SMC / ICT | 7.97 | 5.02 | 12.28 | 0.0% | 11 | 35–85 | 0.15 |
+
+Koi engine cross-sectionally flat nahi hai. Volume Profile sabse *zyada* spread karta
+hai (par sirf 4 distinct values par — coarse bucket jaisa). Spearman rho vs composite:
+RVOL +0.717, Volume Profile +0.461, SMC +0.397, VCP +0.334. Drop-one simulation (engine
+hatakar weights renormalize): band change **33.6% / 34.9% / 32.3% / 25.0%** — yaani
+charon engine ranking ko materially badalte hain.
+
+**Faisla:** is evidence par kisi engine ko drop karna ya weights badalna justified nahi.
+Badla hota to poori calibration dobara fit karni padti — bina measured reason ke wo sirf
+churn hota. Purana "near-constant" observation galat nahi tha, wo *time-series* (ek stock,
+alag din) dekh raha tha; ranking ke liye jo matter karta hai wo cross-section hai.
+
+**Naya tool:** `python tools/analyze_engine_dispersion.py` — offline (koi network nahi),
+stored per-engine history se cross-sectional + time-series spread, Spearman rho aur
+drop-one simulation print karta hai. Weight ka faisla future me isi se ho.
+
+Verified: `tools/verify_score_calibration.py` **75/75** (naye 11 checks — per-engine
+history present, key mapping, 0-mismatch integrity, `stock_rank_from_map` round-trip,
+dispersion block complete + internally consistent + recomputation se match, koi flat
+engine nahi, tampered engine history reject). Regression: startup 46/46, security
+118/118, kelly 37/37, sentinels 48/48, risk-basis 45/45, no-fake 23/23, live-quote 38/38.
+
+**Ye diagnostics hain, alpha nahi** — dispersion ye nahi batati ki koi weighting
+profitable hai.
+
 ## FIX-39 addendum — 2026-10-01 (startup + offline hygiene: M-9, M-8, M-7)
 
 **M-9 — import par network call.** `load_dynamic_nse_stocks()` module level par
@@ -577,7 +622,7 @@ nifty_scanner_v3_6.py
 | H-8 | "VWAP" = 2-year cumulative, drives intraday KPI | ✅ Solved (FIX-05) |
 | H-9 | Resolver: `INFOSYS LTD` → HCL-INSYS | ✅ Solved (FIX-01) |
 | H-10 | Scanner volume/ML-threshold issues | ✅ Solved (FIX-S2, FIX-S3) |
-| H-11 | Near-constant engine "scores" | ⚠️ **Partially** — measured & documented, VCP/MTF re-centred as diagnostic; Volume Profile and Regime still near-constant (weights need redesign) |
+| H-11 | Near-constant engine "scores" | ✅ **Measured & closed (FIX-40)** — 250-session cross-sectional dispersion ne "Volume Profile near-constant" claim ko **refute** kiya: meanSD 14.63 (sabse zyada), flat sessions 0%. Charon engine rank me yogdaan dete hain (drop-one se 25–35% band change). Weights **unchanged** — change ka koi measured basis nahi tha |
 | H-12 | `NaN → 0.0` fabricates indicators | ✅ Solved (FIX-02 + selector D11) |
 | M-1 | `pip install -r requirements.txt` fails | ✅ Solved — `requirements_fixed.txt` verified installable |
 | M-2 | numpy 1.26.4 has no cp313 wheels | ⚠️ Documented; on 3.13 use `numpy>=2.1` (still open if you pin 1.26.4) |

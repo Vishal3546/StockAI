@@ -44,6 +44,23 @@ PERCENTILES = {
 }
 
 
+# ── H-11: engine-level audit ───────────────────────────────────────────────
+# Composite score akela kaafi nahi batata — kaunsa engine actually stocks ko
+# ALAG karta hai aur kaunsa sabko ek jaisa number dekar sirf offset jodta hai,
+# ye per-engine cross-sectional dispersion se hi pata chalta hai. Isliye builder
+# ab har session/symbol ke chaaron engine scores bhi store karta hai (chhote keys)
+# taaki weights ka faisla offline, bina history dobara download kiye, re-analyse
+# ho sake — aur stored composite ko engine scores se dobara banakar verify kiya
+# ja sake.
+ENGINE_KEYS = {
+    'vp': 'Volume Profile',
+    'rvol': 'RVOL + CVD + VSA',
+    'vcp': 'VCP V2',
+    'smc': 'SMC / ICT',
+}
+ENGINE_KEYS_REV = {v: k for k, v in ENGINE_KEYS.items()}
+
+
 class CalibrationError(ValueError):
     """Never silently use a missing, stale or incomparable calibration."""
 
@@ -89,6 +106,88 @@ def stock_rank(engines):
         'note': (f'Degraded engines averaging se exclude kiye: {", ".join(excluded)}'
                  if excluded else None)
     }
+
+
+def stock_rank_from_map(engine_map):
+    """{'vp': 52, 'rvol': 61, …} → stock_rank() — offline recomputation."""
+    engines = [{'name': ENGINE_KEYS[k], 'score': v}
+               for k, v in (engine_map or {}).items() if k in ENGINE_KEYS]
+    return stock_rank(engines)
+
+
+def verify_engine_history(history):
+    """Har stored composite ko engine scores se dobara banao; mismatch count lao.
+
+    0 mismatch ka matlab stored engine data aur displayed score ek hi cheez hain
+    (koi alag/seeded number nahi). Non-zero matlab artifact edited/adhoora hai.
+    """
+    bad = 0
+    for row in history or ():
+        engines = row.get('engines') if isinstance(row, dict) else None
+        if not isinstance(engines, dict):
+            continue
+        for symbol, composite in (row.get('scores') or {}).items():
+            recomputed = stock_rank_from_map(engines.get(symbol))
+            if recomputed.get('score') != composite:
+                bad += 1
+    return bad
+
+
+def _std(values):
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1))
+
+
+def engine_dispersion(history):
+    """Per-engine cross-sectional dispersion over the fitted window.
+
+    Har session me ek engine ke scores ka spread (std) nikalte hain — wahi spread
+    ranking me information hai. Sab stocks ko ~same number dene wala engine
+    cross-sectionally flat hota hai: wo har stock par same offset jodta hai, isliye
+    *relative rank* me kuch nahi badalta (sirf absolute score scale badalta hai).
+
+    Return per engine: pooled_std · mean/min/max session std · unique values ·
+    flat_sessions (std < 2 wale sessions ka share) · observed range.
+    """
+    stats = {k: {'pooled': [], 'session_std': [], 'values': set()}
+             for k in ENGINE_KEYS}
+    for row in history or ():
+        engines = row.get('engines') if isinstance(row, dict) else None
+        if not isinstance(engines, dict):
+            continue
+        per_key = {k: [] for k in ENGINE_KEYS}
+        for engine_map in engines.values():
+            if not isinstance(engine_map, dict):
+                continue
+            for k, v in engine_map.items():
+                if k in ENGINE_KEYS and isinstance(v, (int, float)) and not isinstance(v, bool):
+                    per_key[k].append(v)
+                    stats[k]['pooled'].append(v)
+                    stats[k]['values'].add(v)
+        for k, values in per_key.items():
+            if len(values) >= 2:
+                stats[k]['session_std'].append(_std(values))
+    out = {}
+    for k, d in stats.items():
+        ss = d['session_std']
+        pooled = d['pooled']
+        if not ss:
+            continue
+        out[ENGINE_KEYS[k]] = {
+            'key': k,
+            'pooled_std': round(_std(pooled), 3),
+            'mean_session_std': round(sum(ss) / len(ss), 3),
+            'min_session_std': round(min(ss), 3),
+            'max_session_std': round(max(ss), 3),
+            'flat_session_share': round(sum(1 for x in ss if x < 2.0) / len(ss), 4),
+            'unique_values': len(d['values']),
+            'min_value': min(pooled), 'max_value': max(pooled),
+            'sessions': len(ss),
+        }
+    return out
 
 
 def _quantile(sorted_values, probability):
@@ -149,9 +248,13 @@ def fit_history(history, *, min_sessions=WINDOW_SESSIONS,
     }
 
 
-def build_artifact(history, formula_hash, source):
+def build_artifact(history, formula_hash, source, *, engine_dispersion_block=None):
     """CLI writes this audited JSON atomically; include score history, not just cutoffs."""
     fitted = fit_history(history)
+    mismatch = verify_engine_history(history)
+    if mismatch:
+        raise CalibrationError(
+            f'{mismatch} stored composite scores engine history se match nahi karte')
     if not isinstance(formula_hash, str) or len(formula_hash) < 12:
         raise CalibrationError('missing formula hash')
     return {
@@ -162,6 +265,9 @@ def build_artifact(history, formula_hash, source):
         'history': history, 'asof_session': fitted['asof_session'],
         'thresholds': fitted['thresholds'], 'samples': fitted['samples'],
         'sessions': fitted['sessions'],
+        'engine_keys': ENGINE_KEYS,
+        # H-11: per-engine cross-sectional dispersion (weight decisions ka basis)
+        'engine_dispersion': engine_dispersion_block or engine_dispersion(history),
     }
 
 

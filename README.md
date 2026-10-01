@@ -118,6 +118,18 @@ skips today's partial candle *and* the current ranked completed session to avoid
 It writes atomically, validates formula hash/weights/universe and refuses an incomplete rebuild.
 Verify offline: `python tools/verify_score_calibration.py` (64 checks) plus existing suites.
 
+**Engine weight audit (FIX-40):** artifact ab har session/symbol ke per-engine scores
+bhi rakhta hai, isliye composite offline recomputable hai (`verify_engine_history()` = 0
+mismatch). Weight/redesign ka koi bhi faisla pehle measure karein:
+
+```powershell
+python tools\analyze_engine_dispersion.py
+```
+
+Ye cross-sectional spread, time-series spread, composite se Spearman rho aur drop-one
+simulation (band change %) print karta hai — bina network ke. Current evidence par
+weights unchanged hain: koi engine cross-sectionally flat nahi hai.
+
 **Security (FIX-35) — server chalane se pehle:**
 
 | Env var | Default | Kaam |

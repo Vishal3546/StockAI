@@ -71,6 +71,7 @@ def backfill(frames, *, max_sessions=C.WINDOW_SESSIONS, exclude_latest_sessions=
     # Keep a small cushion for holidays/coverage gaps before final 250.
     min_day = candidate_days[max(0, len(candidate_days) - max_sessions - 40)]
     daily = defaultdict(dict)
+    engines_daily = defaultdict(dict)   # H-11: per-engine scores bhi record karo
     funcs = (A.engine_volume_profile, A.engine_rvol_cvd, A.engine_vcp, A.engine_smc)
     for symbol in C.UNIVERSE:
         df = frames.get(symbol)
@@ -82,12 +83,20 @@ def backfill(frames, *, max_sessions=C.WINDOW_SESSIONS, exclude_latest_sessions=
             if d < min_day or d >= latest:
                 continue
             window = df.iloc[i + 1 - C.LOOKBACK_BARS:i + 1]
-            score = C.stock_rank([fn(window) for fn in funcs])
+            engines = [fn(window) for fn in funcs]
+            score = C.stock_rank(engines)
             if score['complete'] and score['score'] is not None:
                 daily[d.isoformat()][symbol] = score['score']
+                # H-11: raw engine scores (chhote keys) — inhi se composite dobara
+                # banaya ja sakta hai, isliye weight redesign offline analyse hota hai.
+                engines_daily[d.isoformat()][symbol] = {
+                    C.ENGINE_KEYS_REV[e['name']]: int(round(e['score']))
+                    for e in engines if e.get('name') in C.ENGINE_KEYS_REV
+                }
                 counted += 1
         print(f'  {symbol:<12} scored {counted} as-of sessions', flush=True)
-    history = [{'session': day, 'scores': daily[day]}
+    history = [{'session': day, 'scores': daily[day],
+                'engines': engines_daily[day]}
                for day in sorted(daily) if len(daily[day]) >= C.MIN_COVERAGE]
     return history[-max_sessions:]
 

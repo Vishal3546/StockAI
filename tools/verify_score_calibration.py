@@ -64,7 +64,11 @@ check('scanner universe single source of truth',
 builder_src = (ROOT / 'tools/build_score_calibration.py').read_text(encoding='utf-8')
 check('builder never uses scanner one-run composite as score history',
       "['composite']" not in builder_src and "scan_results.json', 'r'" not in builder_src
-      and 'C.stock_rank([fn(window) for fn in funcs])' in builder_src)
+      # FIX-40 (H-11): builder ab engines ko pehle list me rakhta hai (per-engine
+      # history record karne ke liye), phir wahi C.stock_rank() call karta hai.
+      and 'C.stock_rank(engines)' in builder_src
+      and 'engines = [fn(window) for fn in funcs]' in builder_src
+      and 'C.ENGINE_KEYS_REV' in builder_src)
 
 bad = copy.deepcopy(artifact); bad['thresholds']['buy_dip'] += 1
 rejects('edited threshold rejected (recomputed from raw history)',
@@ -280,6 +284,56 @@ if res1.status_code == 200 and res2.status_code == 200:
 else:
     print('  ❌ Flask payload checks skipped after HTTP failure')
     checks.extend([('Flask payload checks', False)] * 4)
+
+# ── [7] H-11 · per-engine history + dispersion audit ─────────────────────
+print('\n[7] H-11 — per-engine history, integrity aur dispersion evidence')
+hist = artifact.get('history') or ()
+check('har session me per-engine scores hain',
+      all(isinstance(r.get('engines'), dict) and len(r['engines']) >= C.MIN_COVERAGE for r in hist),
+      f"{len(hist)} sessions")
+check('engine short-keys mapping DAILY_WEIGHTS se match karti hai',
+      set(C.ENGINE_KEYS.values()) == set(C.DAILY_WEIGHTS)
+      and artifact.get('engine_keys') == C.ENGINE_KEYS)
+check('stored composite engine history se dobara banta hai (0 mismatch)',
+      C.verify_engine_history(hist) == 0, f"mismatch={C.verify_engine_history(hist)}")
+
+sample_row = hist[-1]
+sample_sym = next(iter(sample_row['scores']))
+check('stock_rank_from_map() stored composite deta hai',
+      C.stock_rank_from_map(sample_row['engines'][sample_sym])['score']
+      == sample_row['scores'][sample_sym],
+      f"{sample_sym}: {sample_row['scores'][sample_sym]}")
+
+disp = artifact.get('engine_dispersion') or {}
+check('engine_dispersion block chaaron engines ke saath hai',
+      set(disp) == set(C.DAILY_WEIGHTS), str(sorted(disp)))
+flat = [n for n, d in disp.items() if d.get('mean_session_std', 0) < 2.0]
+check('koi engine cross-sectionally FLAT nahi (meanSD >= 2) — drop justified nahi',
+      not flat, '; '.join(f"{n}={disp[n]['mean_session_std']}" for n in disp))
+check('dispersion stats internally consistent',
+      all(d['min_session_std'] <= d['mean_session_std'] <= d['max_session_std']
+          and d['sessions'] == C.WINDOW_SESSIONS and d['unique_values'] >= 1
+          and d['min_value'] <= d['max_value'] for d in disp.values()))
+check('dispersion sessions == fitted sessions',
+      all(d['sessions'] == artifact['sessions'] for d in disp.values()))
+
+# recomputed dispersion stored block se match kare (koi hand-edited number nahi)
+recomputed = C.engine_dispersion(hist)
+check('stored dispersion block recomputation se match karta hai',
+      {k: v['mean_session_std'] for k, v in recomputed.items()}
+      == {k: v['mean_session_std'] for k, v in disp.items()})
+
+# tamper: ek engine score badlo → build_artifact reject kare
+tampered = copy.deepcopy(hist[:C.WINDOW_SESSIONS])
+_first_sym = next(iter(tampered[0]['engines']))
+_first_key = next(iter(tampered[0]['engines'][_first_sym]))
+tampered[0]['engines'][_first_sym][_first_key] = (
+    tampered[0]['engines'][_first_sym][_first_key] + 30) % 100
+rejects('engine history tamper hone par artifact reject (composite mismatch)',
+        lambda: C.build_artifact(tampered, A.score_formula_hash(), source='test'))
+
+check('analysis tool maujood hai (offline re-analysis)',
+      (ROOT / 'tools' / 'analyze_engine_dispersion.py').is_file())
 
 passed = sum(ok for _, ok in checks)
 failed = len(checks) - passed
