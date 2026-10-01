@@ -24,6 +24,74 @@ _TV, _TV_LOCK, _TV_OK = None, threading.RLock(), [True]
 _IST = ZoneInfo('Asia/Kolkata')
 
 
+# ── FIX-43 (C-3): fitted signal bands ──
+# Signal bands ab measured distribution se aate hain (tools/build_scanner_bands.py
+# → scanner_bands.json), hardcoded 70/60/45/35 se nahi. Missing/stale/invalid
+# artifact → signal 'UNRATED' (fail CLOSED): purane bands ML-neutralised case me
+# 96.4% WATCH dete the aur BUY/STRONG BUY kabhi nahi de sakte the.
+BANDS_PATH = 'scanner_bands.json'
+BANDS_SCHEMA = 1
+BANDS_MODEL = 'scanner-bands-ens-percentile-v1'
+BANDS_MAX_AGE_DAYS = 60
+_bands_cache = {'mtime': None, 'size': None, 'data': None}
+_bands_lock = threading.Lock()
+
+
+def load_scanner_bands():
+    """(bands_dict, None) ya (None, reason). Kabhi bhi guess nahi karta."""
+    import os
+    from datetime import datetime, timezone
+    try:
+        st = os.stat(BANDS_PATH)
+    except OSError:
+        return None, ('signal bands absent — python tools/build_scanner_bands.py '
+                      'chalayein (hardcoded bands measured distribution se match '
+                      'nahi karte the)')
+    with _bands_lock:
+        if (_bands_cache['mtime'] == st.st_mtime and _bands_cache['size'] == st.st_size
+                and _bands_cache['data'] is not None):
+            return _bands_cache['data'], None
+        try:
+            doc = json.loads(open(BANDS_PATH, encoding='utf-8').read())
+            if doc.get('schema') != BANDS_SCHEMA or doc.get('model') != BANDS_MODEL:
+                return None, f'signal bands schema/model mismatch ({doc.get("model")})'
+            b = doc.get('bands') or {}
+            for k in ('STRONG BUY', 'BUY', 'WATCH', 'SELL'):
+                if not isinstance(b.get(k), (int, float)):
+                    return None, f'signal bands incomplete (missing {k})'
+            if not (b['STRONG BUY'] > b['BUY'] > b['WATCH'] > b['SELL']):
+                return None, 'signal bands not monotonically decreasing'
+            age = None
+            try:
+                ts = datetime.fromisoformat(doc['generated_at_utc'])
+                age = (datetime.now(timezone.utc) - ts).days
+            except Exception:
+                pass
+            if age is None:
+                return None, 'signal bands have no valid generated_at_utc'
+            if age > BANDS_MAX_AGE_DAYS:
+                return None, (f'signal bands {age}d purane hain (max {BANDS_MAX_AGE_DAYS}d) — '
+                              'python tools/build_scanner_bands.py dobara chalayein')
+            doc['_age_days'] = age
+            _bands_cache.update(mtime=st.st_mtime, size=st.st_size, data=doc)
+            return doc, None
+        except Exception as exc:
+            return None, f'signal bands unreadable ({type(exc).__name__})'
+
+
+def signal_from_bands(score, bands):
+    """Fitted ens-percentile bands. Relative ranking hai — profit ka proof nahi."""
+    if score >= bands['STRONG BUY']:
+        return 'STRONG BUY'
+    if score >= bands['BUY']:
+        return 'BUY'
+    if score >= bands['WATCH']:
+        return 'WATCH'
+    if score >= bands['SELL']:
+        return 'SELL'
+    return 'STRONG SELL'
+
+
 def _tv_connection():
     global _TV
     with _TV_LOCK:
@@ -290,24 +358,35 @@ def scan_stock(symbol):
         ens_score, eng_scores = calculate_ensemble(df)
         ml_prob, ml_acc, ml_baseline, ml_edge = calculate_real_ml(df)
 
-        # 🛡️ FILTER FAKE ML SIGNALS: If ML Edge is Negative, don't trust ML probability
+        # ML probability diagnostic ke liye hai. Negative edge par neutralise —
+        # lekin ab ye signal ko GATE nahi karta (FIX-43/C-3): FIX-41 ne 53,295 OOS
+        # predictions par dikhaya ki ML edge +1.14pp ±0.74 hai, yaani noise. Ek
+        # noise number par BUY gate lagana matlab signal ko coin-flip se rokna.
         if ml_edge < 0:
-            effective_ml_prob = 50.0 # Neutralize ML contribution if model underperforms baseline
+            effective_ml_prob = 50.0  # Neutralize ML contribution if model underperforms baseline
         else:
             effective_ml_prob = ml_prob
 
+        # Legacy composite — sirf continuity/diagnostic ke liye payload me rehta hai.
         composite = int(ens_score * 0.55 + effective_ml_prob * 0.45)
 
-        if composite >= 70 and effective_ml_prob >= 55:
-            signal = "STRONG BUY"
-        elif composite >= 60 and effective_ml_prob >= 52:
-            signal = "BUY"
-        elif composite >= 45:
-            signal = "WATCH"
-        elif composite >= 35:
-            signal = "SELL"
+        # FIX-43 (C-3): signal ab FITTED percentile bands se aata hai
+        # (scanner_bands.json), purane hardcoded 70/60/45/35 se nahi. Measurement
+        # (7,250 stock-sessions) ne dikhaya tha ki purane bands ML-neutralised case
+        # me STRONG BUY/BUY/STRONG SELL kabhi nahi de sakte: 96.4% WATCH, 3.6% SELL.
+        bands, bands_err = load_scanner_bands()
+        if bands is None:
+            signal = 'UNRATED'
+            signal_basis = bands_err
         else:
-            signal = "STRONG SELL"
+            signal = signal_from_bands(ens_score, bands['bands'])
+            signal_basis = (f"fitted ens percentiles p95/p80/p40/p10 = "
+                            f"{bands['bands']['STRONG BUY']:.0f}/"
+                            f"{bands['bands']['BUY']:.0f}/"
+                            f"{bands['bands']['WATCH']:.0f}/"
+                            f"{bands['bands']['SELL']:.0f} "
+                            f"({bands['n_stock_sessions']:,} sessions, as-of "
+                            f"{bands['generated_at_utc'][:10]}); ML diagnostic only")
 
         atr = float(L['ATR']) if pd.notna(L['ATR']) else float(L['Close']) * 0.02
         price = float(L['Close'])
@@ -331,6 +410,10 @@ def scan_stock(symbol):
             'ml_used_in_composite': ml_edge >= 0,
             'composite': composite,
             'signal': signal,
+            # FIX-43 (C-3): signal kis basis par bana — fitted bands ya 'absent'.
+            # Score jo signal drive karta hai wo ens hai, composite nahi.
+            'signal_score': ens_score,
+            'signal_basis': signal_basis,
             'sl': round(price - 1.5 * atr, 2),
             't1': round(price + 2.0 * atr, 2),
             't2': round(price + 3.5 * atr, 2)
@@ -406,8 +489,14 @@ def run_full_scan():
     buys = [r for r in results if "BUY" in r['signal']]
     sells = [r for r in results if "SELL" in r['signal']]
     watches = [r for r in results if r['signal'] == "WATCH"]
+    unrated = [r for r in results if r['signal'] == 'UNRATED']
 
-    print(f"\n  📊 Summary: {len(buys)} BUY | {len(watches)} WATCH | {len(sells)} SELL")
+    print(f"\n  📊 Summary: {len(buys)} BUY | {len(watches)} WATCH | {len(sells)} SELL"
+          + (f" | {len(unrated)} UNRATED" if unrated else ""))
+    # FIX-43 (C-3): signal ka basis chhupa nahi — fitted bands ya honest absent-state
+    if results:
+        print(f"  📐 Signal basis: {results[0].get('signal_basis', 'n/a')}")
+        print("  ⚠️ Ye relative ranking hai (fitted percentiles), validated profit nahi.")
     if buys:
         print(f"  🏆 Top Validated Buys: {', '.join([r['symbol'] for r in buys[:5]])}")
     if sells:

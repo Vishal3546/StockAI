@@ -2,6 +2,67 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-43 addendum — 2026-10-01 (C-3 scanner thresholds: measured, then refitted)
+
+C-3 audit me likha tha *"score scale uncalibrated → 0 BUYs possible"*. Maine pehle
+**measure** kiya (aapki approval ke mutabik), aur natija audit ke claim se bhi zyada
+kharab nikla: bands sirf uncalibrated nahi the, **structurally unreachable** the.
+
+**Measurement — 29 symbols × 250 sessions = 7,250 stock-sessions**, scanner ke asli
+`calculate_indicators`/`calculate_ensemble` se (`tools/analyze_scanner_thresholds.py`):
+
+| quantity | min | p10 | p40 | median | mean | p80 | p95 | max |
+|---|---|---|---|---|---|---|---|---|
+| ensemble score | 38 | 44 | 51 | 53 | 53.0 | 60 | 63 | 66 |
+| composite (ML-neutralised) | 43 | 46 | 50 | 51 | 51.1 | 55 | 57 | 58 |
+
+Purane hardcoded bands ka isi distribution par output:
+
+| signal | count | share |
+|---|---|---|
+| STRONG BUY | **0** | 0.0% |
+| BUY | **0** | 0.0% |
+| WATCH | 6,986 | **96.4%** |
+| SELL | 264 | 3.6% |
+| STRONG SELL | **0** | 0.0% |
+
+**Wajah (algebra + data, dono se confirm):**
+1. `BUY` gate `effective_ml_prob >= 52` maangta hai, par `ml_edge < 0` par code usi ko
+   **50.0** par neutralise kar deta hai → gate kabhi pass nahi hota. Real scan
+   (2026-09-30) me 22/29 stocks neutralised the.
+2. `composite >= 70` ke liye `ens >= 86.4` chahiye; observed max ens **66** hai
+   (0 / 7,250 sessions). `composite >= 60` ke liye `ens >= 68.2` — wo bhi observed
+   range se bahar.
+3. Yaani ML-neutralised stock ke liye best possible signal **WATCH** tha, chahe
+   technicals kitne bhi strong ho. Aur jo ek BUY nikalta tha (TITAN) wo isi ML number
+   se aata tha jise FIX-41 ne noise saabit kiya (+1.14pp ±0.74).
+
+**Fix (measured support ke saath):**
+- `tools/build_scanner_bands.py` → **`scanner_bands.json`** (committed): ensemble score
+  ke fitted percentiles p95/p80/p40/p10 = **63 / 60 / 51 / 44**, poora histogram,
+  distribution stats, purane bands ka measured natija, aur disclosure.
+- `nifty_scanner.py`: signal ab `signal_from_bands(ens_score, bands)` se aata hai.
+  ML **diagnostic** hai, gate nahi. Payload me `signal_score` + `signal_basis` aate hain.
+  Artifact missing / stale (>60d) / tampered / non-monotonic → signal **`UNRATED`**
+  (fail CLOSED, guess nahi).
+- Fitted bands ka apni hi distribution par asar: STRONG BUY 785, BUY 752, WATCH 2,866,
+  SELL 2,260, STRONG SELL 587 — paanchon signals ab non-empty hain.
+- `tools/verify_scanner_bands.py`: **41 checks** — histogram se percentiles dobara
+  derive karna, purane bands ka dead hona, fail-closed paths, scanner wiring,
+  no-overclaim.
+
+**Live scan (2026-10-01) naye bands ke saath:** 0 BUY | 6 WATCH | 23 SELL, signal_score
+range 40–57. Ye **legit reading** hai (aaj market weak hai, koi stock p80=60 ke upar
+nahi), broken band nahi. Note karein: TITAN ka legacy `composite` 70 tha (ML 76.7% se
+inflate) par fitted signal WATCH hai, kyunki ens 57 hai — yahi farq hai jo FIX-41 ke
+baad honest hai.
+
+**Scope discipline:** fitted percentiles **relative ranking** hain, profitable signal ka
+proof nahi. `composite` field continuity ke liye payload me hai, par signal drive nahi
+karta. Net-of-cost sach `RESEARCH_REPORT.md` me hai (ML −25.6% vs B&H +32.5%).
+
+---
+
 ## FIX-42 addendum — 2026-10-01 (M-2 dependency pins: measured against PyPI, one dead pin found)
 
 M-2 audit me sirf *"numpy 1.26.4 ke cp313 wheels nahi hain"* likha tha. Poora
@@ -694,7 +755,7 @@ nifty_scanner_v3_6.py
 |---|---|---|
 | C-1 | Leveraged / self-contradictory position sizing | ✅ **Solved** (FIX-07, verified `qty=0, leverage 0x` on non-directional) |
 | C-2 | ML has no measurable edge; single-split number shown as proof | ✅ **Answered (FIX-41)** — purged + embargoed walk-forward + shuffled-label null on **53,295 pooled OOS predictions** across 19 large-caps, recorded in `ml_edge_study.json` and shown in the UI. Measured verdict: **NO EDGE** (best design 54.84% vs 61.99% majority baseline = **−7.15pp**; app's own 28-feature design 51.16% vs 50.02% = **+1.14pp ±0.74** = inside the noise band; shuffled-label ceiling 59.3%). The honest finding is published, not hidden — and the in-app accuracy is now labelled a diagnostic. |
-| C-3 | Score scale uncalibrated → 0 BUYs possible | ⚠️ **Partially** — `ensemble_v2` re-centres VCP/MTF and is shown as a *diagnostic*; the scanner's BUY path works again after the RVOL fix. **Proper fix = fit thresholds on history (still open).** |
+| C-3 | Score scale uncalibrated → 0 BUYs possible | ✅ **Answered (FIX-43)** — measured on **7,250 stock-sessions** (29 symbols × 250 sessions, scanner ke asli `calculate_ensemble`): the old hardcoded bands gave **0 STRONG BUY, 0 BUY, 0 STRONG SELL — 96.4% WATCH**. Reason was structural: BUY needed `effective_ml_prob >= 52` but a negative-edge model is neutralised to 50.0, so the gate could never pass; and `composite >= 70` needs `ens >= 86.4` while observed max ens is 66. Bands are now **fitted percentiles** (p95/p80/p40/p10 = 63/60/51/44) stored in `scanner_bands.json`, ML is a diagnostic and no longer gates, and a missing/stale artifact yields `UNRATED` instead of a guess. |
 | H-1 | Tier-2 Method A key `gRapData` → `grapthData` | ✅ Solved (FIX-04) |
 | H-2 | Method A fabricates OHLCV / Volume=100000 | ✅ Solved (FIX-04 refuses intraday-only payloads) |
 | H-3 | "NSE LIVE" badge lies when NSE is blocked | ✅ Solved (FIX-09 + dashboard D7) — badge now shows `DELAYED (15-20 min)` |
@@ -723,7 +784,7 @@ nifty_scanner_v3_6.py
 **Honest answer to "sab solve ho gaya?":** all the *code* defects that were fixable in a session are fixed and verified — 15 of them. Two things remain that a patch cannot fix, because they are not bugs:
 
 1. **The ML still has no edge** (C-2) — and FIX-41 measured it properly instead of guessing: 53,295 pooled out-of-sample predictions, purged + embargoed walk-forward, shuffled-label null. Best design is **7.15pp below** its own majority-class baseline and below the noise ceiling; the app's current 28-feature design is +1.14pp ±0.74, i.e. indistinguishable from a coin flip. The verdict is now recorded in `ml_edge_study.json` and printed in the UI. **That is the answer, not a to-do.**
-2. **The score thresholds are still uncalibrated** (C-3). `ensemble_v2` is a diagnostic shim, not a calibrated model. Fit the BUY/AVOID bands on the score's own 1-year distribution.
+2. **The score thresholds were uncalibrated** (C-3) — and FIX-43 measured and fixed the scanner's half of it: the old bands were not merely uncalibrated, they were *unreachable* (0/7,250 sessions could produce a BUY). Bands are now fitted percentiles committed in `scanner_bands.json`. `ensemble_v2` in the dashboard remains a diagnostic shim. **Fitted percentiles are a relative ranking, not profit** — see `RESEARCH_REPORT.md` for net-of-cost results.
 
 Plus the remaining operational items (M-8, M-9) that are hygiene, not correctness. M-11 and M-12 were closed by FIX-35, and M-2 by FIX-42.
 

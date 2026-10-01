@@ -1,0 +1,136 @@
+{
+ "schema": 1,
+ "model": "scanner-bands-ens-percentile-v1",
+ "generated_at_utc": "2026-10-01T08:44:05.607414+00:00",
+ "period": "5y",
+ "sessions_per_symbol": 250,
+ "symbols_scored": [
+  "RELIANCE",
+  "TCS",
+  "HDFCBANK",
+  "INFY",
+  "ICICIBANK",
+  "SBIN",
+  "BHARTIARTL",
+  "ITC",
+  "KOTAKBANK",
+  "LT",
+  "WIPRO",
+  "AXISBANK",
+  "MARUTI",
+  "BAJFINANCE",
+  "SUNPHARMA",
+  "TITAN",
+  "ADANIENT",
+  "POWERGRID",
+  "NTPC",
+  "ONGC",
+  "COALINDIA",
+  "TATASTEEL",
+  "TECHM",
+  "ASIANPAINT",
+  "ULTRACEMCO",
+  "NESTLEIND",
+  "BAJAJFINSV",
+  "DRREDDY",
+  "JSWSTEEL"
+ ],
+ "symbols_skipped": [
+  "TATAMOTORS(bars=0)"
+ ],
+ "n_stock_sessions": 7250,
+ "signal_score": "ensemble score (nifty_scanner.calculate_ensemble) — ML isko gate ya weight nahi karta; ML sirf diagnostic hai (FIX-41: 53,295 OOS predictions par ML edge +1.14pp ±0.74 = noise)",
+ "distribution": {
+  "min": 38,
+  "p10": 44.0,
+  "p40": 51.0,
+  "median": 53.0,
+  "mean": 52.97,
+  "p80": 60.0,
+  "p95": 63.0,
+  "max": 66
+ },
+ "histogram": {
+  "38": 16,
+  "40": 248,
+  "41": 13,
+  "42": 184,
+  "43": 126,
+  "44": 537,
+  "45": 39,
+  "46": 530,
+  "47": 221,
+  "48": 250,
+  "49": 190,
+  "50": 493,
+  "51": 430,
+  "52": 182,
+  "53": 376,
+  "54": 270,
+  "55": 175,
+  "56": 250,
+  "57": 513,
+  "58": 102,
+  "59": 568,
+  "60": 194,
+  "61": 512,
+  "62": 46,
+  "63": 636,
+  "64": 66,
+  "66": 83
+ },
+ "bands": {
+  "STRONG BUY": 63.0,
+  "BUY": 60.0,
+  "WATCH": 51.0,
+  "SELL": 44.0
+ },
+ "band_order": [
+  "STRONG BUY",
+  "BUY",
+  "WATCH",
+  "SELL",
+  "STRONG SELL"
+ ],
+ "fitted_signal_counts": {
+  "STRONG BUY": 785,
+  "BUY": 752,
+  "WATCH": 2866,
+  "SELL": 2260,
+  "STRONG SELL": 587
+ },
+ "old_bands": {
+  "thresholds": {
+   "STRONG BUY": [
+    70,
+    55
+   ],
+   "BUY": [
+    60,
+    52
+   ],
+   "WATCH": [
+    45,
+    null
+   ],
+   "SELL": [
+    35,
+    null
+   ]
+  },
+  "measured_counts_ml_neutralised": {
+   "STRONG BUY": 0,
+   "BUY": 0,
+   "WATCH": 6986,
+   "SELL": 264,
+   "STRONG SELL": 0
+  },
+  "buy_gate_unreachable_when_neutralised": true,
+  "strong_buy_gate_unreachable_when_neutralised": true,
+  "ens_needed_for_composite_60": 68.18,
+  "ens_needed_for_composite_70": 86.36,
+  "observed_max_ens": 66,
+  "sessions_reaching_composite_70": 0
+ },
+ "disclosure": "Fitted percentile bands = relative ranking within the measured window, NOT a probability and NOT validated profit. RESEARCH_REPORT.md: net-of-cost ML -25.6% vs buy&hold +32.5%."
+}

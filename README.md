@@ -292,7 +292,41 @@ python tools/build_ml_edge_study.py
 
 If the artifact is missing the dashboard says *"OOS ML study absent"* — which means
 **unverified**, never *"edge found"*. Verify the wiring with
-`python tools/verify_ml_edge_study.py` (46 checks).
+`python tools/verify_ml_edge_study.py` (47 checks).
+
+### FIX‑43 · Scanner signals now come from fitted bands, not hardcoded ones
+
+The scanner's BUY/SELL bands were hardcoded (`70/60/45/35`) and BUY/STRONG BUY sat behind
+an ML gate. Measured on **7,250 stock-sessions** (29 symbols × 250 sessions, using the
+scanner's own `calculate_ensemble`) the old bands produced:
+
+| signal | old bands | share |
+|---|---|---|
+| STRONG BUY | **0** | 0.0% |
+| BUY | **0** | 0.0% |
+| WATCH | 6,986 | **96.4%** |
+| SELL | 264 | 3.6% |
+| STRONG SELL | **0** | 0.0% |
+
+They were not just uncalibrated — they were **unreachable**. BUY required
+`effective_ml_prob >= 52`, but a negative-edge model is neutralised to `50.0`, so the gate
+could never pass; and `composite >= 70` needs `ens >= 86.4` while the observed maximum
+ensemble score in 7,250 sessions is **66**.
+
+Bands are now fitted percentiles committed in `scanner_bands.json`
+(p95/p80/p40/p10 = **63/60/51/44**), ML is a **diagnostic** and no longer gates the signal,
+and a missing/stale (>60 days)/tampered artifact makes the signal `UNRATED` rather than a
+guess. Rebuild (~10 s, needs network for daily bars) and verify with:
+
+```bash
+python tools/build_scanner_bands.py
+python tools/verify_scanner_bands.py     # 41 checks
+```
+
+**Fitted percentiles are a relative ranking, not a probability and not profit.** The
+live scan on 2026‑10‑01 read 0 BUY | 6 WATCH | 23 SELL (no stock above p80 = 60) — that is
+a legitimate weak-market reading, not a broken band. Net-of-cost performance is in
+[`RESEARCH_REPORT.md`](RESEARCH_REPORT.md).
 
 ---
 
