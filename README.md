@@ -118,6 +118,28 @@ skips today's partial candle *and* the current ranked completed session to avoid
 It writes atomically, validates formula hash/weights/universe and refuses an incomplete rebuild.
 Verify offline: `python tools/verify_score_calibration.py` (64 checks) plus existing suites.
 
+**Security (FIX-35) — server chalane se pehle:**
+
+| Env var | Default | Kaam |
+|---|---|---|
+| `STOCKAI_API_TOKEN` | *(khaali = open)* | Set karo to `/` aur `/api/*` par token zaroori (`X-Api-Key` header, `?token=…`, ya cookie). Warna 401. |
+| `STOCKAI_CORS_ORIGINS` | *(khaali = same-origin only)* | Comma-separated allowlist, jaise `https://mystore.example`. Wildcard support nahi. |
+| `STOCKAI_RATE_LIMIT` | `240` | Per-IP requests/minute on `/api/*`; `0` = off. 429 + `Retry-After`. SSE exempt. |
+| `STOCKAI_HOST` | `0.0.0.0` | Bind address. Sirf apne machine par chalana ho to `127.0.0.1`. |
+| `STOCKAI_TRUST_PROXY` | `0` | `1` sirf tab jab sach me reverse proxy ho; warna `X-Forwarded-For` spoof ho sakta hai. |
+
+PowerShell me token ke saath:
+
+```powershell
+$env:STOCKAI_API_TOKEN='koi-lamba-random-string'
+python app.py
+```
+
+Pehli baar dashboard `http://<host>:5000/?token=<wahi-string>` se kholein — cookie set ho
+jayegi, phir normal URL chalega. Internet par port forward karne se pehle token zaroori hai.
+Verify: `python tools\verify_security.py` (64 checks) aur `node tools/verify_xss_render.js`
+(14 checks, jsdom me asli injection attempt).
+
 **Windows note (FIX-34):** all verifiers now read source files with explicit
 `encoding='utf-8'`, so they run on a cp1252/ANSI default code page. If any tool still
 raises `UnicodeDecodeError: 'charmap' codec…`, it is a missing `encoding='utf-8'` on a

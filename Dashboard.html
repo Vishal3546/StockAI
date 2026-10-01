@@ -810,6 +810,30 @@ function pctd(v)         { return isMissing(v) ? '—' : v + '%'; }             
 function money(v)        { return isMissing(v) ? '—' : Number(v).toLocaleString('en-IN'); }
 function verdict(v, fn)  { return isMissing(v) ? '—' : fn(v); }                // missing → '—', fake verdict nahi
 
+// ── FIX-35 (M-12): HTML-injection sinks band ──────────────────────────────
+// API se aayi strings (Yahoo search ka longname, engine signals, notes, verdict)
+// pehle seedha innerHTML me jaati thi — upstream/compromised payload se script
+// inject ho sakta tha. Ab safeHtml`` tagged template har interpolated value ko
+// escape karta hai; jo value khud markup ho use raw() se explicitly mark karein.
+const RAW_HTML = Symbol('rawHtml');
+function raw(html) { const v = new String(html); v[RAW_HTML] = true; return v; }
+function escHtml(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function safeHtml(strings, ...values) {
+  let out = '';
+  for (let i = 0; i < strings.length; i++) {
+    out += strings[i];
+    if (i < values.length) {
+      const v = values[i];
+      out += (v && v[RAW_HTML]) ? String(v) : escHtml(v);
+    }
+  }
+  return out;
+}
+
 function setGauge(id, val) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -841,21 +865,39 @@ symInput.addEventListener('input', function() {
       const data = await r.json();
 
       if (data.length === 0) {
-        dropdown.innerHTML = '<div class="search-item" style="color:var(--text-muted);justify-content:center">No stocks found</div>';
+        dropdown.textContent = '';
+        const none = document.createElement('div');
+        none.className = 'search-item';
+        none.style.color = 'var(--text-muted)';
+        none.style.justifyContent = 'center';
+        none.textContent = 'No stocks found';
+        dropdown.appendChild(none);
         dropdown.classList.add('show');
         return;
       }
 
-      let html = '';
+      // FIX-35 (M-12): pehle yahan `${s.sym}` / `${s.name}` seedhe innerHTML me
+      // jaate the (Yahoo search ka longname external input hai) aur inline
+      // onclick attribute me symbol quote-break kar sakta tha. Ab DOM API se
+      // banate hain (textContent = koi parsing nahi) aur click delegation +
+      // data-sym use hota hai.
+      dropdown.textContent = '';
       data.forEach(s => {
-        html += `<div class="search-item" onclick="selectStock('${s.sym}')">
-          <span class="search-sym">${s.sym}</span>
-          <span class="search-name">${s.name}</span>
-          <span class="search-sec">${s.sec || ''}</span>
-        </div>`;
+        const item = document.createElement('div');
+        item.className = 'search-item';
+        item.dataset.sym = String(s.sym ?? '');
+        const symEl = document.createElement('span');
+        symEl.className = 'search-sym';
+        symEl.textContent = String(s.sym ?? '');
+        const nameEl = document.createElement('span');
+        nameEl.className = 'search-name';
+        nameEl.textContent = String(s.name ?? '');
+        const secEl = document.createElement('span');
+        secEl.className = 'search-sec';
+        secEl.textContent = String(s.sec ?? '');
+        item.append(symEl, nameEl, secEl);
+        dropdown.appendChild(item);
       });
-
-      dropdown.innerHTML = html;
       dropdown.classList.add('show');
     } catch (e) {
       console.error('Search error:', e);
@@ -868,6 +910,13 @@ function selectStock(sym) {
   dropdown.classList.remove('show');
   loadStock();
 }
+
+// FIX-35: inline onclick hataya — click delegation + data-sym.
+dropdown.addEventListener('click', (e) => {
+  const item = e.target.closest('.search-item');
+  const sym = item && item.dataset ? item.dataset.sym : '';
+  if (sym) selectStock(sym);
+});
 
 document.addEventListener('click', function(e) {
   if (!e.target.closest('.search-wrap')) {
@@ -952,7 +1001,7 @@ function updatePriceDOM(newPrice, change, pChange, opts) {
 
   if (chg !== null && pct !== null) {
     const isPos = pct >= 0;
-    changeEl.innerHTML = `
+    changeEl.innerHTML = safeHtml`
       <span style="color:${isPos ? 'var(--color-green)' : 'var(--color-red)'}">
         ${isPos ? '▲' : '▼'} ${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${isPos ? '+' : ''}${pct.toFixed(2)}%)
       </span>`;
@@ -1166,14 +1215,14 @@ function render(d) {
         : wfEdge > 5 ? 'POSSIBLE EDGE (verify)'
         : wfEdge > 0 ? 'MARGINAL / NOISE'
         : 'NO EDGE (below baseline)';
-    mlh += `
+    mlh += safeHtml`
         <div style="font-size:0.65rem;margin-top:6px;padding:5px;border-radius:6px;background:rgba(255,179,0,0.08);color:var(--color-yellow)">
           🧪 Walk-forward OOS accuracy: <b>${wf === null ? '—' : wf + '%'}</b>
           (baseline ${sv(ml.baseline_accuracy, '?')}%, edge ${wfEdge === null ? '—' : (wfEdge > 0 ? '+' : '') + wfEdge.toFixed(1) + 'pp'})
           → <b>${honest}</b><br>
           <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.</span>
         </div>`;
-    mlh += `
+    mlh += safeHtml`
         <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Trained: ${svd(ml.train_days)}D | Tested: ${svd(ml.test_days)}D</div>
         <div style="font-size:0.65rem;color:var(--color-yellow);margin-top:2px">
           📊 Baseline: ${sv(ml.baseline_accuracy, '?')}% | Single-split best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'} | UP Days: ${sv(ml.pos_rate, '?')}%
@@ -1181,7 +1230,7 @@ function render(d) {
       </div>`;
     document.getElementById('mlBox').innerHTML = mlh;
   } else {
-    document.getElementById('mlBox').innerHTML = `<div class="col-12 text-center" style="color:var(--color-red)">${sv(ml?.error, 'ML engine offline.')}</div>`;
+    document.getElementById('mlBox').innerHTML = safeHtml`<div class="col-12 text-center" style="color:var(--color-red)">${sv(ml?.error, 'ML engine offline.')}</div>`;
   }
 
   // 6 Engines Core Status Mapper
@@ -1236,21 +1285,21 @@ function render(d) {
   
   let techHtmlMarkup = '';
   techIndicatorTable.forEach(row => {
-    const badgeMarkup = row[2] ? `
+    const badgeMarkup = row[2] ? safeHtml`
       <span class="eng-sig ${bullStatusValues.includes(row[2]) ? 'sig-buy' : bearStatusValues.includes(row[2]) ? 'sig-sell' : 'sig-hold'}">
         ${row[2]}
       </span>` : '';
-    techHtmlMarkup += `
+    techHtmlMarkup += safeHtml`
       <div class="ind-row">
         <span style="color:var(--text-secondary)">${row[0]}</span>
         <span class="mono" style="font-weight:600">${row[1]}</span>
-        ${badgeMarkup}
+        ${raw(badgeMarkup)}
       </div>`;
   });
   document.getElementById('indList').innerHTML = techHtmlMarkup;
 
   // Stop Loss & Targets Section Rendering
-  document.getElementById('targetsBox').innerHTML = `
+  document.getElementById('targetsBox').innerHTML = safeHtml`
     <div class="mb-2 text-center" style="font-size:0.8rem;font-weight:700;padding:6px;border-radius:8px;background:${ens.tradeable ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)'};color:${ens.tradeable ? 'var(--color-green)' : 'var(--color-yellow)'}">
       ${sv(rk.exec_status, '—')}
     </div>
@@ -1276,7 +1325,7 @@ function render(d) {
     pats.forEach(p => {
       const pColor = p.direction === 'BULLISH' ? 'var(--color-green)' : p.direction === 'BEARISH' ? 'var(--color-red)' : 'var(--color-yellow)';
       const pIcon = p.direction === 'BULLISH' ? '🟢' : p.direction === 'BEARISH' ? '🔴' : '🟡';
-      patternsHtmlMarkup += `
+      patternsHtmlMarkup += safeHtml`
         <div class="pat-card">
           <span>${pIcon}</span>
           <div>
@@ -1303,7 +1352,7 @@ function render(d) {
     ['52W Low', `₹${svd(d.week52?.low)}`]
   ];
   fundamentalsRows.forEach(row => {
-    fundHtmlMarkup += `
+    fundHtmlMarkup += safeHtml`
       <div class="ind-row">
         <span style="color:var(--text-secondary)">${row[0]}</span>
         <span class="mono" style="font-weight:600">${row[1]}</span>
@@ -1320,7 +1369,7 @@ function render(d) {
     const tObj = mtf.timeframes && mtf.timeframes[tf];
     if (tObj && tObj.trend !== 'N/A') {
       const isBullTrend = tObj.trend === 'BULL';
-      mtfHtmlMarkup += `
+      mtfHtmlMarkup += safeHtml`
         <div class="col-3">
           <div class="lvl-box" style="border-color:${isBullTrend ? 'rgba(0,230,118,0.2)' : 'rgba(255,61,0,0.2)'}">
             <div style="font-weight:800;font-size:0.8rem">${tf}</div>
@@ -1329,7 +1378,7 @@ function render(d) {
           </div>
         </div>`;
     } else {
-      mtfHtmlMarkup += `
+      mtfHtmlMarkup += safeHtml`
         <div class="col-3">
           <div class="lvl-box">
             <div style="font-weight:800;font-size:0.8rem">${tf}</div>
@@ -1342,9 +1391,9 @@ function render(d) {
 
   // Position Sizing Output Sizer
   // FIX-30: risk plan neeche apna win-rate ASSUMPTION disclose karta hai
-  document.getElementById('riskPlan').innerHTML = `
+  document.getElementById('riskPlan').innerHTML = safeHtml`
     <div class="row g-2 mb-2">
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly % (before regime)</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div>${!isMissing(rk.kelly_pct_after_regime) ? `<small style="color:var(--text-muted)">after regime: ${pctd(rk.kelly_pct_after_regime)}</small>` : ''}</div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly % (before regime)</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div>${!isMissing(rk.kelly_pct_after_regime) ? raw(safeHtml`<small style="color:var(--text-muted)">after regime: ${pctd(rk.kelly_pct_after_regime)}</small>`) : ''}</div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${svd(rk.qty)}</div></div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">1:${svd(rk.rr_ratio)}</div></div></div>
     </div>
@@ -1353,16 +1402,16 @@ function render(d) {
     <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>
     ${(rk.regime_exposure_factor === null || rk.regime_exposure_factor === undefined) ? '' :
-      `<div class="ind-row" title="Risk policy, not backtested alpha"><span style="color:var(--text-secondary)">Market-regime exposure cap (rank me 0%)</span><span class="mono">${(rk.regime_exposure_factor * 100).toFixed(0)}% · qty ${svd(rk.qty_pre_regime)} → ${svd(rk.qty)}<br><small>${sv(rk.regime_basis, 'unknown')}</small></span></div>`}
+      raw(safeHtml`<div class="ind-row" title="Risk policy, not backtested alpha"><span style="color:var(--text-secondary)">Market-regime exposure cap (rank me 0%)</span><span class="mono">${(rk.regime_exposure_factor * 100).toFixed(0)}% · qty ${svd(rk.qty_pre_regime)} → ${svd(rk.qty)}<br><small>${sv(rk.regime_basis, 'unknown')}</small></span></div>`)}
     ${(rk.plan_hit_rate === null || rk.plan_hit_rate === undefined) ? '' :
-      `<div class="ind-row"><span style="color:var(--text-secondary)">Measured plan win-rate</span><span class="mono" style="color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-red)'}">${(rk.plan_hit_rate * 100).toFixed(1)}% <span style="color:var(--text-muted);font-size:0.65rem">(n=${svd(rk.plan_sample_size)}, breakeven ${isMissing(rk.plan_breakeven) ? '—' : (rk.plan_breakeven * 100).toFixed(1) + '%'}, lower-bound ${isMissing(rk.plan_hit_rate_lcb) ? '—' : (rk.plan_hit_rate_lcb * 100).toFixed(1) + '%'})</span></span></div>`}
+      raw(safeHtml`<div class="ind-row"><span style="color:var(--text-secondary)">Measured plan win-rate</span><span class="mono" style="color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-red)'}">${(rk.plan_hit_rate * 100).toFixed(1)}% <span style="color:var(--text-muted);font-size:0.65rem">(n=${svd(rk.plan_sample_size)}, breakeven ${isMissing(rk.plan_breakeven) ? '—' : (rk.plan_breakeven * 100).toFixed(1) + '%'}, lower-bound ${isMissing(rk.plan_hit_rate_lcb) ? '—' : (rk.plan_hit_rate_lcb * 100).toFixed(1) + '%'})</span></span></div>`)}
     ${(rk.risk_note || (rk.win_rate_used !== null && rk.win_rate_used !== undefined)) ?
-      `<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${sv(rk.risk_note, 'Position size assumed; basis unavailable.')}</div>` : ''}`;
+      raw(safeHtml`<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${sv(rk.risk_note, 'Position size assumed; basis unavailable.')}</div>`) : ''}`;
 
   // Technical SMC & Contraction Patterns Sizer
   const smc = (d.engines && d.engines.smc) || {};
   const vcp = (d.engines && d.engines.vcp) || {};
-  document.getElementById('smcDetails').innerHTML = `
+  document.getElementById('smcDetails').innerHTML = safeHtml`
     <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">Liquidity Sweep:</span> <span class="eng-sig ${sv(smc.liquidity_sweep, '').includes('BULL') ? 'sig-buy' : 'sig-sell'}">${sv(smc.liquidity_sweep, 'NONE')}</span></div>
     <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">VCP Contractions:</span> <span class="mono" style="color:var(--color-yellow);font-weight:700">${svd(vcp.contractions)}</span> (Tightness: ${pctd(vcp.tightness)})</div>
     <div class="mb-2"><span style="color:var(--text-secondary);font-size:0.75rem">FVG Bull:</span> <span class="mono">${(smc.fvg_bullish || []).length}</span> | <span style="color:var(--text-secondary);font-size:0.75rem">FVG Bear:</span> <span class="mono">${(smc.fvg_bearish || []).length}</span></div>
@@ -1371,15 +1420,15 @@ function render(d) {
   // Deep AI Verdict Synthesis Output
   let finalVerdictHtml = '';
   if (ens.tradeable) {
-    finalVerdictHtml = `<strong style="color:var(--color-green)">🧪 ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (rule checks pass; NOT validated profit)</strong><br><br>`;
+    finalVerdictHtml = safeHtml`<strong style="color:var(--color-green)">🧪 ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (rule checks pass; NOT validated profit)</strong><br><br>`;
   } else {
-    finalVerdictHtml = `<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (${ens.calibration?.ready ? 'Relative rank only; no executable trade' : 'Threshold fit unavailable'})</strong><br><br>`;
+    finalVerdictHtml = safeHtml`<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (${ens.calibration?.ready ? 'Relative rank only; no executable trade' : 'Threshold fit unavailable'})</strong><br><br>`;
   }
   
-  finalVerdictHtml += `<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} probability (${sv(ml.confidence, 'UNKNOWN')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
-  finalVerdictHtml += `<strong>Engines:</strong> VolProfile: ${sv(d.engines?.vol_profile?.score, '?')} | RVOL: ${sv(d.engines?.rvol_cvd?.score, '?')} (${sv(d.engines?.rvol_cvd?.rvol, '?')}x) | VCP: ${sv(d.engines?.vcp?.score, '?')} | SMC: ${sv(d.engines?.smc?.score, '?')} | Regime: ${sv(d.engines?.regime?.score, '?')} | MTF: ${sv(d.engines?.mtf?.score, '?')}<br>`;
-  finalVerdictHtml += `<strong>Risk Plan (illustrative):</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Kelly before regime: ${pctd(rk.kelly_pct)} | after regime: ${pctd(rk.kelly_pct_after_regime)} | qty: ${svd(rk.qty)}<br><br>`;
-  finalVerdictHtml += `<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Percentiles describe relative rank, not future profit. Strategy edge has not been independently verified; research only, not investment advice.</span>`;
+  finalVerdictHtml += safeHtml`<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} probability (${sv(ml.confidence, 'UNKNOWN')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
+  finalVerdictHtml += safeHtml`<strong>Engines:</strong> VolProfile: ${sv(d.engines?.vol_profile?.score, '?')} | RVOL: ${sv(d.engines?.rvol_cvd?.score, '?')} (${sv(d.engines?.rvol_cvd?.rvol, '?')}x) | VCP: ${sv(d.engines?.vcp?.score, '?')} | SMC: ${sv(d.engines?.smc?.score, '?')} | Regime: ${sv(d.engines?.regime?.score, '?')} | MTF: ${sv(d.engines?.mtf?.score, '?')}<br>`;
+  finalVerdictHtml += safeHtml`<strong>Risk Plan (illustrative):</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Kelly before regime: ${pctd(rk.kelly_pct)} | after regime: ${pctd(rk.kelly_pct_after_regime)} | qty: ${svd(rk.qty)}<br><br>`;
+  finalVerdictHtml += safeHtml`<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Percentiles describe relative rank, not future profit. Strategy edge has not been independently verified; research only, not investment advice.</span>`;
   
   document.getElementById('aiVerdict').innerHTML = finalVerdictHtml;
 }

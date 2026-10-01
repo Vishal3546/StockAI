@@ -35,8 +35,7 @@ from datetime import datetime, timedelta, timezone
 
 import score_calibration as SCORE_CAL
 
-from flask import Flask, Response, jsonify, request, send_from_directory
-from flask_cors import CORS
+from flask import Flask, Response, g, jsonify, request, send_from_directory
 import numpy as np
 import pandas as pd
 import requests as http_requests
@@ -46,7 +45,109 @@ warnings.filterwarnings('ignore')
 
 # Initialize Flask Web Application
 app = Flask(__name__)
-CORS(app)
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-35 (M-11): CORS allowlist + optional token auth + per-IP rate limit
+#  Pehle `CORS(app)` tha → har response par `Access-Control-Allow-Origin: *`,
+#  koi auth nahi, koi rate limit nahi. Port internet par gaya to poora API khula.
+#  Ab:
+#    • CORS sirf explicit allowlist (STOCKAI_CORS_ORIGINS); default = same-origin
+#    • STOCKAI_API_TOKEN set ho to `/` aur `/api/*` par token zaroori (warna 401)
+#    • per-IP sliding-window rate limit (default 240/min → 429 + Retry-After)
+#    • security headers: nosniff, frame-deny, referrer, CSP
+#  Ye hygiene hai — isse strategy edge nahi badhta.
+# ═══════════════════════════════════════════════════════════════════════════
+SECURITY = {
+    'TOKEN': (os.environ.get('STOCKAI_API_TOKEN') or '').strip(),
+    'CORS_ORIGINS': [o.strip().rstrip('/') for o in
+                     (os.environ.get('STOCKAI_CORS_ORIGINS') or '').split(',') if o.strip()],
+    'RATE_LIMIT_PER_MIN': max(0, int(os.environ.get('STOCKAI_RATE_LIMIT') or 240)),
+    'TRUST_PROXY': (os.environ.get('STOCKAI_TRUST_PROXY') or '').strip().lower() in ('1', 'true', 'yes'),
+    'COOKIE': 'stockai_token',
+    'WINDOW_SECONDS': 60,
+    'CSP': ("default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+            "base-uri 'self'; frame-ancestors 'none'; form-action 'self'"),
+}
+_rate_hits: dict = {}
+_rate_lock = threading.Lock()
+
+
+def configure_security(token=None, cors_origins=None, rate_limit_per_min=None, trust_proxy=None):
+    """Runtime par security policy badlo (tests/tools ke liye). None = unchanged."""
+    if token is not None:
+        SECURITY['TOKEN'] = str(token).strip()
+    if cors_origins is not None:
+        SECURITY['CORS_ORIGINS'] = [str(o).strip().rstrip('/') for o in cors_origins if str(o).strip()]
+    if rate_limit_per_min is not None:
+        SECURITY['RATE_LIMIT_PER_MIN'] = max(0, int(rate_limit_per_min))
+    if trust_proxy is not None:
+        SECURITY['TRUST_PROXY'] = bool(trust_proxy)
+    reset_rate_limiter()
+
+
+def reset_rate_limiter():
+    with _rate_lock:
+        _rate_hits.clear()
+
+
+def _client_ip():
+    # X-Forwarded-For spoof ho sakta hai — sirf explicit TRUST_PROXY par use karo.
+    if SECURITY['TRUST_PROXY']:
+        fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+        if fwd:
+            return fwd
+    return request.remote_addr or 'unknown'
+
+
+def _protected_path(path):
+    p = (path or '/').lower()
+    return p == '/' or p in ('/dashboard.html',) or p.startswith('/api/')
+
+
+def _rate_limited(ip):
+    limit = SECURITY['RATE_LIMIT_PER_MIN']
+    if limit <= 0:
+        return False, 0
+    now = time.time()
+    cutoff = now - SECURITY['WINDOW_SECONDS']
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(ip, ()) if t > cutoff]
+        if len(hits) >= limit:
+            _rate_hits[ip] = hits
+            return True, int(max(1, SECURITY['WINDOW_SECONDS'] - (now - hits[0])))
+        hits.append(now)
+        _rate_hits[ip] = hits
+        return False, 0
+
+
+@app.before_request
+def _security_gate():
+    """Token auth (agar set ho) + per-IP rate limit. Static assets public rehte hain."""
+    path = request.path or '/'
+    if request.method == 'OPTIONS':
+        return None  # CORS preflight — headers after_request me
+    token = SECURITY['TOKEN']
+    if token and _protected_path(path):
+        supplied = (request.headers.get('X-Api-Key') or request.args.get('token')
+                    or request.cookies.get(SECURITY['COOKIE']) or '')
+        if supplied != token:
+            return jsonify({'error': 'unauthorized',
+                            'detail': 'STOCKAI_API_TOKEN set hai — X-Api-Key header ya ?token=… bhejein.'}), 401
+        if request.cookies.get(SECURITY['COOKIE']) != token:
+            g.set_token_cookie = True  # browser ko cookie do, phir dashboard ke fetch khud chalenge
+    if path.startswith('/api/') and not path.startswith('/api/stream'):
+        limited, retry = _rate_limited(_client_ip())
+        if limited:
+            resp = jsonify({'error': 'rate_limited',
+                            'detail': f"limit {SECURITY['RATE_LIMIT_PER_MIN']} requests/min per IP"})
+            resp.status_code = 429
+            resp.headers['Retry-After'] = str(retry)
+            return resp
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2826,7 +2927,21 @@ def static_file(fname):
 
 
 @app.after_request
-def _no_store(resp):
+def _harden_response(resp):
+    # FIX-35: CORS sirf allowlisted origin ke liye (wildcard nahi)
+    origin = (request.headers.get('Origin') or '').rstrip('/')
+    if origin and origin in SECURITY['CORS_ORIGINS']:
+        resp.headers['Access-Control-Allow-Origin'] = origin
+        resp.headers['Vary'] = 'Origin'
+        resp.headers['Access-Control-Allow-Headers'] = 'X-Api-Key, Content-Type'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'DENY')
+    resp.headers.setdefault('Referrer-Policy', 'no-referrer')
+    resp.headers.setdefault('Content-Security-Policy', SECURITY['CSP'])
+    if getattr(g, 'set_token_cookie', False) and SECURITY['TOKEN']:
+        resp.set_cookie(SECURITY['COOKIE'], SECURITY['TOKEN'],
+                        httponly=True, samesite='Lax', max_age=86400)
     if resp.mimetype == 'application/json':
         resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -2834,9 +2949,17 @@ def _no_store(resp):
 
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 5000))
+    HOST = os.environ.get('STOCKAI_HOST', '0.0.0.0')
     print("=" * 78)
-    print(f"🚀 StockAI V6.1 Multi-Tech Hybrid Server → http://0.0.0.0:{PORT}")
+    print(f"🚀 StockAI V6.1 Multi-Tech Hybrid Server → http://{HOST}:{PORT}")
     print("👉 Tier 1: TradingView | Tier 2: NSE Direct | Tier 3: Yahoo  (dashboard at /)")
-    print("👉 15 audit fixes applied — see AUDIT_REPORT.md")
+    print(f"👉 CORS allowlist: {SECURITY['CORS_ORIGINS'] or 'same-origin only'} | "
+          f"rate limit: {SECURITY['RATE_LIMIT_PER_MIN']}/min/IP")
+    if SECURITY['TOKEN']:
+        print("🔒 Token auth ON — pehli baar http://…/?token=… se kholein (cookie set ho jayegi)")
+    else:
+        print("⚠️  STOCKAI_API_TOKEN set NAHI hai → LAN ka koi bhi device ye API use kar sakta hai.")
+        print("    Internet par expose karne se pehle token set karein (PowerShell):")
+        print("      $env:STOCKAI_API_TOKEN='koi-lamba-random-string'")
     print("=" * 78)
-    app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)

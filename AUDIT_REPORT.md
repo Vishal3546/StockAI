@@ -2,6 +2,49 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-35 addendum — 2026-10-01 (security hardening: M-11 + M-12)
+
+**M-11 — wildcard CORS, no auth, no rate limit.** `CORS(app)` put
+`Access-Control-Allow-Origin: *` on every response; there was no authentication and
+no throttling, so anyone who could reach port 5000 could drive the whole API (and
+hammer NSE/TradingView through it). Now:
+
+* CORS is an explicit allowlist (`STOCKAI_CORS_ORIGINS`, comma-separated); default is
+  **same-origin only**, with `Vary: Origin`. Prefix spoofs (`https://ok.example.attacker.com`)
+  do not match.
+* Optional token auth: set `STOCKAI_API_TOKEN` and `/` + `/api/*` require it via
+  `X-Api-Key`, `?token=…`, or the `stockai_token` cookie (HttpOnly, SameSite=Lax).
+  Unauthenticated → `401` JSON. Static assets stay public. Default is still open,
+  and startup prints a loud warning when no token is set.
+* Per-IP sliding-window rate limit (default 240/min, `STOCKAI_RATE_LIMIT`, `0` = off)
+  → `429` + `Retry-After`. `/api/stream` (SSE) is exempt because it is long-lived.
+  `X-Forwarded-For` is only trusted when `STOCKAI_TRUST_PROXY=1`, so the bucket
+  cannot be spoofed.
+* Security headers on every response: `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a CSP with
+  `frame-ancestors 'none'`, `object-src 'none'`, `connect-src 'self'` (script/style
+  origins are limited to the CDNs the page already uses — no wildcard).
+* Bind host is configurable (`STOCKAI_HOST`).
+
+**M-12 — XSS sinks.** Fourteen `innerHTML` sinks took strings straight from the API,
+including the search dropdown, which rendered Yahoo `symbol`/`longname` unescaped and
+built `onclick="selectStock('${s.sym}')"` — a quote in a symbol could break out of the
+attribute. Now a `safeHtml` tagged template escapes every interpolated value
+(`raw()` marks the few nested-markup cases), and the search list is built with the DOM
+API (`textContent` + `data-sym` + click delegation), so there is no HTML parsing and no
+inline handler at all.
+
+**Verified:** `tools/verify_security.py` **64/64** (policy, CORS matching, 401/cookie,
+429 + Retry-After, proxy spoofing, source wiring) and `tools/verify_xss_render.js`
+**14/14** — jsdom with `runScripts: 'dangerously'` fed real `<img onerror=…>` /
+`<script>` payloads through `render()` and the search box: nothing executed, no element
+was injected, and the payloads appear as visible text. Existing suites unchanged:
+kelly 37/37, sentinels 48/48, score-calibration 64/64, risk-basis 45/45,
+no-fake-numbers 23/23, live-quote 38/38, fixes 31/31, jsdom render 31/31.
+
+**This is hygiene, not alpha** — it reduces the blast radius if the port is exposed or
+an upstream feed is compromised. It says nothing about whether any signal makes money.
+
 ## FIX-34 addendum — 2026-10-01 (Windows encoding)
 
 FIX-31/32/33 pushed fine, but every source-reading verifier crashed on Windows:
@@ -468,15 +511,15 @@ nifty_scanner_v3_6.py
 | M-8 | NSE CSV header parsing fragility | ⚠️ Open (works today only because the header really is `' SERIES'`) |
 | M-9 | Network call at import time | ⚠️ Open |
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
-| M-11 | `CORS(*)`, no auth/rate limit | ⚠️ Open — **do not expose this port publicly** |
-| M-12 | Search results via `innerHTML` | ⚠️ Open |
+| M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
+| M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
 
 **Honest answer to "sab solve ho gaya?":** all the *code* defects that were fixable in a session are fixed and verified — 15 of them. Two things remain that a patch cannot fix, because they are not bugs:
 
 1. **The ML still has no edge** (C-2). I made the UI tell the truth about it; I did not make it work. That needs a re-labelled target, purged CV, a smaller feature set and a rolling ≥500-prediction study.
 2. **The score thresholds are still uncalibrated** (C-3). `ensemble_v2` is a diagnostic shim, not a calibrated model. Fit the BUY/AVOID bands on the score's own 1-year distribution.
 
-Plus the operational items (M-2, M-8, M-9, M-11, M-12) that are hygiene, not correctness.
+Plus the remaining operational items (M-2, M-8, M-9) that are hygiene, not correctness. M-11 and M-12 were closed by FIX-35.
 
 ### Final word
 The bones of this project are better than most "AI trading dashboard" code I get to look at — the fallback design, indicator maths and JSON handling are real engineering. The problem is **the last mile**: the scoring scale is uncalibrated, the ML is presented as validated when it isn't, and (before FIX-07) the position sizer could put a 5.4× leveraged trade on a signal it didn't even trust. Three of those are now addressed; the ML and the calibration remain research work. Until that is done, treat the "verdict", "targets" and "ML probability" as **UI decoration, not advice**.
