@@ -99,13 +99,13 @@ print(" 4) scanner (regenerates scan_results.json)")
 print("═" * 78)
 subprocess.run([sys.executable, 'nifty_scanner.py'], cwd=ROOT, check=True,
                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-scan = json.loads((ROOT / 'scan_results.json').read_text())
+scan = json.loads((ROOT / 'scan_results.json').read_text(encoding='utf-8'))
 vr = [r['vol_ratio'] for r in scan['results'] if r.get('vol_ratio') is not None]
 check("scan_results.json is strict JSON", True, f"{len(scan['results'])} stocks")
 check("vol_ratio is a real RVOL range, not a 0.2-0.9 constant penalty",
       min(vr) < 0.95 and max(vr) > 1.5, f"min={min(vr):.2f} max={max(vr):.2f} mean={sum(vr)/len(vr):.2f}")
 check("ml_effective column present", all('ml_effective' in r for r in scan['results']))
-check("scan.json has no NaN tokens", 'NaN' not in (ROOT / 'scan_results.json').read_text())
+check("scan.json has no NaN tokens", 'NaN' not in (ROOT / 'scan_results.json').read_text(encoding='utf-8'))
 
 print()
 print("═ * 78")
@@ -113,7 +113,7 @@ print(" 5) deep analyzer (regenerates deep_*.json)")
 print("═" * 78)
 subprocess.run([sys.executable, 'deep_analyzer.py', 'RELIANCE'], cwd=ROOT, check=True,
                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-deep_txt = (ROOT / 'deep_RELIANCE.json').read_text()
+deep_txt = (ROOT / 'deep_RELIANCE.json').read_text(encoding='utf-8')
 dj = json.loads(deep_txt)
 sec = dj['sector']
 check("deep_RELIANCE.json is strict JSON (no NaN tokens)", 'NaN' not in deep_txt)

@@ -42,7 +42,7 @@ print('=' * 84)
 print(' "NO FAKE NUMBERS" — verification')
 print('=' * 84)
 
-app_src = (ROOT / 'app.py').read_text()
+app_src = (ROOT / 'app.py').read_text(encoding='utf-8')
 
 # ─────────────────────────── 1. source-level checks ────────────────────────
 print('\n[1] source-level: purane magic numbers / sentinels gaye?')
@@ -54,7 +54,7 @@ check('wf_accuracy ab None deta hai', "if wf_results else None" in app_src)
 
 n_degraded = len(re.findall(r"'degraded':\s*(True|not enough)", app_src))
 check('engine error paths me degraded flag', n_degraded >= 6, f'{n_degraded} jagah mila')
-score_src = (ROOT / 'score_calibration.py').read_text()  # FIX-33: formula yahan shared hai
+score_src = (ROOT / 'score_calibration.py').read_text(encoding='utf-8')  # FIX-33: formula yahan shared hai
 check('ensemble_response me degraded_engines field', "'degraded_engines': excluded" in score_src)
 check('ensemble note deta hai', 'Degraded engines averaging se exclude' in score_src)
 

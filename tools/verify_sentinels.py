@@ -144,7 +144,7 @@ finally:
     A._LIVE_CACHE.clear()
 
 print("\n[4] source-level")
-src = (ROOT / "app.py").read_text()
+src = (ROOT / "app.py").read_text(encoding='utf-8')
 check("sfx/six helpers maujood", "def sfx(" in src and "def six(" in src)
 check("indicators dict sfx use karta hai", "'rsi': sfx(L.get('RSI'), 1)" in src)
 check("purana fake RSI default gaya", "sf(L.get('RSI'), 50)" not in src.split("def calculate_kpi_scores")[1])
@@ -155,7 +155,7 @@ check("'NSE Equity' invented string CODE me nahi", "'NSE Equity'" not in _code_t
 check("master list 'sec' ab None", "'sec': None" in src)
 check("KPI basis field", "'basis': f'{i_used}/{i_total} indicators measured'" in src)
 check("ATR assumed disclosure", "assumed 2% of price (ATR missing)" in src)
-dash = (ROOT / "Dashboard.html").read_text()
+dash = (ROOT / "Dashboard.html").read_text(encoding='utf-8')
 check("dashboard KPI basis tooltip", "v.basis" in dash)
 check("dashboard ATR badge", 'ASSUMED (2% price)' in dash)
 check("chart null-volume bars skip karta hai", 'filter(d => Number.isFinite(d.volume))' in dash)

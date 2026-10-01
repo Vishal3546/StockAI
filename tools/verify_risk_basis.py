@@ -104,13 +104,13 @@ for score, exp_wr, exp_sl_mult in [(80, 0.62, 1.5), (65, 0.55, 2.0), (40, 0.45, 
     check(f"score {score}: risk_amount {round(qty*risk_ps)}", r["risk_amount"] == round(qty * risk_ps))
 
 print("\n[7] source-level: fix sach me laga hai")
-src = (ROOT / "app.py").read_text()
+src = (ROOT / "app.py").read_text(encoding='utf-8')
 check("call site measured_accuracy bhejta hai", "measured_accuracy=_ml_acc" in src)
 check("call site walk-forward bhi bhejta hai", "measured_wf_accuracy=_ml_wf" in src)
 check("call site baseline bhi bhejta hai", "measured_baseline=_ml_base" in src)
 check("purani chup-chaap call line gayi",
       "risk = calculate_risk(price, atr, ens['score'], action=ens['action'])\n" not in src)
-dash = (ROOT / "Dashboard.html").read_text()
+dash = (ROOT / "Dashboard.html").read_text(encoding='utf-8')
 check("Dashboard: win_rate_used check karta hai", "rk.win_rate_used" in dash)
 check("Dashboard: risk_note dikhata hai", "rk.risk_note" in dash)
 

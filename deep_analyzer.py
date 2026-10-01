@@ -507,7 +507,7 @@ def run_deep_analysis(symbol):
             return bool(o)
         return o
 
-    with open(filename, 'w') as f:
+    with open(filename, 'w', encoding='utf-8') as f:
         json.dump(_nan_safe(result), f, indent=2, allow_nan=False)
 
     print(f"\n  💾 Saved to {filename}")

@@ -42,7 +42,7 @@ print(' FIX-33: 250 historical sessions + stock rank (regime separate from 18% w
 print('=' * 86)
 
 print('\n[1] real recorded artifact — validation/reproducibility')
-artifact = json.loads(C.ARTIFACT_PATH.read_text())
+artifact = json.loads(C.ARTIFACT_PATH.read_text(encoding='utf-8'))
 fitted = C.validate_artifact(artifact, A.score_formula_hash())
 t = fitted['thresholds']
 check('exactly 250 distinct completed sessions', fitted['sessions'] == 250)
@@ -61,7 +61,7 @@ check('formula hash and weights match real runtime',
       artifact['weights'] == A.CONFIG['ENGINE_WEIGHTS'])
 check('scanner universe single source of truth',
       __import__('nifty_scanner').NIFTY_STOCKS == list(C.UNIVERSE))
-builder_src = (ROOT / 'tools/build_score_calibration.py').read_text()
+builder_src = (ROOT / 'tools/build_score_calibration.py').read_text(encoding='utf-8')
 check('builder never uses scanner one-run composite as score history',
       "['composite']" not in builder_src and "scan_results.json', 'r'" not in builder_src
       and 'C.stock_rank([fn(window) for fn in funcs])' in builder_src)
@@ -149,7 +149,7 @@ try:
         r = A.ensemble_score(eng, asof_session=ref, bars=250, symbol='RELIANCE')
         check('no artifact → UNFITTED, not old 65/78 fallback',
               not r['calibration']['ready'] and r['action'] == 'WATCHLIST' and not r['tradeable'])
-        C.ARTIFACT_PATH.write_text('{bad json}')
+        C.ARTIFACT_PATH.write_text('{bad json}', encoding='utf-8')
         r = A.ensemble_score(eng, asof_session=ref, bars=250, symbol='RELIANCE')
         check('corrupt artifact → same fail-closed behaviour', not r['calibration']['ready']
               and r['action'] == 'WATCHLIST')
@@ -218,8 +218,8 @@ check('even p95/top rank + BULL → qty0 when measured plan LCB below breakeven'
       and 'NO TRADE' in r_top_no_edge['exec_status'])
 
 print('\n[6] dashboard disclosure + app wiring')
-src = (ROOT / 'app.py').read_text()
-dash = (ROOT / 'Dashboard.html').read_text()
+src = (ROOT / 'app.py').read_text(encoding='utf-8')
+dash = (ROOT / 'Dashboard.html').read_text(encoding='utf-8')
 check('live app uses trailing 250-bar window', 'rank_window = ranked_df.tail(SCORE_CAL.LOOKBACK_BARS)' in src)
 check('live app score has explicit as-of/date, symbol and bar count',
       'asof_session=rank_session' in src and 'bars=len(ranked_df), symbol=resolved' in src)

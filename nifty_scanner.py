@@ -384,7 +384,7 @@ def run_full_scan():
         'results': results
     }
     # FIX-S4: strict-JSON output (no NaN/Infinity tokens)
-    with open('scan_results.json', 'w') as f:
+    with open('scan_results.json', 'w', encoding='utf-8') as f:
         json.dump(_nan_safe(scan_data), f, indent=2, allow_nan=False)
 
     print(f"\n{'='*78}")

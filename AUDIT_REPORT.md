@@ -2,6 +2,24 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-34 addendum — 2026-10-01 (Windows encoding)
+
+FIX-31/32/33 pushed fine, but every source-reading verifier crashed on Windows:
+`Path.read_text()` and `tempfile.NamedTemporaryFile('w')` default to the **ANSI code page
+(cp1252)**, while `app.py`, `Dashboard.html` and the tool sources are UTF-8 (Devanagari,
+`→`, `═`). Result: `UnicodeDecodeError: 'charmap' codec can't decode byte 0x90`. The code
+under test was fine — the *test harness* was Windows-hostile.
+
+Fixed by passing `encoding='utf-8'` explicitly to every text read/write in
+`tools/verify_*.py`, `tools/apply_v61_fixes.py`, `tools/patch_dashboard.py`, plus the JSON
+writers in `deep_analyzer.py` and `nifty_scanner.py`. Verified with the default text
+encoding forced to a non-UTF-8 code page (`LC_ALL=C PYTHONUTF8=0`, the Linux equivalent of
+cp1252): 37/37, 48/48, 64/64, 45/45, 23/23, 38/38, 31/31.
+
+If a future tool still crashes this way, the fix is the same: never rely on the platform's
+default text encoding — always pass `encoding='utf-8'`. (Running Python with
+`-X utf8` or `PYTHONUTF8=1` also works, but the code should not require it.)
+
 ## FIX-33 addendum — 2026-10-01
 
 **This audit is an as-of-2026-09-30 record; C-3 / the 65/78 comments below describe the *old*

@@ -38,18 +38,19 @@ print(' LIVE QUOTE PIPELINE — verification')
 print('=' * 82)
 
 # ── 1. syntax ───────────────────────────────────────────────────────────────
-app_src = (ROOT / 'app.py').read_text()
+app_src = (ROOT / 'app.py').read_text(encoding='utf-8')
 try:
     compile(app_src, 'app.py', 'exec')
     check('app.py syntax', True)
 except SyntaxError as e:
     check('app.py syntax', False, str(e))
 
-html = (ROOT / 'Dashboard.html').read_text()
+html = (ROOT / 'Dashboard.html').read_text(encoding='utf-8')
 scripts = re.findall(r'<script>(.*?)</script>', html, re.S)
 js_ok, js_detail = True, f'{len(scripts)} inline scripts'
 for i, s in enumerate(scripts):
-    with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as f:
+    with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False,
+                                     encoding='utf-8') as f:
         f.write(s)
         p = f.name
     try:

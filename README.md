@@ -118,6 +118,11 @@ skips today's partial candle *and* the current ranked completed session to avoid
 It writes atomically, validates formula hash/weights/universe and refuses an incomplete rebuild.
 Verify offline: `python tools/verify_score_calibration.py` (64 checks) plus existing suites.
 
+**Windows note (FIX-34):** all verifiers now read source files with explicit
+`encoding='utf-8'`, so they run on a cp1252/ANSI default code page. If any tool still
+raises `UnicodeDecodeError: 'charmap' codec…`, it is a missing `encoding='utf-8'` on a
+`read_text()`/`open()` call — fix that line (or run `python -X utf8 …` as a stopgap).
+
 ---
 
 ## What V6.1 fixed
