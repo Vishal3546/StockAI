@@ -64,6 +64,9 @@ def main():
     ok('purged' in (doc.get('method') or '').lower() and 'embargo' in (doc.get('method') or '').lower(),
        'method records purge + embargo (no leakage claim)')
     ok(len(doc.get('symbols_scored') or []) >= 5, f"{len(doc.get('symbols_scored') or [])} symbols scored")
+    libs = doc.get('libs') or {}
+    ok(bool(libs.get('python')) and bool(libs.get('scikit-learn')) and bool(libs.get('numpy')),
+       f"artifact records the libraries it was built with: {libs}")
 
     print('[2] internal consistency')
     for name, s in strat.items():

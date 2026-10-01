@@ -45,12 +45,26 @@ python deep_analyzer.py RELIANCE         # quant risk + ML report -> deep_RELIAN
 python tools/verify_fixes.py             # regression suite (31 checks) + regenerates artefacts
 ```
 
-**`requirements.txt` note.** The original pinned `tvdatafeed==2.1.0`, which **does not exist on
-PyPI** — `pip install -r requirements.txt` failed with
-`ERROR: Could not find a version that satisfies the requirement tvdatafeed==2.1.0`. The module
-`tvDatafeed` ships as `tradingview-datafeed` (used here) or from
-[GitHub](https://github.com/rongardF/tvdatafeed). `numpy==1.26.4` / `xgboost==2.1.2` have no
-cp313 wheels — the file documents that too.
+**`requirements.txt` note (FIX‑42).** Every pin now has to ship a **binary wheel for cp312,
+cp313 *and* cp314** — otherwise `pip` silently compiles C from source (slow, needs a
+toolchain). That evidence is committed in `requirements.lock.json` and checked by
+`tools/verify_dependency_pins.py`. Three old pins were wrong, all measured on 2026‑10‑01:
+
+| old pin | measured problem | now |
+|---|---|---|
+| `numpy==1.26.4` | cp312 wheels only → 3.13/3.14 compile from source | `numpy==2.3.5` |
+| `pandas==2.2.3` | no cp314 wheel | `pandas==2.3.3` |
+| `scikit-learn==1.5.2` | no cp314 wheel | `scikit-learn==1.7.2` |
+| `yfinance==0.2.44` | installs, but **dead against Yahoo**: `yf.download("RELIANCE.NS", period="6mo")` → 0 rows, `JSONDecodeError` → `/api/stock` answered *"All 3 engines failed"* | `yfinance==1.7.0` |
+
+`xgboost` needed no change of kind: its wheels are `py3-none-win_amd64` / `py3-none-manylinux*`,
+i.e. binary but with no CPython‑ABI constraint, so the old "no cp313 wheels" worry was a
+false alarm (2.1.4 → fit+predict verified). And `tvdatafeed` is still **not on PyPI** — the
+module ships as `tradingview-datafeed`. Re-check the wheel evidence any time with:
+
+```bash
+python tools/build_requirements_lock.py
+```
 
 ---
 

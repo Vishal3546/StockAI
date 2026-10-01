@@ -2,6 +2,47 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-42 addendum — 2026-10-01 (M-2 dependency pins: measured against PyPI, one dead pin found)
+
+M-2 audit me sirf *"numpy 1.26.4 ke cp313 wheels nahi hain"* likha tha. Poora
+`requirements.txt` PyPI ke against dobara measure kiya — aur do nayi baatein nikli,
+ek purani galat.
+
+**Naya rule:** har pin ka **cp312 + cp313 + cp314** wheel hona chahiye (ya pure-python
+`py3-none-any`), warna `pip` chup-chaap C compile karta hai. Evidence
+`tools/build_requirements_lock.py` → **`requirements.lock.json`** me committed hai aur
+`tools/verify_dependency_pins.py` (44 checks) offline assert karta hai.
+
+| pin | purana | measured problem | naya |
+|---|---|---|---|
+| numpy | 1.26.4 | sirf cp312 wheels (35 wheels, sdist fallback) | **2.3.5** (73 wheels, cp312/13/14) |
+| pandas | 2.2.3 | cp312/cp313 only — cp314 wheel nahi | **2.3.3** (54 wheels, cp312/13/14) |
+| scikit-learn | 1.5.2 | cp312/cp313 only — cp314 wheel nahi | **1.7.2** (30 wheels, cp312/13/14) |
+| yfinance | 0.2.44 | install hota hai par **Yahoo ke against dead**: `yf.download("RELIANCE.NS", period="6mo")` → **0 rows**, `JSONDecodeError: Expecting value: line 1 column 1` → `/api/stock` jawab deta tha *"All 3 engines failed"* | **1.7.0** (130 rows) |
+| xgboost | 2.1.2 | audit ka "no cp313 wheels" **galat framing** tha — wheels `py3-none-win_amd64` / `py3-none-manylinux*` hote hain, yaani binary par CPython-ABI constraint ke bina; compile kuch nahi hota | **2.1.4** (fit+predict verify kiya) |
+
+`requires_python` bhi check hua: numpy 2.3.5 `>=3.11`, pandas 2.3.3 `>=3.9`, sklearn 1.7.2
+`>=3.10`, xgboost 2.1.4 `>=3.8` — teeno supported Python (3.12/3.13/3.14) allow karte hain.
+Windows ke liye specifically `numpy-2.3.5-cp314-cp314-win_amd64.whl`,
+`pandas-2.3.3-cp314-cp314-win_amd64.whl`, `scikit_learn-1.7.2-cp314-cp314-win_amd64.whl`
+aur `xgboost-2.1.4-py3-none-win_amd64.whl` exist karte hain (PyPI JSON se confirm).
+
+**Ek galat shak jo maine measure karke drop ki:** `deep_analyzer.py:280` par
+`use_label_encoder=False` xgboost 2.0+ me removed hone ki wajah se TypeError de sakta tha —
+test kiya, xgboost 2.1.4 aur 3.4.1 dono par constructor+fit chal gaya. **Koi bug nahi tha.**
+
+**Compatibility proof (sirf pin badalna kaafi nahi):** pinned set install karke poora ML
+study dobara chalaya — numbers **byte-identical** rahe (S1 51.16/50.02 = +1.14pp,
+S3 54.84 vs 61.99 = −7.15pp, null max 59.32%), aur `ml_edge_study.json` ab apne
+`libs` block me python/numpy/pandas/sklearn/xgboost/yfinance versions record karta hai.
+Repo me numpy-2.0 ke removed APIs ka scan bhi clean hai (verifier check [7]).
+
+**Note:** sandbox Python 3.13.14 hai, isliye cp314 wheels PyPI metadata se verify hue hain,
+3.14 interpreter par install karke nahi. Baaki sab (wheel names, requires_python,
+yfinance behaviour, suites) is turn me chalakar dekha gaya.
+
+---
+
 ## FIX-41 addendum — 2026-10-01 (C-2 "ML ka asli edge": measured, recorded, published)
 
 C-2 ab tak sirf UI honesty tak simta tha: in-app accuracy ke saath walk-forward band
@@ -667,7 +708,7 @@ nifty_scanner_v3_6.py
 | H-11 | Near-constant engine "scores" | ✅ **Measured & closed (FIX-40)** — 250-session cross-sectional dispersion ne "Volume Profile near-constant" claim ko **refute** kiya: meanSD 14.63 (sabse zyada), flat sessions 0%. Charon engine rank me yogdaan dete hain (drop-one se 25–35% band change). Weights **unchanged** — change ka koi measured basis nahi tha |
 | H-12 | `NaN → 0.0` fabricates indicators | ✅ Solved (FIX-02 + selector D11) |
 | M-1 | `pip install -r requirements.txt` fails | ✅ Solved — `requirements_fixed.txt` verified installable |
-| M-2 | numpy 1.26.4 has no cp313 wheels | ⚠️ Documented; on 3.13 use `numpy>=2.1` (still open if you pin 1.26.4) |
+| M-2 | numpy 1.26.4 has no cp313 wheels | ✅ **Solved (FIX-42)** — every pin re-chosen for cp312/cp313/cp314 wheel coverage (numpy 2.3.5, pandas 2.3.3, sklearn 1.7.2), evidence committed in `requirements.lock.json`, asserted by `tools/verify_dependency_pins.py` (44 checks). Two audit details corrected by measurement: xgboost's wheels are `py3-none-*` (no ABI constraint — nothing to compile), and `yfinance==0.2.44` was **functionally dead**, not just old. |
 | M-3 | No route serves the dashboard | ✅ Solved (FIX-11) — `/` serves `dashboard_fixed.html` |
 | M-4 | Every 404 became a 500 | ✅ Solved (FIX-10) |
 | M-5 | 8.1 s ML per request | ✅ Solved (FIX-06 cache + `?fast=1`) |
@@ -684,7 +725,7 @@ nifty_scanner_v3_6.py
 1. **The ML still has no edge** (C-2) — and FIX-41 measured it properly instead of guessing: 53,295 pooled out-of-sample predictions, purged + embargoed walk-forward, shuffled-label null. Best design is **7.15pp below** its own majority-class baseline and below the noise ceiling; the app's current 28-feature design is +1.14pp ±0.74, i.e. indistinguishable from a coin flip. The verdict is now recorded in `ml_edge_study.json` and printed in the UI. **That is the answer, not a to-do.**
 2. **The score thresholds are still uncalibrated** (C-3). `ensemble_v2` is a diagnostic shim, not a calibrated model. Fit the BUY/AVOID bands on the score's own 1-year distribution.
 
-Plus the remaining operational items (M-2, M-8, M-9) that are hygiene, not correctness. M-11 and M-12 were closed by FIX-35.
+Plus the remaining operational items (M-8, M-9) that are hygiene, not correctness. M-11 and M-12 were closed by FIX-35, and M-2 by FIX-42.
 
 ### Final word
 The bones of this project are better than most "AI trading dashboard" code I get to look at — the fallback design, indicator maths and JSON handling are real engineering. The problem is **the last mile**: the scoring scale is uncalibrated, the ML is presented as validated when it isn't, and (before FIX-07) the position sizer could put a 5.4× leveraged trade on a signal it didn't even trust. Three of those are now addressed; the ML and the calibration remain research work. Until that is done, treat the "verdict", "targets" and "ML probability" as **UI decoration, not advice**.

@@ -75,6 +75,18 @@ def _pooled(results):
     }
 
 
+def _lib_versions():
+    """Study kis environment me bani — reproducibility ke liye artifact me record."""
+    import importlib.metadata as md
+    out = {'python': sys.version.split()[0]}
+    for pkg in ('numpy', 'pandas', 'scikit-learn', 'xgboost', 'yfinance'):
+        try:
+            out[pkg] = md.version(pkg)
+        except Exception:
+            out[pkg] = None
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--symbols', default=','.join(DEFAULT_SYMBOLS))
@@ -192,6 +204,8 @@ def main():
     artifact = {
         'schema': SCHEMA, 'model': MODEL,
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+        # Reproducibility: same numbers sirf inhi library versions par expect karein.
+        'libs': _lib_versions(),
         'method': ('purged + embargoed expanding walk-forward '
                    f'({args.folds} folds, embargo = label horizon), '
                    'baseline = same-window majority class, binomial 95% CI'
