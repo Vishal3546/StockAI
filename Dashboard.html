@@ -768,7 +768,8 @@ function setChart(data) {
   });
   ema9s.setData(e9);
   ema21s.setData(e21);
-  volS.setData(data.map(d => ({ 
+  // FIX-32: null volume ka fake 0-bar na banao; OHLC candles phir bhi dikhte hain.
+  volS.setData(data.filter(d => Number.isFinite(d.volume)).map(d => ({
     time: d.time, 
     value: d.volume, 
     color: d.close >= d.open ? 'rgba(0,230,118,0.2)' : 'rgba(255,61,0,0.2)' 
@@ -1085,6 +1086,8 @@ function render(d) {
     document.getElementById(`kpi${gaugeIds[index]}Score`).textContent = sv(v.score, '—');
     document.getElementById(`kpi${gaugeIds[index]}Action`).textContent = sv(v.action, '—');
     document.getElementById(`kpi${gaugeIds[index]}Action`).className = 'kpi-action ' + sc(v.score);
+    // FIX-32: KPI score kitne indicators se bana — tooltip me (fake votes nahi lagte)
+    if (v.basis) document.getElementById(`kpi${gaugeIds[index]}Action`).title = 'Data: ' + v.basis;
     setGauge(gaugePaths[index], v.score);                     // FIX-29: missing → khaali gauge
   });
 
@@ -1205,7 +1208,7 @@ function render(d) {
     ['Ichimoku Tenkan', svd(ind.ichi_tenkan), (isMissing(d.price) || isMissing(ind.ichi_kijun)) ? '—' : (d.price > ind.ichi_kijun ? 'ABOVE KIJUN' : 'BELOW KIJUN')],
     ['EMA 9/21', `${svd(ind.ema9)} / ${svd(ind.ema21)}`, (isMissing(ind.ema9) || isMissing(ind.ema21)) ? '—' : (ind.ema9 > ind.ema21 ? 'BULL CROSS' : 'BEAR CROSS')],
     ['SMA 50/200', `${svd(ind.sma50)} / ${svd(ind.sma200)}`, (isMissing(ind.sma50) || isMissing(ind.sma200)) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? 'GOLDEN' : 'DEATH')],
-    ['ATR (14)', svd(ind.atr), ''],
+    ['ATR (14)', svd(ind.atr), (ind.atr_basis && ind.atr_basis.includes('assumed')) ? 'ASSUMED (2% price)' : ''],
     ['Master (v2 diagnostic)', `${sv(d.ensemble_v2 && d.ensemble_v2.score, '—')}`, sv(d.ensemble_v2 && d.ensemble_v2.note, '')],
     ['Volume Ratio', isMissing(ind.vol_ratio) ? '—' : `${ind.vol_ratio}x avg`, verdict(ind.vol_ratio, v => v > 1.5 ? 'SPIKE' : v < 0.5 ? 'DRY' : 'NORMAL')]
   ];

@@ -77,8 +77,18 @@ if (payloadPath && fs.existsSync(payloadPath)) {
   if (p.ml?.probability != null) check('real ML probability ' + p.ml.probability + '%', v.includes(p.ml.probability + '%'));
   check('gauges fill hue (khaali nahi)', Math.abs(parseFloat(w.document.getElementById('gMaster').style.strokeDashoffset) - 2 * Math.PI * 47) > 0.01);
   if (p.risk && p.risk.win_rate_used != null) {
-    check('risk basis disclosure dikhta hai (FIX-30)', /ASSUMED win-rate/.test(txt('riskPlan')));
-    check('disclosure me measured accuracy', /measured accuracy \d/.test(txt('riskPlan')));
+    const riskText = txt('riskPlan');
+    // FIX-31 ke baad measured plan available ho to ASSUMED nahi dikhna chahiye.
+    // Fallback path me hi ASSUMED + model accuracy ki warning sahi hai.
+    if (p.risk.plan_hit_rate != null) {
+      check('measured plan disclosure dikhta hai (FIX-31)', /Plan ka ASLI hit-rate measured/.test(riskText));
+      check('lower-bound + sample + breakeven dikhte hain',
+        /Measured plan win-rate\s*\d.*n=\d+.*breakeven .*lower-bound/.test(riskText));
+      check('measured case me ASSUMED win-rate nahi', !/ASSUMED win-rate/.test(riskText));
+    } else {
+      check('fallback par ASSUMED disclosure (FIX-30)', /ASSUMED win-rate/.test(riskText));
+      check('fallback me model ki measured accuracy', /measured accuracy \d/.test(riskText));
+    }
   }
 } else {
   console.log('\n[3] real payload — skip (koi payload path nahi diya)');

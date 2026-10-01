@@ -278,28 +278,32 @@ def get_live_quote(symbol, force=False):
             df, src = DATA_MANAGER.smart_fetch(clean_sym, period='5d', interval='1d')
             if df is not None and not df.empty:
                 price = sf(df['Close'].iloc[-1])
-                prev = sf(df['Close'].iloc[-2]) if len(df) > 1 else price
-                change = round(price - prev, 2)
-                quote = {
-                    'symbol': clean_sym, 'price': price,
-                    'change': change,
-                    'pChange': round((change / prev) * 100, 2) if prev else 0.0,
-                    'close_price': prev,
-                    'dayHigh': sf(df['High'].iloc[-1]), 'dayLow': sf(df['Low'].iloc[-1]),
-                    'timestamp': datetime.now().strftime('%H:%M:%S'),
-                    'is_realtime': False, 'stale': True, 'source': src or 'daily-close',
-                }
+                prev = sf(df['Close'].iloc[-2]) if len(df) > 1 else None
+                if price is not None and price > 0:
+                    change = round(price - prev, 2) if prev is not None and prev > 0 else None
+                    quote = {
+                        'symbol': clean_sym, 'price': price,
+                        'change': change,
+                        'pChange': round((change / prev) * 100, 2) if change is not None else None,
+                        'close_price': prev,
+                        'dayHigh': sfx(df['High'].iloc[-1], 2),
+                        'dayLow': sfx(df['Low'].iloc[-1], 2),
+                        'timestamp': datetime.now().strftime('%H:%M:%S'),
+                        'is_realtime': False, 'stale': True, 'source': src or 'daily-close',
+                    }
         except Exception as e:
             print(f"⚠️ Live quote tier-3 error for {clean_sym}: {e}")
 
     if quote is None:
         return None
 
-    quote.setdefault('change', 0.0)
-    quote.setdefault('pChange', 0.0)
-    quote.setdefault('close_price', quote.get('price'))
-    quote.setdefault('dayHigh', quote.get('price'))
-    quote.setdefault('dayLow', quote.get('price'))
+    # FIX-32: missing fields ki keys zaroor hon, lekin current price ko
+    # fake previous close/day high/day low ya 0% change bana kar na bhejein.
+    quote.setdefault('change', None)
+    quote.setdefault('pChange', None)
+    quote.setdefault('close_price', None)
+    quote.setdefault('dayHigh', None)
+    quote.setdefault('dayLow', None)
     quote.setdefault('is_realtime', False)
     quote.setdefault('source', 'unknown')
 
@@ -675,8 +679,18 @@ def clean_json(data):
         pass
     return data
 
-def sf(val, default=0.0):
-    """Safely cast value to rounded float."""
+def sf(val, default=None):
+    """Safely cast to 4 decimals; missing is None, never an invented zero."""
+    return sfx(val, 4, default)
+
+
+def sfx(val, nd=None, default=None):
+    """FIX-32: response/display ke liye safe float — missing par 0 NAHI, None.
+
+    Pehle sf()/si() ka default 0 tha, isliye JSON me missing value '0' bankar
+    jaati thi aur dashboard use ASLI reading ki tarah dikhata tha
+    (jaise RSI 0, StochRSI 50, volume-ratio 0x). Ab null jaata hai →
+    dashboard '—' dikhata hai (FIX-29 wale helpers)."""
     try:
         if val is None:
             return default
@@ -684,21 +698,23 @@ def sf(val, default=0.0):
             return default
         if pd.isna(val):
             return default
-        return round(float(val), 4)
+        out = float(val)
+        if not math.isfinite(out):
+            return default
+        return round(out, nd) if nd is not None else out
     except Exception:
         return default
 
 
-def si(val, default=0):
-    """Safely cast value to int."""
-    try:
-        if val is None:
-            return default
-        if pd.isna(val):
-            return default
-        return int(val)
-    except Exception:
-        return default
+def six(val, default=None):
+    """FIX-32: si() ka honest version — missing par None (0 nahi)."""
+    v = sfx(val)
+    return default if v is None else int(v)
+
+
+def si(val, default=None):
+    """Safely cast to int; missing is None, never an invented zero."""
+    return six(val, default)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -730,7 +746,10 @@ def load_dynamic_nse_stocks():
                         'sym': sym,
                         'name': name,
                         'ex': 'NSE',
-                        'sec': 'NSE Equity'
+                        # FIX-32: NSE master list me sector nahi hota — pehle har stock
+                        # par 'NSE Equity' likha jaata tha (placeholder jo asli sector
+                        # jaisa lagta hai). Ab None; dashboard blank dikhata hai.
+                        'sec': None
                     })
                     
             if len(stocks) > 500:
@@ -1381,148 +1400,157 @@ def detect_all_candle_patterns(df):
 # ═══════════════════════════════════════════════════════════════════════════
 def calculate_kpi_scores(df, fund_data):
     """
-    Computes multi-horizon Intraday, Swing, and Long-term KPI scores based on price technicals and fundamental metrics.
+    Multi-horizon Intraday / Swing / Long-term KPI scores.
+
+    FIX-32: pehle har indicator sf()/si() se aata tha jinka default 0/50/1 tha —
+    matlab missing value par bhi vote lag jaata tha, aur wo bhi arbitrary
+    direction me:
+        VWAP missing     → 0 → "price > 0" hamesha true → +10 (fake bullish)
+        EMA_9/21 missing → dono 0 → -8 (fake bearish)
+        CCI missing      → 0 → koi effect nahi (theek)
+    Ab jo indicator maujood nahi hai uska vote SKIP hota hai, aur har horizon ke
+    saath `basis` aata hai — kitne indicators se score bana.
     """
     L = df.iloc[-1]
-    price = sf(L.get('Close'))
-    rsi = sf(L.get('RSI'), 50)
+    price = sfx(L.get('Close'))
+    rsi = sfx(L.get('RSI'))
+    vwap = sfx(L.get('VWAP'))
+    e9, e21 = sfx(L.get('EMA_9')), sfx(L.get('EMA_21'))
+    sma50, sma200 = sfx(L.get('SMA_50')), sfx(L.get('SMA_200'))
+    macd, macd_sig = sfx(L.get('MACD')), sfx(L.get('MACD_Signal'))
+    std = six(L.get('ST_Direction'))
+    srk = sfx(L.get('StochRSI_K'))
+    vol, vol_sma = sfx(L.get('Volume')), sfx(L.get('Vol_SMA20'))
+    bb_l, bb_u = sfx(L.get('BB_Lower')), sfx(L.get('BB_Upper'))
+    adx = sfx(L.get('ADX'))
+    cci = sfx(L.get('CCI'))
+    obv, obv_ema = sfx(L.get('OBV')), sfx(L.get('OBV_EMA'))
 
-    # Intraday Horizon Score
-    i_s = 50
-    if price > sf(L.get('VWAP')):
-        i_s += 10
-    else:
-        i_s -= 10
-
-    if rsi < 30:
-        i_s += 12
-    elif rsi > 70:
-        i_s -= 12
-
-    if sf(L.get('EMA_9')) > sf(L.get('EMA_21')):
-        i_s += 8
-    else:
-        i_s -= 8
-
-    if si(L.get('ST_Direction')) == 1:
-        i_s += 8
-    else:
-        i_s -= 8
-
-    if sf(L.get('MACD')) > sf(L.get('MACD_Signal')):
-        i_s += 6
-    else:
-        i_s -= 6
-
-    srk = sf(L.get('StochRSI_K'), 50)
-    if srk < 20:
-        i_s += 6
-    elif srk > 80:
-        i_s -= 6
-
-    if sf(L.get('Volume')) > sf(L.get('Vol_SMA20'), 1) * 1.5:
-        i_s += 5
-        
+    # ── Intraday Horizon Score ──
+    i_s, i_used, i_total = 50, 0, 7  # VWAP, RSI, EMA, ST, MACD, StochRSI, Volume
+    if price is not None and vwap is not None:
+        i_used += 1
+        i_s += 10 if price > vwap else -10
+    if rsi is not None:
+        i_used += 1
+        if rsi < 30:
+            i_s += 12
+        elif rsi > 70:
+            i_s -= 12
+    if e9 is not None and e21 is not None:
+        i_used += 1
+        i_s += 8 if e9 > e21 else -8
+    if std is not None:
+        i_used += 1
+        i_s += 8 if std == 1 else -8
+    if macd is not None and macd_sig is not None:
+        i_used += 1
+        i_s += 6 if macd > macd_sig else -6
+    if srk is not None:
+        i_used += 1
+        if srk < 20:
+            i_s += 6
+        elif srk > 80:
+            i_s -= 6
+    if vol is not None and vol_sma is not None and vol_sma > 0:
+        i_used += 1
+        if vol > vol_sma * 1.5:
+            i_s += 5
     i_s = int(max(5, min(98, i_s)))
 
-    # Swing Horizon Score
-    s_s = 50
-    if sf(L.get('EMA_21')) > sf(L.get('SMA_50')):
-        s_s += 10
-    else:
-        s_s -= 10
-
-    if sf(L.get('MACD')) > sf(L.get('MACD_Signal')):
-        s_s += 8
-    else:
-        s_s -= 8
-
-    if 40 <= rsi <= 60:
-        s_s += 6
-    elif rsi < 30:
-        s_s += 10
-    elif rsi > 75:
-        s_s -= 8
-
-    bb_l = sf(L.get('BB_Lower'))
-    bb_u = sf(L.get('BB_Upper'))
-    if bb_l > 0 and price < bb_l:
-        s_s += 8
-    elif bb_u > 0 and price > bb_u:
-        s_s -= 6
-
-    if sf(L.get('ADX')) > 25:
-        s_s += 5
-
-    cci = sf(L.get('CCI'))
-    if cci < -100:
-        s_s += 6
-    elif cci > 100:
-        s_s -= 4
-        
+    # ── Swing Horizon Score ──
+    s_s, s_used, s_total = 50, 0, 6
+    if e21 is not None and sma50 is not None:
+        s_used += 1
+        s_s += 10 if e21 > sma50 else -10
+    if macd is not None and macd_sig is not None:
+        s_used += 1
+        s_s += 8 if macd > macd_sig else -8
+    if rsi is not None:
+        s_used += 1
+        if 40 <= rsi <= 60:
+            s_s += 6
+        elif rsi < 30:
+            s_s += 10
+        elif rsi > 75:
+            s_s -= 8
+    if price is not None and bb_l is not None and bb_u is not None:
+        s_used += 1
+        if price < bb_l:
+            s_s += 8
+        elif price > bb_u:
+            s_s -= 6
+    if adx is not None:
+        s_used += 1
+        if adx > 25:
+            s_s += 5
+    if cci is not None:
+        s_used += 1
+        if cci < -100:
+            s_s += 6
+        elif cci > 100:
+            s_s -= 4
     s_s = int(max(5, min(98, s_s)))
 
-    # Long-Term Horizon Score
-    lt_s = 50
-    sma200 = sf(L.get('SMA_200'))
-    sma50 = sf(L.get('SMA_50'))
-    
-    if sma200 > 0 and price > sma200:
-        lt_s += 15
-    elif sma200 > 0:
-        lt_s -= 12
-
-    if sma50 > 0 and sma200 > 0 and sma50 > sma200:
-        lt_s += 12
-    elif sma50 > 0 and sma200 > 0:
-        lt_s -= 8
-
+    # ── Long-Term Horizon Score ──
+    lt_s, lt_used, lt_total = 50, 0, 6
+    if price is not None and sma200 is not None and sma200 > 0:
+        lt_used += 1
+        lt_s += 15 if price > sma200 else -12
+    if sma50 is not None and sma200 is not None and sma200 > 0:
+        lt_used += 1
+        lt_s += 12 if sma50 > sma200 else -8
     pe = fund_data.get('pe_val')
     if pe and isinstance(pe, (int, float)):
+        lt_used += 1
         if pe < 25:
             lt_s += 5
         elif pe > 50:
             lt_s -= 5
-
     roe = fund_data.get('roe_val')
-    if roe and isinstance(roe, (int, float)) and roe > 0.15:
-        lt_s += 6
-
+    if roe and isinstance(roe, (int, float)):
+        lt_used += 1
+        if roe > 0.15:
+            lt_s += 6
     debt = fund_data.get('debt_val')
     if debt and isinstance(debt, (int, float)):
+        lt_used += 1
         if debt < 0:
             lt_s += 3
         elif debt < 50:
             lt_s += 4
         elif debt > 150:
             lt_s -= 4
-
-    if sf(L.get('OBV')) > sf(L.get('OBV_EMA')):
-        lt_s += 4
-        
+    if obv is not None and obv_ema is not None:
+        lt_used += 1
+        if obv > obv_ema:
+            lt_s += 4
     lt_s = int(max(5, min(98, lt_s)))
 
     master = int((i_s + s_s + lt_s) / 3)
-    
+
     return {
         'intraday': {
             'score': i_s,
-            'action': 'BUY' if i_s >= 65 else 'SELL' if i_s <= 35 else 'HOLD'
+            'action': 'BUY' if i_s >= 65 else 'SELL' if i_s <= 35 else 'HOLD',
+            'basis': f'{i_used}/{i_total} indicators measured'
         },
         'swing': {
             'score': s_s,
-            'action': 'BUY' if s_s >= 65 else 'SELL' if s_s <= 35 else 'HOLD'
+            'action': 'BUY' if s_s >= 65 else 'SELL' if s_s <= 35 else 'HOLD',
+            'basis': f'{s_used}/{s_total} indicators measured'
         },
         'longterm': {
             'score': lt_s,
-            'action': 'INVEST' if lt_s >= 65 else 'AVOID' if lt_s <= 35 else 'WATCH'
+            'action': 'INVEST' if lt_s >= 65 else 'AVOID' if lt_s <= 35 else 'WATCH',
+            'basis': f'{lt_used}/{lt_total} indicators measured'
         },
         'master': {
             'score': master,
-            'action': 'STRONG BUY' if master >= 72 else 'STRONG SELL' if master <= 28 else 'NEUTRAL'
+            'action': 'STRONG BUY' if master >= 72 else 'STRONG SELL' if master <= 28 else 'NEUTRAL',
+            'basis': f'{i_used + s_used + lt_used}/{i_total + s_total + lt_total} indicators measured'
         }
     }
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  6 INSTITUTIONAL TRADING ENGINES
@@ -2166,7 +2194,7 @@ def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
 
 def calculate_risk(price, atr, score, capital=None, action=None,
                    measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None,
-                   plan_measure=None):
+                   plan_measure=None, atr_basis=None):
     """
     Institutional Kelly risk plan.
 
@@ -2246,17 +2274,19 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     else:
         _edge_verified = bool(_checks) and all(_checks)
 
+    if atr_basis and 'assumed' in str(atr_basis):
+        # FIX-32: SL/targets ATR par bane hain — ATR assumed ho to ye zaroori disclosure hai
+        _note_atr = " ⚠️ ATR missing tha, isliye SL/targets 2% of price par bane hain."
+    else:
+        _note_atr = ""
     if direction == 'NONE':
         _risk_note = ("Koi directional trade nahi (verdict neutral) — position size "
-                      "apply nahi hota.")
+                      "apply nahi hota." + _note_atr)
     elif _measured_ok:
         _risk_note = (f"Plan ka ASLI hit-rate measured: {_p_hat:.1%} (n={_plan.get('n')} setups, "
                       f"breakeven {_plan_breakeven:.1%}). Sizing conservative lower-bound "
                       f"{_p_lcb:.1%} (±{_se:.1%} sampling error) se — "
                       f"{'measured edge hai.' if _edge_verified else 'measured edge NAHI (sampling error ke andar) — qty 0 rakha gaya.'}")
-        if _wf is not None:
-            _risk_note += (f" (ML walk-forward {_wf:.1f}%"
-                           + (f" vs baseline {_base:.1f}%" if _base is not None else '') + ")")
         if _wf is not None:
             _risk_note += (f" (ML walk-forward {_wf:.1f}%"
                            + (f" vs baseline {_base:.1f}%" if _base is not None else '') + ")")
@@ -2272,6 +2302,9 @@ def calculate_risk(price, atr, score, capital=None, action=None,
                       f"Model ki measured accuracy {_wr_measured:.1%}{_wf_txt} ({_gap:+.1f}pp gap) — "
                       f"{'verified edge mila hai' if _edge_verified else 'verified edge NAHI mila'}; "
                       f"Kelly allocation ko definite edge ki tarah na maanein.")
+    # FIX-32: assumption note teenon risk-note paths par dikhni chahiye, sirf NONE par nahi.
+    if direction != 'NONE':
+        _risk_note += _note_atr
 
     if direction == 'SHORT':
         sl, t1, t2, t3 = price + atr * sl_mult, price - atr * 2.5, price - atr * 4.0, price - atr * 6.0
@@ -2309,6 +2342,7 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         'plan_sample_size': int(_plan['n']) if _measured_ok else None,
         'plan_breakeven': round(_plan_breakeven, 4) if _measured_ok else None,
         'plan_basis': (_plan.get('basis') if _measured_ok else None),
+        'atr_basis': atr_basis,
         'plan_scope': (_plan.get('scope') if _measured_ok else None),
         'win_rate_measured': _wr_measured,
         'accuracy_walk_forward': _wf,
@@ -2396,6 +2430,8 @@ def stock_api(symbol):
         df = calculate_all_indicators(df)
         L = df.iloc[-1]
         prev = df.iloc[-2]
+        if (sfx(L.get('Close')) is None or sfx(L.get('Close')) <= 0):
+            return jsonify({'error': 'Last daily Close unavailable — fake ₹0 price nahi dikhate'}), 503
         
         # ── Exact Live NSE LTP Handshake Hook ──
         live_nse = fetch_nse_live_ltp(resolved)
@@ -2406,10 +2442,16 @@ def stock_api(symbol):
             active_source = 'NSE Direct Live'
         else:
             price = sf(L['Close'])
-            change = round(sf(price - prev['Close']), 2)
-            pChange = round(sf((price - prev['Close']) / prev['Close'] * 100), 2)
+            _prev_close = sfx(prev.get('Close'))
+            change = round(price - _prev_close, 2) if _prev_close is not None else None
+            pChange = (round(change / _prev_close * 100, 2)
+                       if change is not None and _prev_close and _prev_close > 0 else None)
 
-        atr = sf(L.get('ATR'), price * 0.02)
+        # FIX-32: ATR missing ho to 2% of price fallback — par ab ye DISCLOSE hota hai
+        # (pehle chup-chaap hota tha aur risk plan 'ATR-based' lagta tha)
+        _atr_raw = sfx(L.get('ATR'))
+        atr_basis = 'ATR(14)' if _atr_raw else 'assumed 2% of price (ATR missing)'
+        atr = _atr_raw if _atr_raw else price * 0.02
         ml_res = ml_engine(df)
 
         try:
@@ -2450,7 +2492,7 @@ def stock_api(symbol):
                               measured_accuracy=_ml_acc,
                               measured_wf_accuracy=_ml_wf,
                               measured_baseline=_ml_base,
-                              plan_measure=_plan)
+                              plan_measure=_plan, atr_basis=atr_basis)
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 
@@ -2465,19 +2507,20 @@ def stock_api(symbol):
 
         chart_data = []
         for idx, row in df.tail(CONFIG['CHART_CANDLES']).iterrows():
+            # Missing OHLC par fake ₹0 candle chart ko distort karta tha.
+            o, h, low, c = (sfx(row.get(k), 2) for k in ('Open', 'High', 'Low', 'Close'))
+            if (any(v is None or v <= 0 for v in (o, h, low, c)) or h < low):
+                continue
             t_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)[:10]
             chart_data.append({
-                'time': t_str,
-                'open': round(sf(row['Open']), 2),
-                'high': round(sf(row['High']), 2),
-                'low': round(sf(row['Low']), 2),
-                'close': round(sf(row['Close']), 2),
-                'volume': si(row['Volume'])
+                'time': t_str, 'open': o, 'high': h, 'low': low, 'close': c,
+                'volume': six(row.get('Volume'))  # missing volume → null; histogram skip karta hai
             })
 
-        h52 = sf(df['High'].tail(252).max())
-        l52 = sf(df['Low'].tail(252).min())
-        pos52 = round((price - l52) / (h52 - l52 + 1e-10) * 100, 1)
+        h52 = sfx(df['High'].tail(252).max(), 2)      # FIX-32: missing → None (0 nahi)
+        l52 = sfx(df['Low'].tail(252).min(), 2)
+        pos52 = (round((price - l52) / (h52 - l52 + 1e-10) * 100, 1)
+                 if (h52 is not None and l52 is not None) else None)
 
         response_payload = {
             'symbol': resolved,
@@ -2498,37 +2541,42 @@ def stock_api(symbol):
             'kpi': kpi,
             'risk': risk,
             'patterns': patterns,
+            # FIX-32: missing indicator ab None (null) — pehle 0/50/-50/1 defaults
+            # asli reading jaise chhapte the
             'indicators': {
-                'rsi': sf(L.get('RSI'), 50),
-                'ema9': round(sf(L.get('EMA_9')), 2),
-                'ema21': round(sf(L.get('EMA_21')), 2),
-                'ema50': round(sf(L.get('EMA_50')), 2),
-                'sma50': round(sf(L.get('SMA_50')), 2),
-                'sma200': round(sf(L.get('SMA_200')), 2),
-                'macd': round(sf(L.get('MACD')), 2),
-                'macd_signal': round(sf(L.get('MACD_Signal')), 2),
-                'macd_hist': round(sf(L.get('MACD_Hist')), 2),
-                'bb_upper': round(sf(L.get('BB_Upper')), 2),
-                'bb_lower': round(sf(L.get('BB_Lower')), 2),
-                'bb_pctb': round(sf(L.get('BB_PctB')), 2),
-                'bb_width': round(sf(L.get('BB_Width')), 2),
-                'supertrend': round(sf(L.get('Supertrend')), 2),
-                'st_direction': si(L.get('ST_Direction'), 1),
-                'adx': round(sf(L.get('ADX')), 1),
-                'plus_di': round(sf(L.get('Plus_DI')), 1),
-                'minus_di': round(sf(L.get('Minus_DI')), 1),
-                'vwap': round(sf(L.get('VWAP')), 2),
-                'stochrsi_k': round(sf(L.get('StochRSI_K'), 50), 1),
-                'stochrsi_d': round(sf(L.get('StochRSI_D'), 50), 1),
+                'rsi': sfx(L.get('RSI'), 1),
+                'ema9': sfx(L.get('EMA_9'), 2),
+                'ema21': sfx(L.get('EMA_21'), 2),
+                'ema50': sfx(L.get('EMA_50'), 2),
+                'sma50': sfx(L.get('SMA_50'), 2),
+                'sma200': sfx(L.get('SMA_200'), 2),
+                'macd': sfx(L.get('MACD'), 2),
+                'macd_signal': sfx(L.get('MACD_Signal'), 2),
+                'macd_hist': sfx(L.get('MACD_Hist'), 2),
+                'bb_upper': sfx(L.get('BB_Upper'), 2),
+                'bb_lower': sfx(L.get('BB_Lower'), 2),
+                'bb_pctb': sfx(L.get('BB_PctB'), 2),
+                'bb_width': sfx(L.get('BB_Width'), 2),
+                'supertrend': sfx(L.get('Supertrend'), 2),
+                'st_direction': six(L.get('ST_Direction')),
+                'adx': sfx(L.get('ADX'), 1),
+                'plus_di': sfx(L.get('Plus_DI'), 1),
+                'minus_di': sfx(L.get('Minus_DI'), 1),
+                'vwap': sfx(L.get('VWAP'), 2),
+                'stochrsi_k': sfx(L.get('StochRSI_K'), 1),
+                'stochrsi_d': sfx(L.get('StochRSI_D'), 1),
                 'atr': round(atr, 2),
-                'obv': round(sf(L.get('OBV')), 0),
-                'cci': round(sf(L.get('CCI')), 1),
-                'williams_r': round(sf(L.get('WilliamsR'), -50), 1),
-                'ichi_tenkan': round(sf(L.get('Ichi_Tenkan')), 2),
-                'ichi_kijun': round(sf(L.get('Ichi_Kijun')), 2),
-                'volume': si(L.get('Volume')),
-                'vol_sma20': round(sf(L.get('Vol_SMA20')), 0),
-                'vol_ratio': round(sf(L.get('Volume')) / (sf(L.get('Vol_SMA20'), 1) + 1), 2)
+                'atr_basis': atr_basis,
+                'obv': sfx(L.get('OBV'), 0),
+                'cci': sfx(L.get('CCI'), 1),
+                'williams_r': sfx(L.get('WilliamsR'), 1),
+                'ichi_tenkan': sfx(L.get('Ichi_Tenkan'), 2),
+                'ichi_kijun': sfx(L.get('Ichi_Kijun'), 2),
+                'volume': six(L.get('Volume')),
+                'vol_sma20': sfx(L.get('Vol_SMA20'), 0),
+                'vol_ratio': (round(float(L.get('Volume')) / float(L.get('Vol_SMA20')), 2)
+                              if (sfx(L.get('Volume')) is not None
+                                  and (sfx(L.get('Vol_SMA20')) or 0) > 0) else None)
             },
             'fundamentals': {
                 'pe': f"{fund_data['pe_val']:.1f}" if fund_data['pe_val'] else 'N/A',
@@ -2537,12 +2585,12 @@ def stock_api(symbol):
                 'debt_equity': f"{fund_data['debt_val']:.1f}" if fund_data['debt_val'] else 'N/A',
                 'div_yield': f"{_dy:.2f}%" if _dy else 'N/A',
                 'mcap': f"₹{info.get('marketCap', 0) / 1e7:,.0f}Cr" if info.get('marketCap') else 'N/A',
-                'sector': info.get('sector', 'NSE Equity'),
-                'industry': info.get('industry', 'Equities')
+                'sector': info.get('sector') or None,        # FIX-32: 'NSE Equity' invented nahi
+                'industry': info.get('industry') or None
             },
             'week52': {
-                'high': round(h52, 2),
-                'low': round(l52, 2),
+                'high': h52,
+                'low': l52,
                 'position': pos52
             },
             # FIX-08/09: re-centred diagnostic score + honest data-source flags
