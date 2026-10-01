@@ -2,6 +2,83 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-46 addendum — 2026-10-01 (Pyrefly `bad-unpacking` × 4 in `app.py`)
+
+User ne VS Code (Pyrefly) ke 4 diagnostics paste kiye — `app.py` lines **1443, 1469, 1476,
+1483**:
+
+> Expected argument after ** to be a mapping, got: `dict[str, float | int] | ... | float |
+> int | list[float] | str` in function `GradientBoostingClassifier.__init__`
+
+**Ye runtime bug nahi tha.** `CONFIG` ek heterogeneous dict hai (floats, ints, strings,
+lists, nested dicts), isliye checker `CONFIG['ML_GB_PARAMS']` ka type *poore value-union*
+ke roop me infer karta hai aur `**` unpack par complain karta hai. Runtime par wo chaaron
+values sach me `dict` hain — verified: classifiers bante hain aur hyperparameters exactly
+wahi land karte hain (`n_estimators=120`, `max_depth=5`, `max_iter=1000`).
+
+**Reproduce karna zaroori tha, warna "fix" ka koi meaning nahi.** Sandbox ke
+scikit-learn 1.7.2 me `py.typed` marker nahi hai, isliye default single-file mode me
+Pyrefly sklearn ko untyped maan kar `__init__` signature dekhta hi nahi — aur **0 errors**
+deta hai. Do cheezein chahiye thi: ek `pyrefly.toml` (project mode, site-packages resolve)
+aur `preset = "strict"`. Tab pre-fix code par **exactly wahi 4 errors, exactly unhi lines
+par** mile: `[1443, 1469, 1476, 1483]`.
+
+**Fix:** bare `cast` se lint chup karane ke bajaye ek validated helper:
+
+```python
+_ML_PARAM_KEYS = ('ML_GB_PARAMS', 'ML_RF_PARAMS', 'ML_LR_PARAMS', 'ML_XGB_PARAMS')
+
+def ml_params(key: str) -> Mapping[str, Any]:
+    ...
+    if not isinstance(params, dict):
+        raise TypeError(...)
+    return params
+```
+
+Ye `cast` se behtar hai kyunki checker ko mapping prove karta hai **aur** galti se non-dict
+value aane par loud `TypeError` deta hai (sklearn ke confusing error ke bajaye). Paanchon
+unpack sites (`ML_GB_PARAMS` ×2 walk-forward + final, `ML_RF_PARAMS`, `ML_LR_PARAMS`,
+`ML_XGB_PARAMS`) ab isi se jaate hain.
+
+**Return type chunna measured tha, guess nahi.** `preset = "all"` par chaar variants test kiye:
+
+| annotation | total errors | bad-unpacking | explicit-any | bad-argument-type |
+|---|---|---|---|---|
+| bare `dict` | 1068 | 0 | 0 | 5 |
+| `dict[str, Any]` | 1067 | 0 | **1** | 5 |
+| `dict[str, int \| float \| str]` | 1140 | 0 | 0 | **78** |
+| `dict[str, object]` | 1140 | 0 | 0 | **78** |
+| **`Mapping[str, Any]`** | **1067** | **0** | **1** | **5** |
+
+Concrete value types (`object` / `int|float|str`) `bad-argument-type` ko 5 → **78** kar
+dete hain, kyunki `**` unpack par checker har param ko us type se match karne ki koshish
+karta hai. Isliye `Mapping[str, Any]` chuna.
+
+**Ek correction:** maine pehle kaha tha "`Mapping[str, Any]` ne `explicit-any` = 0 diya".
+Wo **galat tha** — us test loop me `Mapping` import hi nahi tha, isliye annotation
+*unresolved* thi aur Pyrefly kuch flag hi nahi kar sakta tha. Properly import karne par
+`explicit-any` = 1 aata hai — lekin **sirf `preset = "all"` par**, jo poore file me
+**1,067** errors deta hai. User ko sirf 4 dikhe the, isliye unka config `all` nahi hai.
+
+**Final measured result, `preset = "strict"`** (jo user ke 4 diagnostics reproduce karta hai):
+
+| | PRE (HEAD) | POST (fix) |
+|---|---|---|
+| total errors | 262 | **258** |
+| `bad-unpacking` | **4** (lines 1443/1469/1476/1483) | **0** |
+| new error kinds introduced | — | **none** |
+
+`preset = "basic"` (default) par dono taraf 0 — wo preset sklearn resolve nahi karta.
+
+**Verifier:** `verify_fixes.py` 31 → **53 checks**. Naya block `[6]` assert karta hai ki
+`**CONFIG[` pattern wapas na aaye, helper live `CONFIG` dict hi return karta hai (copy
+nahi — mutation semantics unchanged), guard dono failure modes par fire karta hai, aur
+teeno sklearn classifier purane call ke byte-identical params ke saath bante hain.
+
+Full regression: **669 checks, 0 failed.**
+
+---
+
 ## FIX-45 addendum — 2026-10-01 (summary label exact + TATAMOTORS → TMPV; M-8/M-9 correction)
 
 Teen cheezein, teeno measured.
@@ -887,6 +964,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Pyrefly `bad-unpacking` × 4 in `app.py` (ML param unpacking) | ✅ **Solved (FIX-46)** — type-check issue tha, runtime bug nahi (`CONFIG` heterogeneous hai isliye checker mapping prove nahi kar sakta; runtime par chaaron values sach me `dict` hain, hyperparams unchanged). Reproduce karne ke liye `pyrefly.toml` + `preset = "strict"` chahiye tha — sandbox sklearn 1.7.2 me `py.typed` nahi hai, isliye default mode 0 errors deta hai. `ml_params()` helper se paanchon sites route kiye. Measured, `preset = "strict"`: total 262 → **258**, `bad-unpacking` 4 → **0**, **koi naya error kind nahi**. `verify_fixes.py` 31 → **53 checks**. |
 | — | Scanner universe me dead ticker + summary line substring-count | ✅ **Solved (FIX-45)** — `TATAMOTORS` → `TMPV` (demerger, 1 Oct 2025; NSE ticker ab exist nahi karta, chaaron probe HTTP 404). `TMPV` Nifty 50 successor hai **aur** uske paas poori history hai (1,241 bars, 2021‑10‑01 se; `TMCV` ke sirf 225). Summary line ab exact per-band counts deta hai (pehle `"SELL" in signal` se 17 SELL + 6 STRONG SELL ek hi `23 SELL` me chhupe the). Teeno artifacts rebuild: calibration 30 symbols/7,500 scores, bands 7,500 sessions/0 skipped, ML study 20 symbols/56,100 preds. `verify_scanner_bands.py` 53 → **67 checks**. **Audit me ab koi item open nahi.** |
 
 **Honest answer to "sab solve ho gaya?":** all the *code* defects that were fixable in a session are fixed and verified — 15 of them. Two things remain that a patch cannot fix, because they are not bugs:

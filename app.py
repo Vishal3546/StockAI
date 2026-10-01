@@ -36,7 +36,9 @@ import threading
 import time
 import warnings
 import webbrowser
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import score_calibration as SCORE_CAL
 
@@ -370,6 +372,31 @@ CONFIG = {
         'eval_metric': 'logloss'
     }
 }
+
+# FIX-46: CONFIG heterogeneous hai (floats, ints, strings, lists, nested dicts),
+# isliye type checker `CONFIG['ML_GB_PARAMS']` ka type pura value-union maan leta
+# hai aur `**` unpack par "Expected argument after ** to be a mapping" bolta hai.
+# Runtime par ye chaaron sach me dict hain (verified), par checker prove nahi kar
+# sakta. Sirf `cast` lagaana lint chup karana hota; ye helper usse behtar hai —
+# checker ko mapping return karta hai AUR galti se non-dict value aane par loud
+# TypeError deta hai, sklearn ke confusing error ke bajaye.
+_ML_PARAM_KEYS = ('ML_GB_PARAMS', 'ML_RF_PARAMS', 'ML_LR_PARAMS', 'ML_XGB_PARAMS')
+
+
+def ml_params(key: str) -> Mapping[str, Any]:
+    """`CONFIG` se ML hyperparameter mapping laao, validated.
+
+    `dict[str, Any]` return type ki wajah se `GradientBoostingClassifier(**ml_params(...))`
+    type-check clean hota hai. Guard runtime par bhi kaam karta hai.
+    """
+    if key not in _ML_PARAM_KEYS:
+        raise KeyError(f'unknown ML param key {key!r}; expected one of {_ML_PARAM_KEYS}')
+    params = CONFIG[key]
+    if not isinstance(params, dict):
+        raise TypeError(
+            f'CONFIG[{key!r}] must be a mapping of hyperparameters, '
+            f'got {type(params).__name__}')
+    return params
 
 # Global Caching and Memory Storage
 DYNAMIC_STOCK_DB = []
@@ -1440,7 +1467,7 @@ def _ml_engine_uncached(df):
             X_tr_wf_s = sc_wf.fit_transform(X_tr_wf)
             X_te_wf_s = sc_wf.transform(X_te_wf)
 
-            gb_wf = GradientBoostingClassifier(**CONFIG['ML_GB_PARAMS'])
+            gb_wf = GradientBoostingClassifier(**ml_params('ML_GB_PARAMS'))
             gb_wf.fit(X_tr_wf_s, y_tr_wf)
             wf_results.append(accuracy_score(y_te_wf, gb_wf.predict(X_te_wf_s)))
 
@@ -1466,21 +1493,21 @@ def _ml_engine_uncached(df):
         X_today_s = scaler.transform(X_today)
 
         # Model 1: Gradient Boosting
-        gb = GradientBoostingClassifier(**CONFIG['ML_GB_PARAMS'])
+        gb = GradientBoostingClassifier(**ml_params('ML_GB_PARAMS'))
         gb.fit(X_tr_s, y_train)
         gb_preds = gb.predict(X_te_s)
         gb_acc = round(accuracy_score(y_test, gb_preds) * 100, 1)
         gb_prob = float(gb.predict_proba(X_today_s)[0][1])
 
         # Model 2: Random Forest
-        rf = RandomForestClassifier(**CONFIG['ML_RF_PARAMS'])
+        rf = RandomForestClassifier(**ml_params('ML_RF_PARAMS'))
         rf.fit(X_tr_s, y_train)
         rf_preds = rf.predict(X_te_s)
         rf_acc = round(accuracy_score(y_test, rf_preds) * 100, 1)
         rf_prob = float(rf.predict_proba(X_today_s)[0][1])
 
         # Model 3: Logistic Regression
-        lr = LogisticRegression(**CONFIG['ML_LR_PARAMS'])
+        lr = LogisticRegression(**ml_params('ML_LR_PARAMS'))
         lr.fit(X_tr_s, y_train)
         lr_preds = lr.predict(X_te_s)
         lr_acc = round(accuracy_score(y_test, lr_preds) * 100, 1)
@@ -1510,7 +1537,7 @@ def _ml_engine_uncached(df):
         # Model 4: Optional XGBoost Classifier
         try:
             from xgboost import XGBClassifier
-            xgb = XGBClassifier(**CONFIG['ML_XGB_PARAMS'])
+            xgb = XGBClassifier(**ml_params('ML_XGB_PARAMS'))
             xgb.fit(X_tr_s, y_train)
             xgb_preds = xgb.predict(X_te_s)
             xgb_acc = round(accuracy_score(y_test, xgb_preds) * 100, 1)

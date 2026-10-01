@@ -125,6 +125,65 @@ check("stock and NIFTY legs cover the same window",
 
 print()
 print("═" * 78)
+print(" 6) FIX-46 ML hyperparameter unpacking (type-check clean + guarded)")
+print("═" * 78)
+app_src = (ROOT / 'app.py').read_text(encoding='utf-8')
+# Regression guard: `**CONFIG[...]` pattern wapas aaya to type checker phir
+# "Expected argument after ** to be a mapping" bolega (CONFIG heterogeneous hai).
+check("no bare **CONFIG[...] unpack left in app.py",
+      '**CONFIG[' not in app_src,
+      f"count = {app_src.count('**CONFIG[')}")
+check("ml_params() helper defined", 'def ml_params(key: str) -> Mapping[str, Any]:' in app_src)
+check("all 4 ML param keys routed through ml_params",
+      app_src.count("ml_params('ML_GB_PARAMS')") == 2
+      and app_src.count("ml_params('ML_RF_PARAMS')") == 1
+      and app_src.count("ml_params('ML_LR_PARAMS')") == 1
+      and app_src.count("ml_params('ML_XGB_PARAMS')") == 1,
+      f"GB x{app_src.count(chr(109) + 'l_params(' + chr(39) + 'ML_GB_PARAMS' + chr(39) + ')')}")
+check("Mapping imported from collections.abc (typing.Mapping is deprecated)",
+      'from collections.abc import Mapping' in app_src)
+
+import app as _app  # noqa: E402
+from collections.abc import Mapping as _Mapping
+
+for _k in _app._ML_PARAM_KEYS:
+    _p = _app.ml_params(_k)
+    check(f"ml_params({_k!r}) is a Mapping", isinstance(_p, _Mapping))
+    check(f"ml_params({_k!r}) returns the live CONFIG dict (not a copy)",
+          _p is _app.CONFIG[_k])
+    check(f"ml_params({_k!r}) == CONFIG[{_k!r}]", _p == _app.CONFIG[_k])
+
+# Guard actually fires — silent passthrough nahi
+try:
+    _app.ml_params('NOT_A_REAL_KEY')
+    check("unknown ML param key raises KeyError", False)
+except KeyError:
+    check("unknown ML param key raises KeyError", True)
+
+_saved = _app.CONFIG['ML_GB_PARAMS']
+_app.CONFIG['ML_GB_PARAMS'] = 1.5
+try:
+    _app.ml_params('ML_GB_PARAMS')
+    check("non-dict CONFIG value raises TypeError (loud, not sklearn's confusing error)", False)
+except TypeError:
+    check("non-dict CONFIG value raises TypeError (loud, not sklearn's confusing error)", True)
+finally:
+    _app.CONFIG['ML_GB_PARAMS'] = _saved
+check("CONFIG restored after guard test", _app.ml_params('ML_GB_PARAMS') is _saved)
+
+# End-to-end: wahi constructors jo pehle type-error dete the, ab bante hain
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+for _key, _cls in [('ML_GB_PARAMS', GradientBoostingClassifier),
+                   ('ML_RF_PARAMS', RandomForestClassifier),
+                   ('ML_LR_PARAMS', LogisticRegression)]:
+    _direct = _cls(**_app.CONFIG[_key])
+    _via = _cls(**_app.ml_params(_key))
+    _same = all(getattr(_direct, _a) == getattr(_via, _a) for _a in _app.CONFIG[_key])
+    check(f"{_cls.__name__}(**ml_params({_key!r})) identical to old call", _same)
+
+print()
+print("═" * 78)
 print(f" RESULT: {len(PASS)} passed, {len(FAIL)} failed")
 print("═" * 78)
 for f in FAIL:

@@ -42,7 +42,7 @@ Then, optionally:
 ```bash
 python nifty_scanner.py                  # scans 30 Nifty names  -> scan_results.json
 python deep_analyzer.py RELIANCE         # quant risk + ML report -> deep_RELIANCE.json
-python tools/verify_fixes.py             # regression suite (31 checks) + regenerates artefacts
+python tools/verify_fixes.py             # regression suite (53 checks) + regenerates artefacts
 ```
 
 **`requirements.txt` note (FIX‑42).** Every pin now has to ship a **binary wheel for cp312,
@@ -360,6 +360,54 @@ scores**, scanner bands **7,500 stock-sessions / 30 symbols / 0 skipped**, ML st
 **20 symbols / 56,100 OOS predictions**. Calibration cutoffs are unchanged (43/50/57/62);
 the only scanner band that moved is WATCH 51 → **50**; and the ML verdict is still
 **NO EDGE** (+0.96 pp vs a 59.32 % shuffled-label ceiling).
+
+---
+
+### FIX-46 · Pyrefly `bad-unpacking` × 4 in `app.py` (type-check, not a runtime bug)
+
+`app.py` had four `GradientBoostingClassifier(**CONFIG['ML_GB_PARAMS'])`-style calls that
+Pyrefly flagged at lines 1443/1469/1476/1483:
+
+> Expected argument after ** to be a mapping, got: `dict[str, float | int] | … | float | int | list[float] | str`
+
+`CONFIG` is a heterogeneous dict, so the checker infers the *whole value union* for any key
+and cannot prove the result is a mapping. At runtime all four values really are `dict`s —
+the classifiers built fine and the hyperparameters landed unchanged
+(`n_estimators=120`, `max_depth=5`, `max_iter=1000`). **Nothing was broken at runtime.**
+
+Reproducing it mattered: sandbox scikit-learn 1.7.2 ships **no `py.typed` marker**, so in
+default single-file mode Pyrefly treats sklearn as untyped, never sees `__init__`, and
+reports **0 errors**. A `pyrefly.toml` (project mode, so site-packages resolve) plus
+`preset = "strict"` was needed — and then the pre-fix code produced **exactly those four
+errors on exactly those lines**.
+
+Fix: a validated helper instead of a bare `cast`, so the checker gets a mapping *and* a
+mistaken non-dict fails loudly rather than surfacing as a confusing sklearn error:
+
+```python
+def ml_params(key: str) -> Mapping[str, Any]:
+    if not isinstance(params, dict):
+        raise TypeError(f'CONFIG[{key!r}] must be a mapping of hyperparameters, …')
+    return params
+```
+
+The return type was **measured, not guessed** — under `preset = "all"`, `dict[str, object]`
+and `dict[str, int | float | str]` both blow `bad-argument-type` from 5 to **78**, because
+`**`-unpacking makes the checker match every value against every constructor parameter.
+`Mapping[str, Any]` avoids that.
+
+**Measured, `preset = "strict"`** (the preset that reproduces the reported diagnostics):
+
+| | before | after |
+|---|---|---|
+| total errors in `app.py` | 262 | **258** |
+| `bad-unpacking` | **4** | **0** |
+| new error kinds introduced | — | **none** |
+
+`verify_fixes.py` grew 31 → **53 checks**; block `[6]` asserts the `**CONFIG[` pattern does
+not come back, that `ml_params` returns the live `CONFIG` dict (not a copy, so mutation
+semantics are unchanged), that both guards fire, and that the three sklearn classifiers
+build with parameters identical to the old call.
 
 ---
 
