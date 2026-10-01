@@ -2,6 +2,68 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-45 addendum — 2026-10-01 (summary label exact + TATAMOTORS → TMPV; M-8/M-9 correction)
+
+Teen cheezein, teeno measured.
+
+**1. M-8 / M-9 pehle se band the — mera claim galat tha.** Maine kai baar kaha "M-8/M-9
+bache hain". Wo galat tha. Dono **FIX-39** me close ho chuke the: code me
+`_normalize_columns()` + `_pick_col()` (M-8) aur `nse_master_cache.json` (24 h TTL) +
+background refresh + `STOCKAI_OFFLINE` (M-9) maujood hain, aur
+`tools/verify_startup_offline.py` ke checks unhe cover karte hain. Is file ki table me
+dono rows pehle se ✅ thi — sirf neeche wala prose paragraph stale reh gaya tha, aur main
+usi ko padh kar bolta raha. Ab wo line correct kar di gayi hai. **Audit me ab koi item
+open nahi hai.**
+
+**2. `TATAMOTORS` → `TMPV` (demerger, delisting nahi).** Scanner har run par
+`⚠️ TATAMOTORS Skipped` dikhata tha. Maine pehle ye maan liya tha ki Yahoo par data nahi
+hai; measurement ne asli wajah batayi:
+
+| probe | result |
+|---|---|
+| `TATAMOTORS.NS` / `.BO` / `TATAMOTOR.NS` / `TATAMTRDVR.NS` | sab **HTTP 404** |
+| Yahoo search "Tata Motors" | `TMPV.NS` = Tata Motors Passenger Vehicles Ltd, `TMCV.NS` = Tata Motors Ltd |
+| `TMPV.NS` | **1,241 bars**, 2021-10-01 se (poori history) |
+| `TMCV.NS` | 225 bars, 2025-11-12 se (listing ke baad se) |
+
+Tata Motors ka demerger 1 Oct 2025 se effective hua; NSE ticker `TATAMOTORS` → **`TMPV`**
+(24 Oct 2025). NSE ke demerger rules ke mutabik **demerged company (TMPV) Nifty 50 me
+rehti hai**, aur CV arm (`TMCV`, listed 12 Nov 2025) constant price par kuch sessions ke
+baad indices se exclude hota hai. Isliye `TMPV` hi sahi successor hai — aur uske paas
+calibration ke liye poori history bhi hai (`TMCV` ke 225 bars naakaafi hote).
+
+Badla: `score_calibration.UNIVERSE`, `nifty_scanner.SECTOR_MAP`, aur
+`tools/build_ml_edge_study.py` ke `DEFAULT_SYMBOLS`. Universe size 30 hi raha.
+
+**3. Summary label ab exact hai.** Pehle `"BUY" in signal` / `"SELL" in signal` se count
+hota tha, isliye `23 SELL` me 17 SELL + 6 STRONG SELL chhupe rehte the aur STRONG BUY kabhi
+alag dikhta hi nahi tha. Ab `Counter` se per-band exact count chhapta hai
+(`STRONG BUY | BUY | WATCH | SELL | STRONG SELL | UNRATED`, sirf non-zero bands).
+
+**Universe change ka consequence — teeno artifacts rebuild kiye** (`validate_artifact`
+universe match maangta hai, warna fail-closed):
+
+| artifact | pehle | ab |
+|---|---|---|
+| `score_calibration.json` | 250 sessions, 7,250 scores, **29** symbols | 250 sessions, **7,500** scores, **30** symbols |
+| `scanner_bands.json` | 7,250 stock-sessions, 29 symbols, 1 skipped | **7,500** stock-sessions, **30** symbols, **0 skipped** |
+| `ml_edge_study.json` | 19 symbols, 53,295 OOS predictions | **20** symbols, **56,100** OOS predictions |
+
+Calibration rank bands **same rahe** (p10 43 / p40 50 / p80 57 / p95 62). Scanner bands me
+sirf WATCH edge 51 → **50** hua (p40 badla); STRONG BUY 63 / BUY 60 / SELL 44 same.
+ML study ke numbers thode hile (S1 +1.14pp → **+0.96pp ±0.72**, S3 −7.15pp → **−6.99pp**,
+null max 59.32% same) — **verdict NO EDGE wahi raha**. Purane hardcoded bands ka measured
+natija ab bhi wahi hai: 0 STRONG BUY, 0 BUY, 0 STRONG SELL, 7,162 WATCH (95.5%).
+
+**Verifier note:** `verify_score_calibration` ab **74** checks deta hai (pehle 75). Koi
+check gayab nahi hua — wo ek *conditional* check tha ("universe symbol with NO historical
+scores cannot get fitted label") jo sirf tab chalta tha jab koi universe symbol bina
+history ke ho. TATAMOTORS ke paas history thi hi nahi, isliye wo check chalta tha; TMPV ke
+paas poori history hai, isliye ab `⏭ all 30 symbols covered this run` print hota hai.
+Ye coverage improve hona hai, regression nahi.
+
+---
+
 ## FIX-44 addendum — 2026-10-01 (FIX-43 ka display bug: Score column jhooth bol raha tha)
 
 FIX-43 ne signal ko `ens` par shift kiya, par **display aur sort abhi bhi legacy
@@ -34,7 +96,7 @@ yaani ranking usi noise number se drive ho rahi thi jise FIX-41 ne reject kiya.
 - `tools/verify_scanner_bands.py` me naya **[6] display consistency** block: 12 checks
   jo synthetic row par wahi functions chalate hain — printed score == `signal_score`,
   composite display me kahin nahi (`r['composite']` refs = 0), ML 88% + edge −12% hone
-  par bhi signal score se hi banta hai, aur sort key `signal_score` hai. **53 checks total.**
+  par bhi signal score se hi banta hai, aur sort key `signal_score` hai. FIX-45 ne isme exact summary line + valid universe ke checks add kiye — **67 checks total.**
 
 **Live re-run (2026-10-01) fix ke baad:** `1 BUY | 5 WATCH | 23 SELL`, leaderboard
 `#1 KOTAKBANK score 60 → BUY`, `#2 TITAN score 57 → WATCH` — ab har row ka Score aur
@@ -799,8 +861,8 @@ nifty_scanner_v3_6.py
 | ID | Finding | Status |
 |---|---|---|
 | C-1 | Leveraged / self-contradictory position sizing | ✅ **Solved** (FIX-07, verified `qty=0, leverage 0x` on non-directional) |
-| C-2 | ML has no measurable edge; single-split number shown as proof | ✅ **Answered (FIX-41)** — purged + embargoed walk-forward + shuffled-label null on **53,295 pooled OOS predictions** across 19 large-caps, recorded in `ml_edge_study.json` and shown in the UI. Measured verdict: **NO EDGE** (best design 54.84% vs 61.99% majority baseline = **−7.15pp**; app's own 28-feature design 51.16% vs 50.02% = **+1.14pp ±0.74** = inside the noise band; shuffled-label ceiling 59.3%). The honest finding is published, not hidden — and the in-app accuracy is now labelled a diagnostic. |
-| C-3 | Score scale uncalibrated → 0 BUYs possible | ✅ **Answered (FIX-43)** — measured on **7,250 stock-sessions** (29 symbols × 250 sessions, scanner ke asli `calculate_ensemble`): the old hardcoded bands gave **0 STRONG BUY, 0 BUY, 0 STRONG SELL — 96.4% WATCH**. Reason was structural: BUY needed `effective_ml_prob >= 52` but a negative-edge model is neutralised to 50.0, so the gate could never pass; and `composite >= 70` needs `ens >= 86.4` while observed max ens is 66. Bands are now **fitted percentiles** (p95/p80/p40/p10 = 63/60/51/44) stored in `scanner_bands.json`, ML is a diagnostic and no longer gates, and a missing/stale artifact yields `UNRATED` instead of a guess. |
+| C-2 | ML has no measurable edge; single-split number shown as proof | ✅ **Answered (FIX-41)** — purged + embargoed walk-forward + shuffled-label null on **56,100 pooled OOS predictions** across 20 large-caps, recorded in `ml_edge_study.json` and shown in the UI. Measured verdict: **NO EDGE** (best design 55.03% vs 62.02% majority baseline = **−6.99pp**; app's own 28-feature design 51.03% vs 50.07% = **+0.96pp ±0.72** = inside the noise band; shuffled-label ceiling 59.3%). The honest finding is published, not hidden — and the in-app accuracy is now labelled a diagnostic. |
+| C-3 | Score scale uncalibrated → 0 BUYs possible | ✅ **Answered (FIX-43)** — measured on **7,500 stock-sessions** (30 symbols × 250 sessions, scanner ke asli `calculate_ensemble`): the old hardcoded bands gave **0 STRONG BUY, 0 BUY, 0 STRONG SELL — 95.5% WATCH**. Reason was structural: BUY needed `effective_ml_prob >= 52` but a negative-edge model is neutralised to 50.0, so the gate could never pass; and `composite >= 70` needs `ens >= 86.4` while observed max ens is 66. Bands are now **fitted percentiles** (p95/p80/p40/p10 = 63/60/50/44) stored in `scanner_bands.json`, ML is a diagnostic and no longer gates, and a missing/stale artifact yields `UNRATED` instead of a guess. |
 | H-1 | Tier-2 Method A key `gRapData` → `grapthData` | ✅ Solved (FIX-04) |
 | H-2 | Method A fabricates OHLCV / Volume=100000 | ✅ Solved (FIX-04 refuses intraday-only payloads) |
 | H-3 | "NSE LIVE" badge lies when NSE is blocked | ✅ Solved (FIX-09 + dashboard D7) — badge now shows `DELAYED (15-20 min)` |
@@ -825,13 +887,18 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Scanner universe me dead ticker + summary line substring-count | ✅ **Solved (FIX-45)** — `TATAMOTORS` → `TMPV` (demerger, 1 Oct 2025; NSE ticker ab exist nahi karta, chaaron probe HTTP 404). `TMPV` Nifty 50 successor hai **aur** uske paas poori history hai (1,241 bars, 2021‑10‑01 se; `TMCV` ke sirf 225). Summary line ab exact per-band counts deta hai (pehle `"SELL" in signal` se 17 SELL + 6 STRONG SELL ek hi `23 SELL` me chhupe the). Teeno artifacts rebuild: calibration 30 symbols/7,500 scores, bands 7,500 sessions/0 skipped, ML study 20 symbols/56,100 preds. `verify_scanner_bands.py` 53 → **67 checks**. **Audit me ab koi item open nahi.** |
 
 **Honest answer to "sab solve ho gaya?":** all the *code* defects that were fixable in a session are fixed and verified — 15 of them. Two things remain that a patch cannot fix, because they are not bugs:
 
 1. **The ML still has no edge** (C-2) — and FIX-41 measured it properly instead of guessing: 53,295 pooled out-of-sample predictions, purged + embargoed walk-forward, shuffled-label null. Best design is **7.15pp below** its own majority-class baseline and below the noise ceiling; the app's current 28-feature design is +1.14pp ±0.74, i.e. indistinguishable from a coin flip. The verdict is now recorded in `ml_edge_study.json` and printed in the UI. **That is the answer, not a to-do.**
-2. **The score thresholds were uncalibrated** (C-3) — and FIX-43 measured and fixed the scanner's half of it: the old bands were not merely uncalibrated, they were *unreachable* (0/7,250 sessions could produce a BUY). Bands are now fitted percentiles committed in `scanner_bands.json`. `ensemble_v2` in the dashboard remains a diagnostic shim. **Fitted percentiles are a relative ranking, not profit** — see `RESEARCH_REPORT.md` for net-of-cost results.
+2. **The score thresholds were uncalibrated** (C-3) — and FIX-43 measured and fixed the scanner's half of it: the old bands were not merely uncalibrated, they were *unreachable* (0/7,500 sessions could produce a BUY). Bands are now fitted percentiles committed in `scanner_bands.json`. `ensemble_v2` in the dashboard remains a diagnostic shim. **Fitted percentiles are a relative ranking, not profit** — see `RESEARCH_REPORT.md` for net-of-cost results.
 
-Plus the remaining operational items (M-8, M-9) that are hygiene, not correctness. M-11 and M-12 were closed by FIX-35, and M-2 by FIX-42.
+**Correction (FIX-45):** this line previously said M-8 and M-9 were still open. That was
+wrong — both were closed by **FIX-39** (see the M-8/M-9 rows in the table above and the
+FIX-39 addendum). The stale sentence survived because the table was updated but this
+prose paragraph was not. There are now **no remaining audit items**. M-11/M-12 were closed
+by FIX-35, M-2 by FIX-42, C-2 by FIX-41, C-3 by FIX-43/44.
 
 ### Final word
 The bones of this project are better than most "AI trading dashboard" code I get to look at — the fallback design, indicator maths and JSON handling are real engineering. The problem is **the last mile**: the scoring scale is uncalibrated, the ML is presented as validated when it isn't, and (before FIX-07) the position sizer could put a 5.4× leveraged trade on a signal it didn't even trust. Three of those are now addressed; the ML and the calibration remain research work. Until that is done, treat the "verdict", "targets" and "ML probability" as **UI decoration, not advice**.

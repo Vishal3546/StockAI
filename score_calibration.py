@@ -18,7 +18,14 @@ from pathlib import Path
 UNIVERSE = (
     'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
     'SBIN', 'BHARTIARTL', 'ITC', 'KOTAKBANK', 'LT',
-    'WIPRO', 'AXISBANK', 'MARUTI', 'TATAMOTORS', 'BAJFINANCE',
+    # FIX-45: 'TATAMOTORS' → 'TMPV'. Tata Motors demerge hua (effective 1 Oct 2025):
+    # NSE ticker TATAMOTORS ab exist nahi karta (Yahoo .NS/.BO dono HTTP 404).
+    # NSE ke demerger rules ke mutabik demerged company — Tata Motors Passenger
+    # Vehicles Ltd, ticker TMPV (24 Oct 2025 se) — Nifty 50 me rehti hai, aur
+    # Yahoo par uski poori history hai (1,241 bars, 2021-10-01 se). CV arm (TMCV,
+    # listed 12 Nov 2025) constant price par kuch sessions ke baad indices se
+    # exclude hua, aur uske paas sirf 225 bars hain — calibration ke liye naakaafi.
+    'WIPRO', 'AXISBANK', 'MARUTI', 'TMPV', 'BAJFINANCE',
     'SUNPHARMA', 'TITAN', 'ADANIENT', 'POWERGRID', 'NTPC',
     'ONGC', 'COALINDIA', 'TATASTEEL', 'TECHM', 'ASIANPAINT',
     'ULTRACEMCO', 'NESTLEIND', 'BAJAJFINSV', 'DRREDDY', 'JSWSTEEL'

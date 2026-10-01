@@ -44,7 +44,7 @@ ARTIFACT_PATH = ROOT / 'ml_edge_study.json'
 # Wahi 20 large-caps jo recorded study (RESEARCH_REPORT.md) me use hue.
 DEFAULT_SYMBOLS = (
     'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'BHARTIARTL',
-    'ITC', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'TATAMOTORS',
+    'ITC', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'TMPV',
     'BAJFINANCE', 'SUNPHARMA', 'TITAN', 'HCLTECH', 'POWERGRID', 'NTPC',
 )
 

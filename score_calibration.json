@@ -2,7 +2,7 @@
   "schema": 1,
   "model": "daily4-trailing250-v1",
   "formula_hash": "55cd3da1ce11d8dbc5efe259e356f0a4b99f4652f2de347397105e5cfd5de4af",
-  "generated_at_utc": "2026-10-01T07:33:41.275079+00:00",
+  "generated_at_utc": "2026-10-01T09:56:28.932718+00:00",
   "source": "Yahoo Finance daily adjusted OHLCV (no intraday/ML)",
   "universe": [
     "RELIANCE",
@@ -18,7 +18,7 @@
     "WIPRO",
     "AXISBANK",
     "MARUTI",
-    "TATAMOTORS",
+    "TMPV",
     "BAJFINANCE",
     "SUNPHARMA",
     "TITAN",
@@ -60,6 +60,7 @@
         "WIPRO": 48,
         "AXISBANK": 67,
         "MARUTI": 51,
+        "TMPV": 53,
         "BAJFINANCE": 46,
         "SUNPHARMA": 55,
         "TITAN": 47,
@@ -155,6 +156,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 73,
+          "vcp": 30,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -270,6 +277,7 @@
         "WIPRO": 53,
         "AXISBANK": 62,
         "MARUTI": 51,
+        "TMPV": 56,
         "BAJFINANCE": 48,
         "SUNPHARMA": 55,
         "TITAN": 54,
@@ -365,6 +373,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 73,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -480,6 +494,7 @@
         "WIPRO": 50,
         "AXISBANK": 55,
         "MARUTI": 48,
+        "TMPV": 59,
         "BAJFINANCE": 52,
         "SUNPHARMA": 56,
         "TITAN": 50,
@@ -574,6 +589,12 @@
           "vp": 35,
           "rvol": 42,
           "vcp": 50,
+          "smc": 65
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 65,
+          "vcp": 30,
           "smc": 65
         },
         "BAJFINANCE": {
@@ -690,6 +711,7 @@
         "WIPRO": 52,
         "AXISBANK": 57,
         "MARUTI": 50,
+        "TMPV": 45,
         "BAJFINANCE": 52,
         "SUNPHARMA": 54,
         "TITAN": 57,
@@ -785,6 +807,12 @@
           "rvol": 42,
           "vcp": 58,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 42,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -900,6 +928,7 @@
         "WIPRO": 54,
         "AXISBANK": 57,
         "MARUTI": 45,
+        "TMPV": 49,
         "BAJFINANCE": 52,
         "SUNPHARMA": 61,
         "TITAN": 60,
@@ -994,6 +1023,12 @@
           "vp": 35,
           "rvol": 42,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 38,
+          "vcp": 38,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -1110,6 +1145,7 @@
         "WIPRO": 56,
         "AXISBANK": 64,
         "MARUTI": 45,
+        "TMPV": 47,
         "BAJFINANCE": 54,
         "SUNPHARMA": 64,
         "TITAN": 55,
@@ -1204,6 +1240,12 @@
           "vp": 35,
           "rvol": 42,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 38,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -1320,6 +1362,7 @@
         "WIPRO": 56,
         "AXISBANK": 56,
         "MARUTI": 53,
+        "TMPV": 47,
         "BAJFINANCE": 54,
         "SUNPHARMA": 64,
         "TITAN": 63,
@@ -1414,6 +1457,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 38,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -1530,6 +1579,7 @@
         "WIPRO": 57,
         "AXISBANK": 57,
         "MARUTI": 53,
+        "TMPV": 45,
         "BAJFINANCE": 58,
         "SUNPHARMA": 67,
         "TITAN": 61,
@@ -1624,6 +1674,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 46,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -1740,6 +1796,7 @@
         "WIPRO": 57,
         "AXISBANK": 57,
         "MARUTI": 56,
+        "TMPV": 46,
         "BAJFINANCE": 61,
         "SUNPHARMA": 61,
         "TITAN": 69,
@@ -1835,6 +1892,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 53,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -1950,6 +2013,7 @@
         "WIPRO": 57,
         "AXISBANK": 56,
         "MARUTI": 56,
+        "TMPV": 41,
         "BAJFINANCE": 55,
         "SUNPHARMA": 70,
         "TITAN": 71,
@@ -2045,6 +2109,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -2160,6 +2230,7 @@
         "WIPRO": 57,
         "AXISBANK": 52,
         "MARUTI": 56,
+        "TMPV": 41,
         "BAJFINANCE": 57,
         "SUNPHARMA": 66,
         "TITAN": 57,
@@ -2255,6 +2326,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -2370,6 +2447,7 @@
         "WIPRO": 48,
         "AXISBANK": 50,
         "MARUTI": 57,
+        "TMPV": 41,
         "BAJFINANCE": 57,
         "SUNPHARMA": 63,
         "TITAN": 58,
@@ -2465,6 +2543,12 @@
           "rvol": 65,
           "vcp": 65,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -2580,6 +2664,7 @@
         "WIPRO": 43,
         "AXISBANK": 46,
         "MARUTI": 57,
+        "TMPV": 38,
         "BAJFINANCE": 57,
         "SUNPHARMA": 59,
         "TITAN": 55,
@@ -2675,6 +2760,12 @@
           "rvol": 65,
           "vcp": 65,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -2790,6 +2881,7 @@
         "WIPRO": 38,
         "AXISBANK": 43,
         "MARUTI": 53,
+        "TMPV": 42,
         "BAJFINANCE": 52,
         "SUNPHARMA": 56,
         "TITAN": 53,
@@ -2885,6 +2977,12 @@
           "rvol": 55,
           "vcp": 58,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 32,
+          "vcp": 58,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -3000,6 +3098,7 @@
         "WIPRO": 52,
         "AXISBANK": 56,
         "MARUTI": 50,
+        "TMPV": 46,
         "BAJFINANCE": 56,
         "SUNPHARMA": 59,
         "TITAN": 53,
@@ -3095,6 +3194,12 @@
           "rvol": 42,
           "vcp": 65,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 65,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -3210,6 +3315,7 @@
         "WIPRO": 49,
         "AXISBANK": 54,
         "MARUTI": 56,
+        "TMPV": 44,
         "BAJFINANCE": 51,
         "SUNPHARMA": 58,
         "TITAN": 49,
@@ -3305,6 +3411,12 @@
           "rvol": 52,
           "vcp": 65,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 32,
+          "vcp": 57,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -3420,6 +3532,7 @@
         "WIPRO": 53,
         "AXISBANK": 54,
         "MARUTI": 58,
+        "TMPV": 47,
         "BAJFINANCE": 50,
         "SUNPHARMA": 54,
         "TITAN": 56,
@@ -3515,6 +3628,12 @@
           "rvol": 52,
           "vcp": 75,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 57,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -3630,6 +3749,7 @@
         "WIPRO": 49,
         "AXISBANK": 57,
         "MARUTI": 58,
+        "TMPV": 54,
         "BAJFINANCE": 56,
         "SUNPHARMA": 59,
         "TITAN": 61,
@@ -3725,6 +3845,12 @@
           "rvol": 52,
           "vcp": 75,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -3840,6 +3966,7 @@
         "WIPRO": 54,
         "AXISBANK": 53,
         "MARUTI": 49,
+        "TMPV": 53,
         "BAJFINANCE": 54,
         "SUNPHARMA": 54,
         "TITAN": 52,
@@ -3935,6 +4062,12 @@
           "rvol": 38,
           "vcp": 57,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 55,
+          "vcp": 58,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -4050,6 +4183,7 @@
         "WIPRO": 53,
         "AXISBANK": 51,
         "MARUTI": 49,
+        "TMPV": 53,
         "BAJFINANCE": 52,
         "SUNPHARMA": 54,
         "TITAN": 53,
@@ -4144,6 +4278,12 @@
           "vp": 35,
           "rvol": 38,
           "vcp": 65,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 55,
+          "vcp": 58,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -4260,6 +4400,7 @@
         "WIPRO": 53,
         "AXISBANK": 55,
         "MARUTI": 49,
+        "TMPV": 46,
         "BAJFINANCE": 49,
         "SUNPHARMA": 60,
         "TITAN": 46,
@@ -4354,6 +4495,12 @@
           "vp": 35,
           "rvol": 46,
           "vcp": 57,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 50,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -4470,6 +4617,7 @@
         "WIPRO": 49,
         "AXISBANK": 62,
         "MARUTI": 49,
+        "TMPV": 46,
         "BAJFINANCE": 46,
         "SUNPHARMA": 54,
         "TITAN": 48,
@@ -4565,6 +4713,12 @@
           "rvol": 53,
           "vcp": 55,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -4680,6 +4834,7 @@
         "WIPRO": 50,
         "AXISBANK": 51,
         "MARUTI": 47,
+        "TMPV": 48,
         "BAJFINANCE": 54,
         "SUNPHARMA": 57,
         "TITAN": 56,
@@ -4775,6 +4930,12 @@
           "rvol": 46,
           "vcp": 55,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 42,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -4890,6 +5051,7 @@
         "WIPRO": 58,
         "AXISBANK": 62,
         "MARUTI": 45,
+        "TMPV": 46,
         "BAJFINANCE": 54,
         "SUNPHARMA": 56,
         "TITAN": 44,
@@ -4985,6 +5147,12 @@
           "rvol": 52,
           "vcp": 45,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -5100,6 +5268,7 @@
         "WIPRO": 44,
         "AXISBANK": 60,
         "MARUTI": 45,
+        "TMPV": 45,
         "BAJFINANCE": 54,
         "SUNPHARMA": 54,
         "TITAN": 54,
@@ -5195,6 +5364,12 @@
           "rvol": 52,
           "vcp": 45,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -5310,6 +5485,7 @@
         "WIPRO": 67,
         "AXISBANK": 49,
         "MARUTI": 45,
+        "TMPV": 47,
         "BAJFINANCE": 53,
         "SUNPHARMA": 57,
         "TITAN": 52,
@@ -5405,6 +5581,12 @@
           "rvol": 52,
           "vcp": 45,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 42,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -5520,6 +5702,7 @@
         "WIPRO": 58,
         "AXISBANK": 57,
         "MARUTI": 53,
+        "TMPV": 43,
         "BAJFINANCE": 49,
         "SUNPHARMA": 54,
         "TITAN": 57,
@@ -5615,6 +5798,12 @@
           "rvol": 55,
           "vcp": 75,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 42,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -5730,6 +5919,7 @@
         "WIPRO": 57,
         "AXISBANK": 49,
         "MARUTI": 57,
+        "TMPV": 42,
         "BAJFINANCE": 57,
         "SUNPHARMA": 62,
         "TITAN": 54,
@@ -5824,6 +6014,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 67,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 42,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -5940,6 +6136,7 @@
         "WIPRO": 60,
         "AXISBANK": 46,
         "MARUTI": 53,
+        "TMPV": 42,
         "BAJFINANCE": 45,
         "SUNPHARMA": 59,
         "TITAN": 52,
@@ -6034,6 +6231,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 42,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -6150,6 +6353,7 @@
         "WIPRO": 60,
         "AXISBANK": 53,
         "MARUTI": 55,
+        "TMPV": 45,
         "BAJFINANCE": 47,
         "SUNPHARMA": 61,
         "TITAN": 51,
@@ -6245,6 +6449,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 30,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -6360,6 +6570,7 @@
         "WIPRO": 60,
         "AXISBANK": 53,
         "MARUTI": 55,
+        "TMPV": 48,
         "BAJFINANCE": 57,
         "SUNPHARMA": 61,
         "TITAN": 52,
@@ -6454,6 +6665,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 58,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 67,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -6570,6 +6787,7 @@
         "WIPRO": 59,
         "AXISBANK": 58,
         "MARUTI": 62,
+        "TMPV": 42,
         "BAJFINANCE": 44,
         "SUNPHARMA": 57,
         "TITAN": 56,
@@ -6665,6 +6883,12 @@
           "rvol": 65,
           "vcp": 65,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 30,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -6780,6 +7004,7 @@
         "WIPRO": 64,
         "AXISBANK": 56,
         "MARUTI": 62,
+        "TMPV": 44,
         "BAJFINANCE": 54,
         "SUNPHARMA": 57,
         "TITAN": 56,
@@ -6875,6 +7100,12 @@
           "rvol": 65,
           "vcp": 65,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -6990,6 +7221,7 @@
         "WIPRO": 60,
         "AXISBANK": 53,
         "MARUTI": 58,
+        "TMPV": 41,
         "BAJFINANCE": 59,
         "SUNPHARMA": 52,
         "TITAN": 52,
@@ -7085,6 +7317,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -7200,6 +7438,7 @@
         "WIPRO": 52,
         "AXISBANK": 54,
         "MARUTI": 59,
+        "TMPV": 46,
         "BAJFINANCE": 46,
         "SUNPHARMA": 65,
         "TITAN": 51,
@@ -7295,6 +7534,12 @@
           "rvol": 73,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -7410,6 +7655,7 @@
         "WIPRO": 67,
         "AXISBANK": 51,
         "MARUTI": 49,
+        "TMPV": 44,
         "BAJFINANCE": 48,
         "SUNPHARMA": 58,
         "TITAN": 52,
@@ -7505,6 +7751,12 @@
           "rvol": 42,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -7620,6 +7872,7 @@
         "WIPRO": 57,
         "AXISBANK": 59,
         "MARUTI": 51,
+        "TMPV": 41,
         "BAJFINANCE": 46,
         "SUNPHARMA": 55,
         "TITAN": 53,
@@ -7715,6 +7968,12 @@
           "rvol": 42,
           "vcp": 57,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -7830,6 +8089,7 @@
         "WIPRO": 61,
         "AXISBANK": 52,
         "MARUTI": 58,
+        "TMPV": 52,
         "BAJFINANCE": 53,
         "SUNPHARMA": 54,
         "TITAN": 50,
@@ -7924,6 +8184,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 57,
+          "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
           "smc": 70
         },
         "BAJFINANCE": {
@@ -8040,6 +8306,7 @@
         "WIPRO": 66,
         "AXISBANK": 51,
         "MARUTI": 54,
+        "TMPV": 50,
         "BAJFINANCE": 56,
         "SUNPHARMA": 56,
         "TITAN": 50,
@@ -8135,6 +8402,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -8250,6 +8523,7 @@
         "WIPRO": 57,
         "AXISBANK": 49,
         "MARUTI": 54,
+        "TMPV": 42,
         "BAJFINANCE": 54,
         "SUNPHARMA": 58,
         "TITAN": 56,
@@ -8345,6 +8619,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -8460,6 +8740,7 @@
         "WIPRO": 44,
         "AXISBANK": 53,
         "MARUTI": 58,
+        "TMPV": 50,
         "BAJFINANCE": 49,
         "SUNPHARMA": 61,
         "TITAN": 56,
@@ -8555,6 +8836,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -8670,6 +8957,7 @@
         "WIPRO": 64,
         "AXISBANK": 57,
         "MARUTI": 62,
+        "TMPV": 47,
         "BAJFINANCE": 52,
         "SUNPHARMA": 55,
         "TITAN": 61,
@@ -8765,6 +9053,12 @@
           "rvol": 65,
           "vcp": 65,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 58,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -8880,6 +9174,7 @@
         "WIPRO": 59,
         "AXISBANK": 56,
         "MARUTI": 57,
+        "TMPV": 45,
         "BAJFINANCE": 55,
         "SUNPHARMA": 55,
         "TITAN": 47,
@@ -8974,6 +9269,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 65,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -9090,6 +9391,7 @@
         "WIPRO": 57,
         "AXISBANK": 55,
         "MARUTI": 58,
+        "TMPV": 45,
         "BAJFINANCE": 64,
         "SUNPHARMA": 55,
         "TITAN": 43,
@@ -9185,6 +9487,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -9300,6 +9608,7 @@
         "WIPRO": 59,
         "AXISBANK": 58,
         "MARUTI": 56,
+        "TMPV": 41,
         "BAJFINANCE": 58,
         "SUNPHARMA": 57,
         "TITAN": 44,
@@ -9395,6 +9704,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 28,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -9510,6 +9825,7 @@
         "WIPRO": 54,
         "AXISBANK": 64,
         "MARUTI": 54,
+        "TMPV": 41,
         "BAJFINANCE": 49,
         "SUNPHARMA": 59,
         "TITAN": 44,
@@ -9605,6 +9921,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -9720,6 +10042,7 @@
         "WIPRO": 57,
         "AXISBANK": 64,
         "MARUTI": 54,
+        "TMPV": 41,
         "BAJFINANCE": 53,
         "SUNPHARMA": 52,
         "TITAN": 59,
@@ -9815,6 +10138,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -9930,6 +10259,7 @@
         "WIPRO": 61,
         "AXISBANK": 61,
         "MARUTI": 51,
+        "TMPV": 41,
         "BAJFINANCE": 43,
         "SUNPHARMA": 50,
         "TITAN": 54,
@@ -10025,6 +10355,12 @@
           "rvol": 42,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -10140,6 +10476,7 @@
         "WIPRO": 55,
         "AXISBANK": 57,
         "MARUTI": 54,
+        "TMPV": 52,
         "BAJFINANCE": 43,
         "SUNPHARMA": 51,
         "TITAN": 55,
@@ -10234,6 +10571,12 @@
           "vp": 35,
           "rvol": 52,
           "vcp": 58,
+          "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
           "smc": 70
         },
         "BAJFINANCE": {
@@ -10350,6 +10693,7 @@
         "WIPRO": 54,
         "AXISBANK": 51,
         "MARUTI": 54,
+        "TMPV": 48,
         "BAJFINANCE": 46,
         "SUNPHARMA": 56,
         "TITAN": 57,
@@ -10445,6 +10789,12 @@
           "rvol": 65,
           "vcp": 42,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -10560,6 +10910,7 @@
         "WIPRO": 56,
         "AXISBANK": 52,
         "MARUTI": 54,
+        "TMPV": 47,
         "BAJFINANCE": 50,
         "SUNPHARMA": 53,
         "TITAN": 54,
@@ -10655,6 +11006,12 @@
           "rvol": 65,
           "vcp": 42,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 58,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -10770,6 +11127,7 @@
         "WIPRO": 58,
         "AXISBANK": 44,
         "MARUTI": 51,
+        "TMPV": 43,
         "BAJFINANCE": 48,
         "SUNPHARMA": 52,
         "TITAN": 58,
@@ -10865,6 +11223,12 @@
           "rvol": 55,
           "vcp": 42,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 28,
+          "vcp": 58,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -10980,6 +11344,7 @@
         "WIPRO": 61,
         "AXISBANK": 40,
         "MARUTI": 56,
+        "TMPV": 46,
         "BAJFINANCE": 50,
         "SUNPHARMA": 59,
         "TITAN": 58,
@@ -11075,6 +11440,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 58,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -11190,6 +11561,7 @@
         "WIPRO": 58,
         "AXISBANK": 40,
         "MARUTI": 54,
+        "TMPV": 52,
         "BAJFINANCE": 44,
         "SUNPHARMA": 52,
         "TITAN": 58,
@@ -11285,6 +11657,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 60,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -11400,6 +11778,7 @@
         "WIPRO": 49,
         "AXISBANK": 39,
         "MARUTI": 60,
+        "TMPV": 57,
         "BAJFINANCE": 48,
         "SUNPHARMA": 52,
         "TITAN": 56,
@@ -11495,6 +11874,12 @@
           "rvol": 75,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 80,
+          "vcp": 57,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -11610,6 +11995,7 @@
         "WIPRO": 54,
         "AXISBANK": 50,
         "MARUTI": 56,
+        "TMPV": 53,
         "BAJFINANCE": 44,
         "SUNPHARMA": 59,
         "TITAN": 56,
@@ -11705,6 +12091,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -11820,6 +12212,7 @@
         "WIPRO": 53,
         "AXISBANK": 42,
         "MARUTI": 54,
+        "TMPV": 53,
         "BAJFINANCE": 44,
         "SUNPHARMA": 55,
         "TITAN": 56,
@@ -11915,6 +12308,12 @@
           "rvol": 65,
           "vcp": 42,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -12030,6 +12429,7 @@
         "WIPRO": 49,
         "AXISBANK": 45,
         "MARUTI": 56,
+        "TMPV": 55,
         "BAJFINANCE": 56,
         "SUNPHARMA": 55,
         "TITAN": 56,
@@ -12124,6 +12524,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 50,
+          "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 45,
           "smc": 70
         },
         "BAJFINANCE": {
@@ -12240,6 +12646,7 @@
         "WIPRO": 46,
         "AXISBANK": 42,
         "MARUTI": 56,
+        "TMPV": 55,
         "BAJFINANCE": 47,
         "SUNPHARMA": 53,
         "TITAN": 53,
@@ -12335,6 +12742,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -12450,6 +12863,7 @@
         "WIPRO": 48,
         "AXISBANK": 43,
         "MARUTI": 54,
+        "TMPV": 66,
         "BAJFINANCE": 55,
         "SUNPHARMA": 53,
         "TITAN": 53,
@@ -12544,6 +12958,12 @@
           "vp": 35,
           "rvol": 52,
           "vcp": 58,
+          "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 67,
           "smc": 70
         },
         "BAJFINANCE": {
@@ -12660,6 +13080,7 @@
         "WIPRO": 49,
         "AXISBANK": 54,
         "MARUTI": 59,
+        "TMPV": 61,
         "BAJFINANCE": 43,
         "SUNPHARMA": 62,
         "TITAN": 53,
@@ -12755,6 +13176,12 @@
           "rvol": 80,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 57,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -12870,6 +13297,7 @@
         "WIPRO": 51,
         "AXISBANK": 54,
         "MARUTI": 55,
+        "TMPV": 58,
         "BAJFINANCE": 48,
         "SUNPHARMA": 58,
         "TITAN": 59,
@@ -12965,6 +13393,12 @@
           "rvol": 75,
           "vcp": 50,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -13080,6 +13514,7 @@
         "WIPRO": 50,
         "AXISBANK": 54,
         "MARUTI": 53,
+        "TMPV": 58,
         "BAJFINANCE": 47,
         "SUNPHARMA": 53,
         "TITAN": 51,
@@ -13175,6 +13610,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -13290,6 +13731,7 @@
         "WIPRO": 55,
         "AXISBANK": 56,
         "MARUTI": 54,
+        "TMPV": 58,
         "BAJFINANCE": 52,
         "SUNPHARMA": 55,
         "TITAN": 58,
@@ -13385,6 +13827,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -13500,6 +13948,7 @@
         "WIPRO": 46,
         "AXISBANK": 56,
         "MARUTI": 51,
+        "TMPV": 62,
         "BAJFINANCE": 50,
         "SUNPHARMA": 62,
         "TITAN": 56,
@@ -13595,6 +14044,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 67,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -13710,6 +14165,7 @@
         "WIPRO": 53,
         "AXISBANK": 51,
         "MARUTI": 52,
+        "TMPV": 48,
         "BAJFINANCE": 44,
         "SUNPHARMA": 56,
         "TITAN": 58,
@@ -13804,6 +14260,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 42,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 57,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -13920,6 +14382,7 @@
         "WIPRO": 58,
         "AXISBANK": 46,
         "MARUTI": 50,
+        "TMPV": 54,
         "BAJFINANCE": 44,
         "SUNPHARMA": 57,
         "TITAN": 58,
@@ -14015,6 +14478,12 @@
           "rvol": 65,
           "vcp": 42,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 57,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -14130,6 +14599,7 @@
         "WIPRO": 51,
         "AXISBANK": 51,
         "MARUTI": 50,
+        "TMPV": 48,
         "BAJFINANCE": 42,
         "SUNPHARMA": 61,
         "TITAN": 55,
@@ -14225,6 +14695,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -14340,6 +14816,7 @@
         "WIPRO": 58,
         "AXISBANK": 52,
         "MARUTI": 41,
+        "TMPV": 41,
         "BAJFINANCE": 42,
         "SUNPHARMA": 60,
         "TITAN": 53,
@@ -14431,6 +14908,12 @@
           "smc": 60
         },
         "MARUTI": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
           "vp": 35,
           "rvol": 38,
           "vcp": 38,
@@ -14550,6 +15033,7 @@
         "WIPRO": 55,
         "AXISBANK": 52,
         "MARUTI": 41,
+        "TMPV": 43,
         "BAJFINANCE": 47,
         "SUNPHARMA": 57,
         "TITAN": 53,
@@ -14644,6 +15128,12 @@
           "vp": 35,
           "rvol": 38,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 45,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -14760,6 +15250,7 @@
         "WIPRO": 51,
         "AXISBANK": 48,
         "MARUTI": 39,
+        "TMPV": 41,
         "BAJFINANCE": 46,
         "SUNPHARMA": 51,
         "TITAN": 52,
@@ -14854,6 +15345,12 @@
           "vp": 35,
           "rvol": 38,
           "vcp": 30,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -14970,6 +15467,7 @@
         "WIPRO": 57,
         "AXISBANK": 43,
         "MARUTI": 42,
+        "TMPV": 38,
         "BAJFINANCE": 42,
         "SUNPHARMA": 53,
         "TITAN": 50,
@@ -15064,6 +15562,12 @@
           "vp": 35,
           "rvol": 38,
           "vcp": 42,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 28,
+          "vcp": 38,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -15180,6 +15684,7 @@
         "WIPRO": 53,
         "AXISBANK": 42,
         "MARUTI": 41,
+        "TMPV": 38,
         "BAJFINANCE": 38,
         "SUNPHARMA": 53,
         "TITAN": 53,
@@ -15275,6 +15780,12 @@
           "rvol": 28,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 28,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -15390,6 +15901,7 @@
         "WIPRO": 55,
         "AXISBANK": 43,
         "MARUTI": 44,
+        "TMPV": 50,
         "BAJFINANCE": 54,
         "SUNPHARMA": 56,
         "TITAN": 52,
@@ -15485,6 +15997,12 @@
           "rvol": 46,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -15600,6 +16118,7 @@
         "WIPRO": 54,
         "AXISBANK": 52,
         "MARUTI": 47,
+        "TMPV": 50,
         "BAJFINANCE": 50,
         "SUNPHARMA": 59,
         "TITAN": 46,
@@ -15695,6 +16214,12 @@
           "rvol": 52,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 69,
+          "vcp": 45,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -15810,6 +16335,7 @@
         "WIPRO": 44,
         "AXISBANK": 46,
         "MARUTI": 42,
+        "TMPV": 39,
         "BAJFINANCE": 48,
         "SUNPHARMA": 44,
         "TITAN": 41,
@@ -15905,6 +16431,12 @@
           "rvol": 38,
           "vcp": 42,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -16020,6 +16552,7 @@
         "WIPRO": 42,
         "AXISBANK": 49,
         "MARUTI": 46,
+        "TMPV": 39,
         "BAJFINANCE": 53,
         "SUNPHARMA": 46,
         "TITAN": 40,
@@ -16115,6 +16648,12 @@
           "rvol": 38,
           "vcp": 42,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -16230,6 +16769,7 @@
         "WIPRO": 50,
         "AXISBANK": 53,
         "MARUTI": 51,
+        "TMPV": 43,
         "BAJFINANCE": 49,
         "SUNPHARMA": 48,
         "TITAN": 39,
@@ -16325,6 +16865,12 @@
           "rvol": 61,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -16440,6 +16986,7 @@
         "WIPRO": 42,
         "AXISBANK": 48,
         "MARUTI": 41,
+        "TMPV": 47,
         "BAJFINANCE": 41,
         "SUNPHARMA": 42,
         "TITAN": 39,
@@ -16535,6 +17082,12 @@
           "rvol": 38,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -16650,11 +17203,12 @@
         "WIPRO": 50,
         "AXISBANK": 56,
         "MARUTI": 48,
+        "TMPV": 56,
         "BAJFINANCE": 51,
         "SUNPHARMA": 47,
         "TITAN": 44,
         "ADANIENT": 48,
-        "POWERGRID": 46,
+        "POWERGRID": 50,
         "NTPC": 58,
         "ONGC": 54,
         "COALINDIA": 46,
@@ -16746,6 +17300,12 @@
           "vcp": 38,
           "smc": 55
         },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 60
+        },
         "BAJFINANCE": {
           "vp": 75,
           "rvol": 46,
@@ -16774,7 +17334,7 @@
           "vp": 35,
           "rvol": 36,
           "vcp": 57,
-          "smc": 60
+          "smc": 75
         },
         "NTPC": {
           "vp": 50,
@@ -16860,8 +17420,9 @@
         "WIPRO": 52,
         "AXISBANK": 54,
         "MARUTI": 48,
+        "TMPV": 46,
         "BAJFINANCE": 60,
-        "SUNPHARMA": 47,
+        "SUNPHARMA": 51,
         "TITAN": 45,
         "ADANIENT": 51,
         "POWERGRID": 48,
@@ -16956,6 +17517,12 @@
           "vcp": 30,
           "smc": 55
         },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 51,
+          "vcp": 50,
+          "smc": 45
+        },
         "BAJFINANCE": {
           "vp": 75,
           "rvol": 52,
@@ -16966,7 +17533,7 @@
           "vp": 50,
           "rvol": 46,
           "vcp": 50,
-          "smc": 45
+          "smc": 60
         },
         "TITAN": {
           "vp": 35,
@@ -17070,6 +17637,7 @@
         "WIPRO": 53,
         "AXISBANK": 54,
         "MARUTI": 42,
+        "TMPV": 54,
         "BAJFINANCE": 48,
         "SUNPHARMA": 49,
         "TITAN": 41,
@@ -17165,6 +17733,12 @@
           "rvol": 46,
           "vcp": 30,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -17280,6 +17854,7 @@
         "WIPRO": 52,
         "AXISBANK": 54,
         "MARUTI": 48,
+        "TMPV": 50,
         "BAJFINANCE": 60,
         "SUNPHARMA": 46,
         "TITAN": 47,
@@ -17373,6 +17948,12 @@
         "MARUTI": {
           "vp": 35,
           "rvol": 60,
+          "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
           "vcp": 38,
           "smc": 55
         },
@@ -17490,6 +18071,7 @@
         "WIPRO": 50,
         "AXISBANK": 50,
         "MARUTI": 46,
+        "TMPV": 55,
         "BAJFINANCE": 56,
         "SUNPHARMA": 54,
         "TITAN": 44,
@@ -17585,6 +18167,12 @@
           "rvol": 52,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 73,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -17700,6 +18288,7 @@
         "WIPRO": 54,
         "AXISBANK": 49,
         "MARUTI": 53,
+        "TMPV": 58,
         "BAJFINANCE": 50,
         "SUNPHARMA": 55,
         "TITAN": 38,
@@ -17795,6 +18384,12 @@
           "rvol": 75,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 73,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -17910,6 +18505,7 @@
         "WIPRO": 58,
         "AXISBANK": 47,
         "MARUTI": 48,
+        "TMPV": 53,
         "BAJFINANCE": 58,
         "SUNPHARMA": 51,
         "TITAN": 49,
@@ -18005,6 +18601,12 @@
           "rvol": 65,
           "vcp": 30,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -18120,6 +18722,7 @@
         "WIPRO": 51,
         "AXISBANK": 37,
         "MARUTI": 50,
+        "TMPV": 46,
         "BAJFINANCE": 51,
         "SUNPHARMA": 51,
         "TITAN": 42,
@@ -18215,6 +18818,12 @@
           "rvol": 65,
           "vcp": 30,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -18330,6 +18939,7 @@
         "WIPRO": 46,
         "AXISBANK": 40,
         "MARUTI": 40,
+        "TMPV": 56,
         "BAJFINANCE": 51,
         "SUNPHARMA": 48,
         "TITAN": 49,
@@ -18425,6 +19035,12 @@
           "rvol": 42,
           "vcp": 30,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 73,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -18540,6 +19156,7 @@
         "WIPRO": 46,
         "AXISBANK": 40,
         "MARUTI": 37,
+        "TMPV": 53,
         "BAJFINANCE": 46,
         "SUNPHARMA": 52,
         "TITAN": 49,
@@ -18635,6 +19252,12 @@
           "rvol": 32,
           "vcp": 30,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -18750,6 +19373,7 @@
         "WIPRO": 57,
         "AXISBANK": 48,
         "MARUTI": 45,
+        "TMPV": 53,
         "BAJFINANCE": 51,
         "SUNPHARMA": 56,
         "TITAN": 42,
@@ -18845,6 +19469,12 @@
           "rvol": 42,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -18960,6 +19590,7 @@
         "WIPRO": 49,
         "AXISBANK": 47,
         "MARUTI": 52,
+        "TMPV": 51,
         "BAJFINANCE": 50,
         "SUNPHARMA": 53,
         "TITAN": 44,
@@ -19055,6 +19686,12 @@
           "rvol": 65,
           "vcp": 42,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -19170,6 +19807,7 @@
         "WIPRO": 49,
         "AXISBANK": 48,
         "MARUTI": 49,
+        "TMPV": 49,
         "BAJFINANCE": 54,
         "SUNPHARMA": 50,
         "TITAN": 42,
@@ -19264,6 +19902,12 @@
           "vp": 35,
           "rvol": 55,
           "vcp": 42,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -19380,6 +20024,7 @@
         "WIPRO": 48,
         "AXISBANK": 40,
         "MARUTI": 49,
+        "TMPV": 52,
         "BAJFINANCE": 52,
         "SUNPHARMA": 56,
         "TITAN": 42,
@@ -19473,6 +20118,12 @@
         "MARUTI": {
           "vp": 35,
           "rvol": 55,
+          "vcp": 42,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
           "vcp": 42,
           "smc": 60
         },
@@ -19590,6 +20241,7 @@
         "WIPRO": 39,
         "AXISBANK": 41,
         "MARUTI": 45,
+        "TMPV": 54,
         "BAJFINANCE": 46,
         "SUNPHARMA": 67,
         "TITAN": 42,
@@ -19685,6 +20337,12 @@
           "rvol": 42,
           "vcp": 42,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 42,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -19800,6 +20458,7 @@
         "WIPRO": 46,
         "AXISBANK": 43,
         "MARUTI": 45,
+        "TMPV": 56,
         "BAJFINANCE": 46,
         "SUNPHARMA": 60,
         "TITAN": 49,
@@ -19895,6 +20554,12 @@
           "rvol": 42,
           "vcp": 42,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 42,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -20010,6 +20675,7 @@
         "WIPRO": 46,
         "AXISBANK": 54,
         "MARUTI": 50,
+        "TMPV": 53,
         "BAJFINANCE": 49,
         "SUNPHARMA": 58,
         "TITAN": 52,
@@ -20105,6 +20771,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 42,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -20220,6 +20892,7 @@
         "WIPRO": 42,
         "AXISBANK": 51,
         "MARUTI": 40,
+        "TMPV": 49,
         "BAJFINANCE": 48,
         "SUNPHARMA": 56,
         "TITAN": 49,
@@ -20315,6 +20988,12 @@
           "rvol": 28,
           "vcp": 42,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 42,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -20430,6 +21109,7 @@
         "WIPRO": 50,
         "AXISBANK": 51,
         "MARUTI": 57,
+        "TMPV": 53,
         "BAJFINANCE": 50,
         "SUNPHARMA": 58,
         "TITAN": 52,
@@ -20525,6 +21205,12 @@
           "rvol": 75,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 42,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -20640,6 +21326,7 @@
         "WIPRO": 39,
         "AXISBANK": 54,
         "MARUTI": 57,
+        "TMPV": 56,
         "BAJFINANCE": 45,
         "SUNPHARMA": 56,
         "TITAN": 54,
@@ -20735,6 +21422,12 @@
           "rvol": 75,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 42,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -20850,6 +21543,7 @@
         "WIPRO": 39,
         "AXISBANK": 47,
         "MARUTI": 50,
+        "TMPV": 54,
         "BAJFINANCE": 50,
         "SUNPHARMA": 58,
         "TITAN": 54,
@@ -20945,6 +21639,12 @@
           "rvol": 61,
           "vcp": 50,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 42,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -21060,6 +21760,7 @@
         "WIPRO": 43,
         "AXISBANK": 54,
         "MARUTI": 53,
+        "TMPV": 51,
         "BAJFINANCE": 44,
         "SUNPHARMA": 46,
         "TITAN": 52,
@@ -21155,6 +21856,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 42,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -21270,6 +21977,7 @@
         "WIPRO": 39,
         "AXISBANK": 47,
         "MARUTI": 54,
+        "TMPV": 48,
         "BAJFINANCE": 47,
         "SUNPHARMA": 50,
         "TITAN": 52,
@@ -21365,6 +22073,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -21480,6 +22194,7 @@
         "WIPRO": 37,
         "AXISBANK": 52,
         "MARUTI": 45,
+        "TMPV": 47,
         "BAJFINANCE": 47,
         "SUNPHARMA": 52,
         "TITAN": 54,
@@ -21575,6 +22290,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
+          "smc": 50
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -21690,6 +22411,7 @@
         "WIPRO": 41,
         "AXISBANK": 46,
         "MARUTI": 45,
+        "TMPV": 56,
         "BAJFINANCE": 46,
         "SUNPHARMA": 62,
         "TITAN": 48,
@@ -21785,6 +22507,12 @@
           "rvol": 46,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 30,
+          "smc": 75
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -21900,6 +22628,7 @@
         "WIPRO": 37,
         "AXISBANK": 43,
         "MARUTI": 48,
+        "TMPV": 42,
         "BAJFINANCE": 48,
         "SUNPHARMA": 64,
         "TITAN": 40,
@@ -21994,6 +22723,12 @@
           "vp": 35,
           "rvol": 60,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -22110,6 +22845,7 @@
         "WIPRO": 41,
         "AXISBANK": 43,
         "MARUTI": 55,
+        "TMPV": 44,
         "BAJFINANCE": 53,
         "SUNPHARMA": 61,
         "TITAN": 44,
@@ -22204,6 +22940,12 @@
           "vp": 35,
           "rvol": 75,
           "vcp": 45,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -22320,6 +23062,7 @@
         "WIPRO": 37,
         "AXISBANK": 49,
         "MARUTI": 48,
+        "TMPV": 39,
         "BAJFINANCE": 44,
         "SUNPHARMA": 56,
         "TITAN": 42,
@@ -22414,6 +23157,12 @@
           "vp": 35,
           "rvol": 61,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -22530,6 +23279,7 @@
         "WIPRO": 45,
         "AXISBANK": 48,
         "MARUTI": 52,
+        "TMPV": 39,
         "BAJFINANCE": 47,
         "SUNPHARMA": 56,
         "TITAN": 42,
@@ -22625,6 +23375,12 @@
           "rvol": 69,
           "vcp": 30,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -22740,6 +23496,7 @@
         "WIPRO": 51,
         "AXISBANK": 43,
         "MARUTI": 49,
+        "TMPV": 53,
         "BAJFINANCE": 56,
         "SUNPHARMA": 55,
         "TITAN": 52,
@@ -22835,6 +23592,12 @@
           "rvol": 52,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 75,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -22950,6 +23713,7 @@
         "WIPRO": 52,
         "AXISBANK": 42,
         "MARUTI": 44,
+        "TMPV": 40,
         "BAJFINANCE": 48,
         "SUNPHARMA": 54,
         "TITAN": 46,
@@ -23045,6 +23809,12 @@
           "rvol": 38,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -23160,6 +23930,7 @@
         "WIPRO": 52,
         "AXISBANK": 44,
         "MARUTI": 46,
+        "TMPV": 37,
         "BAJFINANCE": 44,
         "SUNPHARMA": 57,
         "TITAN": 59,
@@ -23255,6 +24026,12 @@
           "rvol": 38,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -23370,6 +24147,7 @@
         "WIPRO": 43,
         "AXISBANK": 46,
         "MARUTI": 51,
+        "TMPV": 39,
         "BAJFINANCE": 42,
         "SUNPHARMA": 59,
         "TITAN": 48,
@@ -23465,6 +24243,12 @@
           "rvol": 46,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -23580,6 +24364,7 @@
         "WIPRO": 47,
         "AXISBANK": 51,
         "MARUTI": 56,
+        "TMPV": 41,
         "BAJFINANCE": 44,
         "SUNPHARMA": 55,
         "TITAN": 59,
@@ -23675,6 +24460,12 @@
           "rvol": 67,
           "vcp": 30,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -23790,6 +24581,7 @@
         "WIPRO": 43,
         "AXISBANK": 51,
         "MARUTI": 60,
+        "TMPV": 43,
         "BAJFINANCE": 48,
         "SUNPHARMA": 53,
         "TITAN": 57,
@@ -23885,6 +24677,12 @@
           "rvol": 83,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -24000,6 +24798,7 @@
         "WIPRO": 52,
         "AXISBANK": 47,
         "MARUTI": 50,
+        "TMPV": 45,
         "BAJFINANCE": 55,
         "SUNPHARMA": 54,
         "TITAN": 54,
@@ -24094,6 +24893,12 @@
           "vp": 50,
           "rvol": 65,
           "vcp": 38,
+          "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
           "smc": 45
         },
         "BAJFINANCE": {
@@ -24210,6 +25015,7 @@
         "WIPRO": 43,
         "AXISBANK": 45,
         "MARUTI": 55,
+        "TMPV": 47,
         "BAJFINANCE": 48,
         "SUNPHARMA": 47,
         "TITAN": 53,
@@ -24304,6 +25110,12 @@
           "vp": 75,
           "rvol": 51,
           "vcp": 45,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -24420,6 +25232,7 @@
         "WIPRO": 50,
         "AXISBANK": 41,
         "MARUTI": 49,
+        "TMPV": 47,
         "BAJFINANCE": 44,
         "SUNPHARMA": 60,
         "TITAN": 54,
@@ -24514,6 +25327,12 @@
           "vp": 75,
           "rvol": 38,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -24630,6 +25449,7 @@
         "WIPRO": 45,
         "AXISBANK": 44,
         "MARUTI": 46,
+        "TMPV": 47,
         "BAJFINANCE": 46,
         "SUNPHARMA": 48,
         "TITAN": 45,
@@ -24723,6 +25543,12 @@
         "MARUTI": {
           "vp": 70,
           "rvol": 38,
+          "vcp": 30,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
           "vcp": 30,
           "smc": 55
         },
@@ -24840,6 +25666,7 @@
         "WIPRO": 41,
         "AXISBANK": 52,
         "MARUTI": 56,
+        "TMPV": 49,
         "BAJFINANCE": 55,
         "SUNPHARMA": 46,
         "TITAN": 45,
@@ -24932,6 +25759,12 @@
         },
         "MARUTI": {
           "vp": 70,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
           "rvol": 52,
           "vcp": 38,
           "smc": 70
@@ -25050,6 +25883,7 @@
         "WIPRO": 47,
         "AXISBANK": 50,
         "MARUTI": 53,
+        "TMPV": 48,
         "BAJFINANCE": 55,
         "SUNPHARMA": 56,
         "TITAN": 46,
@@ -25144,6 +25978,12 @@
           "vp": 75,
           "rvol": 42,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -25260,6 +26100,7 @@
         "WIPRO": 57,
         "AXISBANK": 57,
         "MARUTI": 52,
+        "TMPV": 42,
         "BAJFINANCE": 55,
         "SUNPHARMA": 56,
         "TITAN": 46,
@@ -25354,6 +26195,12 @@
           "vp": 70,
           "rvol": 38,
           "vcp": 57,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -25470,6 +26317,7 @@
         "WIPRO": 56,
         "AXISBANK": 50,
         "MARUTI": 54,
+        "TMPV": 39,
         "BAJFINANCE": 53,
         "SUNPHARMA": 48,
         "TITAN": 45,
@@ -25565,6 +26413,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 30,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -25680,6 +26534,7 @@
         "WIPRO": 54,
         "AXISBANK": 50,
         "MARUTI": 48,
+        "TMPV": 44,
         "BAJFINANCE": 44,
         "SUNPHARMA": 45,
         "TITAN": 47,
@@ -25773,6 +26628,12 @@
         "MARUTI": {
           "vp": 75,
           "rvol": 42,
+          "vcp": 30,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
           "vcp": 30,
           "smc": 55
         },
@@ -25890,6 +26751,7 @@
         "WIPRO": 52,
         "AXISBANK": 57,
         "MARUTI": 57,
+        "TMPV": 49,
         "BAJFINANCE": 46,
         "SUNPHARMA": 55,
         "TITAN": 53,
@@ -25982,6 +26844,12 @@
         },
         "MARUTI": {
           "vp": 75,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
           "rvol": 52,
           "vcp": 38,
           "smc": 70
@@ -26100,6 +26968,7 @@
         "WIPRO": 54,
         "AXISBANK": 53,
         "MARUTI": 57,
+        "TMPV": 40,
         "BAJFINANCE": 48,
         "SUNPHARMA": 62,
         "TITAN": 50,
@@ -26194,6 +27063,12 @@
           "vp": 75,
           "rvol": 65,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -26310,6 +27185,7 @@
         "WIPRO": 55,
         "AXISBANK": 53,
         "MARUTI": 59,
+        "TMPV": 48,
         "BAJFINANCE": 55,
         "SUNPHARMA": 68,
         "TITAN": 50,
@@ -26404,6 +27280,12 @@
           "vp": 75,
           "rvol": 65,
           "vcp": 45,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -26520,6 +27402,7 @@
         "WIPRO": 53,
         "AXISBANK": 52,
         "MARUTI": 52,
+        "TMPV": 50,
         "BAJFINANCE": 61,
         "SUNPHARMA": 63,
         "TITAN": 55,
@@ -26614,6 +27497,12 @@
           "vp": 35,
           "rvol": 73,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 73,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -26730,6 +27619,7 @@
         "WIPRO": 55,
         "AXISBANK": 47,
         "MARUTI": 48,
+        "TMPV": 48,
         "BAJFINANCE": 59,
         "SUNPHARMA": 57,
         "TITAN": 53,
@@ -26821,6 +27711,12 @@
           "smc": 45
         },
         "MARUTI": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 30,
+          "smc": 55
+        },
+        "TMPV": {
           "vp": 35,
           "rvol": 65,
           "vcp": 30,
@@ -26940,6 +27836,7 @@
         "WIPRO": 48,
         "AXISBANK": 50,
         "MARUTI": 50,
+        "TMPV": 50,
         "BAJFINANCE": 64,
         "SUNPHARMA": 51,
         "TITAN": 53,
@@ -27031,6 +27928,12 @@
           "smc": 55
         },
         "MARUTI": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
           "vp": 35,
           "rvol": 65,
           "vcp": 38,
@@ -27150,6 +28053,7 @@
         "WIPRO": 53,
         "AXISBANK": 52,
         "MARUTI": 55,
+        "TMPV": 52,
         "BAJFINANCE": 63,
         "SUNPHARMA": 45,
         "TITAN": 53,
@@ -27245,6 +28149,12 @@
           "rvol": 73,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -27360,6 +28270,7 @@
         "WIPRO": 51,
         "AXISBANK": 53,
         "MARUTI": 57,
+        "TMPV": 53,
         "BAJFINANCE": 64,
         "SUNPHARMA": 51,
         "TITAN": 53,
@@ -27455,6 +28366,12 @@
           "rvol": 75,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -27570,6 +28487,7 @@
         "WIPRO": 50,
         "AXISBANK": 51,
         "MARUTI": 50,
+        "TMPV": 53,
         "BAJFINANCE": 58,
         "SUNPHARMA": 53,
         "TITAN": 54,
@@ -27665,6 +28583,12 @@
           "rvol": 52,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -27780,6 +28704,7 @@
         "WIPRO": 56,
         "AXISBANK": 50,
         "MARUTI": 46,
+        "TMPV": 53,
         "BAJFINANCE": 49,
         "SUNPHARMA": 47,
         "TITAN": 59,
@@ -27875,6 +28800,12 @@
           "rvol": 52,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -27990,6 +28921,7 @@
         "WIPRO": 46,
         "AXISBANK": 46,
         "MARUTI": 54,
+        "TMPV": 53,
         "BAJFINANCE": 52,
         "SUNPHARMA": 46,
         "TITAN": 54,
@@ -28085,6 +29017,12 @@
           "rvol": 65,
           "vcp": 45,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -28200,6 +29138,7 @@
         "WIPRO": 52,
         "AXISBANK": 49,
         "MARUTI": 46,
+        "TMPV": 52,
         "BAJFINANCE": 59,
         "SUNPHARMA": 51,
         "TITAN": 49,
@@ -28295,6 +29234,12 @@
           "rvol": 32,
           "vcp": 57,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -28410,6 +29355,7 @@
         "WIPRO": 50,
         "AXISBANK": 54,
         "MARUTI": 60,
+        "TMPV": 54,
         "BAJFINANCE": 56,
         "SUNPHARMA": 51,
         "TITAN": 49,
@@ -28505,6 +29451,12 @@
           "rvol": 65,
           "vcp": 57,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -28620,6 +29572,7 @@
         "WIPRO": 55,
         "AXISBANK": 54,
         "MARUTI": 49,
+        "TMPV": 57,
         "BAJFINANCE": 52,
         "SUNPHARMA": 47,
         "TITAN": 46,
@@ -28715,6 +29668,12 @@
           "rvol": 38,
           "vcp": 57,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -28830,6 +29789,7 @@
         "WIPRO": 48,
         "AXISBANK": 51,
         "MARUTI": 47,
+        "TMPV": 65,
         "BAJFINANCE": 45,
         "SUNPHARMA": 52,
         "TITAN": 50,
@@ -28925,6 +29885,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 75,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -29040,6 +30006,7 @@
         "WIPRO": 57,
         "AXISBANK": 47,
         "MARUTI": 51,
+        "TMPV": 66,
         "BAJFINANCE": 58,
         "SUNPHARMA": 62,
         "TITAN": 46,
@@ -29135,6 +30102,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 75,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -29250,6 +30223,7 @@
         "WIPRO": 50,
         "AXISBANK": 39,
         "MARUTI": 44,
+        "TMPV": 56,
         "BAJFINANCE": 58,
         "SUNPHARMA": 59,
         "TITAN": 56,
@@ -29345,6 +30319,12 @@
           "rvol": 38,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -29460,6 +30440,7 @@
         "WIPRO": 46,
         "AXISBANK": 39,
         "MARUTI": 45,
+        "TMPV": 61,
         "BAJFINANCE": 62,
         "SUNPHARMA": 59,
         "TITAN": 59,
@@ -29555,6 +30536,12 @@
           "rvol": 42,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 65,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -29670,6 +30657,7 @@
         "WIPRO": 42,
         "AXISBANK": 45,
         "MARUTI": 53,
+        "TMPV": 53,
         "BAJFINANCE": 54,
         "SUNPHARMA": 56,
         "TITAN": 55,
@@ -29765,6 +30753,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 61,
+          "vcp": 38,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -29880,6 +30874,7 @@
         "WIPRO": 44,
         "AXISBANK": 39,
         "MARUTI": 49,
+        "TMPV": 42,
         "BAJFINANCE": 45,
         "SUNPHARMA": 53,
         "TITAN": 53,
@@ -29975,6 +30970,12 @@
           "rvol": 55,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 28,
+          "vcp": 38,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -30090,6 +31091,7 @@
         "WIPRO": 43,
         "AXISBANK": 39,
         "MARUTI": 47,
+        "TMPV": 49,
         "BAJFINANCE": 45,
         "SUNPHARMA": 54,
         "TITAN": 44,
@@ -30185,6 +31187,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 61,
+          "vcp": 30,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -30300,6 +31308,7 @@
         "WIPRO": 45,
         "AXISBANK": 45,
         "MARUTI": 55,
+        "TMPV": 44,
         "BAJFINANCE": 45,
         "SUNPHARMA": 54,
         "TITAN": 42,
@@ -30395,6 +31404,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -30510,6 +31525,7 @@
         "WIPRO": 47,
         "AXISBANK": 54,
         "MARUTI": 50,
+        "TMPV": 55,
         "BAJFINANCE": 53,
         "SUNPHARMA": 51,
         "TITAN": 46,
@@ -30605,6 +31621,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -30720,6 +31742,7 @@
         "WIPRO": 43,
         "AXISBANK": 51,
         "MARUTI": 54,
+        "TMPV": 57,
         "BAJFINANCE": 51,
         "SUNPHARMA": 49,
         "TITAN": 42,
@@ -30815,6 +31838,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -30930,6 +31959,7 @@
         "WIPRO": 51,
         "AXISBANK": 47,
         "MARUTI": 54,
+        "TMPV": 52,
         "BAJFINANCE": 52,
         "SUNPHARMA": 51,
         "TITAN": 56,
@@ -31025,6 +32055,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 42,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -31140,6 +32176,7 @@
         "WIPRO": 41,
         "AXISBANK": 60,
         "MARUTI": 57,
+        "TMPV": 41,
         "BAJFINANCE": 55,
         "SUNPHARMA": 54,
         "TITAN": 46,
@@ -31235,6 +32272,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 28,
+          "vcp": 30,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -31350,6 +32393,7 @@
         "WIPRO": 44,
         "AXISBANK": 49,
         "MARUTI": 51,
+        "TMPV": 46,
         "BAJFINANCE": 48,
         "SUNPHARMA": 51,
         "TITAN": 41,
@@ -31445,6 +32489,12 @@
           "rvol": 61,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -31560,6 +32610,7 @@
         "WIPRO": 40,
         "AXISBANK": 53,
         "MARUTI": 46,
+        "TMPV": 48,
         "BAJFINANCE": 49,
         "SUNPHARMA": 55,
         "TITAN": 48,
@@ -31655,6 +32706,12 @@
           "rvol": 38,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 45,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -31770,6 +32827,7 @@
         "WIPRO": 39,
         "AXISBANK": 62,
         "MARUTI": 46,
+        "TMPV": 56,
         "BAJFINANCE": 58,
         "SUNPHARMA": 42,
         "TITAN": 46,
@@ -31865,6 +32923,12 @@
           "rvol": 38,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 52,
+          "vcp": 45,
+          "smc": 80
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -31980,6 +33044,7 @@
         "WIPRO": 47,
         "AXISBANK": 54,
         "MARUTI": 46,
+        "TMPV": 68,
         "BAJFINANCE": 52,
         "SUNPHARMA": 40,
         "TITAN": 53,
@@ -32075,6 +33140,12 @@
           "rvol": 38,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 80,
+          "vcp": 45,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -32190,6 +33261,7 @@
         "WIPRO": 52,
         "AXISBANK": 59,
         "MARUTI": 49,
+        "TMPV": 54,
         "BAJFINANCE": 62,
         "SUNPHARMA": 52,
         "TITAN": 52,
@@ -32285,6 +33357,12 @@
           "rvol": 38,
           "vcp": 57,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 51,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -32400,6 +33478,7 @@
         "WIPRO": 49,
         "AXISBANK": 62,
         "MARUTI": 47,
+        "TMPV": 64,
         "BAJFINANCE": 57,
         "SUNPHARMA": 43,
         "TITAN": 44,
@@ -32495,6 +33574,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -32610,6 +33695,7 @@
         "WIPRO": 51,
         "AXISBANK": 60,
         "MARUTI": 54,
+        "TMPV": 66,
         "BAJFINANCE": 55,
         "SUNPHARMA": 46,
         "TITAN": 58,
@@ -32705,6 +33791,12 @@
           "rvol": 52,
           "vcp": 57,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 65,
+          "vcp": 55,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -32820,6 +33912,7 @@
         "WIPRO": 50,
         "AXISBANK": 53,
         "MARUTI": 47,
+        "TMPV": 67,
         "BAJFINANCE": 52,
         "SUNPHARMA": 51,
         "TITAN": 54,
@@ -32915,6 +34008,12 @@
           "rvol": 42,
           "vcp": 57,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -33030,6 +34129,7 @@
         "WIPRO": 60,
         "AXISBANK": 51,
         "MARUTI": 46,
+        "TMPV": 67,
         "BAJFINANCE": 56,
         "SUNPHARMA": 48,
         "TITAN": 54,
@@ -33125,6 +34225,12 @@
           "rvol": 38,
           "vcp": 57,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -33240,6 +34346,7 @@
         "WIPRO": 62,
         "AXISBANK": 54,
         "MARUTI": 49,
+        "TMPV": 55,
         "BAJFINANCE": 62,
         "SUNPHARMA": 48,
         "TITAN": 54,
@@ -33335,6 +34442,12 @@
           "rvol": 42,
           "vcp": 57,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -33450,6 +34563,7 @@
         "WIPRO": 53,
         "AXISBANK": 46,
         "MARUTI": 47,
+        "TMPV": 58,
         "BAJFINANCE": 55,
         "SUNPHARMA": 54,
         "TITAN": 54,
@@ -33545,6 +34659,12 @@
           "rvol": 42,
           "vcp": 50,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 73,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -33660,6 +34780,7 @@
         "WIPRO": 52,
         "AXISBANK": 54,
         "MARUTI": 56,
+        "TMPV": 57,
         "BAJFINANCE": 57,
         "SUNPHARMA": 49,
         "TITAN": 53,
@@ -33755,6 +34876,12 @@
           "rvol": 65,
           "vcp": 57,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 55,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -33870,6 +34997,7 @@
         "WIPRO": 50,
         "AXISBANK": 56,
         "MARUTI": 53,
+        "TMPV": 52,
         "BAJFINANCE": 54,
         "SUNPHARMA": 44,
         "TITAN": 52,
@@ -33965,6 +35093,12 @@
           "rvol": 55,
           "vcp": 57,
           "smc": 50
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 55,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -34080,6 +35214,7 @@
         "WIPRO": 56,
         "AXISBANK": 64,
         "MARUTI": 52,
+        "TMPV": 60,
         "BAJFINANCE": 52,
         "SUNPHARMA": 45,
         "TITAN": 47,
@@ -34175,6 +35310,12 @@
           "rvol": 46,
           "vcp": 57,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 80,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -34290,6 +35431,7 @@
         "WIPRO": 50,
         "AXISBANK": 62,
         "MARUTI": 50,
+        "TMPV": 49,
         "BAJFINANCE": 51,
         "SUNPHARMA": 43,
         "TITAN": 40,
@@ -34385,6 +35527,12 @@
           "rvol": 38,
           "vcp": 57,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -34500,6 +35648,7 @@
         "WIPRO": 53,
         "AXISBANK": 55,
         "MARUTI": 55,
+        "TMPV": 48,
         "BAJFINANCE": 53,
         "SUNPHARMA": 43,
         "TITAN": 38,
@@ -34595,6 +35744,12 @@
           "rvol": 60,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -34710,6 +35865,7 @@
         "WIPRO": 57,
         "AXISBANK": 52,
         "MARUTI": 58,
+        "TMPV": 50,
         "BAJFINANCE": 53,
         "SUNPHARMA": 47,
         "TITAN": 42,
@@ -34805,6 +35961,12 @@
           "rvol": 60,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 45,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -34920,6 +36082,7 @@
         "WIPRO": 60,
         "AXISBANK": 52,
         "MARUTI": 61,
+        "TMPV": 52,
         "BAJFINANCE": 54,
         "SUNPHARMA": 42,
         "TITAN": 47,
@@ -35015,6 +36178,12 @@
           "rvol": 75,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -35130,6 +36299,7 @@
         "WIPRO": 51,
         "AXISBANK": 70,
         "MARUTI": 60,
+        "TMPV": 52,
         "BAJFINANCE": 55,
         "SUNPHARMA": 42,
         "TITAN": 47,
@@ -35225,6 +36395,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -35340,6 +36516,7 @@
         "WIPRO": 44,
         "AXISBANK": 58,
         "MARUTI": 54,
+        "TMPV": 55,
         "BAJFINANCE": 49,
         "SUNPHARMA": 57,
         "TITAN": 47,
@@ -35435,6 +36612,12 @@
           "rvol": 61,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 38,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -35550,6 +36733,7 @@
         "WIPRO": 41,
         "AXISBANK": 64,
         "MARUTI": 58,
+        "TMPV": 51,
         "BAJFINANCE": 50,
         "SUNPHARMA": 43,
         "TITAN": 46,
@@ -35645,6 +36829,12 @@
           "rvol": 65,
           "vcp": 42,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -35760,6 +36950,7 @@
         "WIPRO": 40,
         "AXISBANK": 55,
         "MARUTI": 58,
+        "TMPV": 50,
         "BAJFINANCE": 50,
         "SUNPHARMA": 45,
         "TITAN": 48,
@@ -35855,6 +37046,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 52,
+          "vcp": 45,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -35970,6 +37167,7 @@
         "WIPRO": 42,
         "AXISBANK": 54,
         "MARUTI": 62,
+        "TMPV": 38,
         "BAJFINANCE": 44,
         "SUNPHARMA": 52,
         "TITAN": 56,
@@ -36065,6 +37263,12 @@
           "rvol": 65,
           "vcp": 58,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 28,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -36180,6 +37384,7 @@
         "WIPRO": 40,
         "AXISBANK": 54,
         "MARUTI": 62,
+        "TMPV": 43,
         "BAJFINANCE": 57,
         "SUNPHARMA": 50,
         "TITAN": 55,
@@ -36275,6 +37480,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 42,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -36390,6 +37601,7 @@
         "WIPRO": 43,
         "AXISBANK": 51,
         "MARUTI": 58,
+        "TMPV": 40,
         "BAJFINANCE": 57,
         "SUNPHARMA": 55,
         "TITAN": 52,
@@ -36485,6 +37697,12 @@
           "rvol": 73,
           "vcp": 45,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -36600,6 +37818,7 @@
         "WIPRO": 51,
         "AXISBANK": 53,
         "MARUTI": 54,
+        "TMPV": 42,
         "BAJFINANCE": 58,
         "SUNPHARMA": 46,
         "TITAN": 54,
@@ -36695,6 +37914,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -36810,6 +38035,7 @@
         "WIPRO": 50,
         "AXISBANK": 53,
         "MARUTI": 56,
+        "TMPV": 59,
         "BAJFINANCE": 58,
         "SUNPHARMA": 46,
         "TITAN": 54,
@@ -36905,6 +38131,12 @@
           "rvol": 65,
           "vcp": 45,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 53,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -37020,6 +38252,7 @@
         "WIPRO": 47,
         "AXISBANK": 58,
         "MARUTI": 48,
+        "TMPV": 57,
         "BAJFINANCE": 54,
         "SUNPHARMA": 53,
         "TITAN": 54,
@@ -37115,6 +38348,12 @@
           "rvol": 42,
           "vcp": 45,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 46,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -37230,6 +38469,7 @@
         "WIPRO": 57,
         "AXISBANK": 64,
         "MARUTI": 60,
+        "TMPV": 50,
         "BAJFINANCE": 57,
         "SUNPHARMA": 56,
         "TITAN": 54,
@@ -37325,6 +38565,12 @@
           "rvol": 60,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 38,
+          "vcp": 45,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -37440,6 +38686,7 @@
         "WIPRO": 52,
         "AXISBANK": 60,
         "MARUTI": 58,
+        "TMPV": 50,
         "BAJFINANCE": 61,
         "SUNPHARMA": 56,
         "TITAN": 52,
@@ -37534,6 +38781,12 @@
           "vp": 75,
           "rvol": 52,
           "vcp": 57,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 75,
+          "rvol": 38,
+          "vcp": 45,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -37650,6 +38903,7 @@
         "WIPRO": 43,
         "AXISBANK": 60,
         "MARUTI": 56,
+        "TMPV": 53,
         "BAJFINANCE": 58,
         "SUNPHARMA": 49,
         "TITAN": 58,
@@ -37745,6 +38999,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 38,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -37860,6 +39120,7 @@
         "WIPRO": 60,
         "AXISBANK": 58,
         "MARUTI": 53,
+        "TMPV": 48,
         "BAJFINANCE": 61,
         "SUNPHARMA": 54,
         "TITAN": 62,
@@ -37954,6 +39215,12 @@
           "vp": 75,
           "rvol": 38,
           "vcp": 57,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 55,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -38070,6 +39337,7 @@
         "WIPRO": 59,
         "AXISBANK": 56,
         "MARUTI": 57,
+        "TMPV": 53,
         "BAJFINANCE": 49,
         "SUNPHARMA": 46,
         "TITAN": 53,
@@ -38165,6 +39433,12 @@
           "rvol": 73,
           "vcp": 45,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 38,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -38280,6 +39554,7 @@
         "WIPRO": 52,
         "AXISBANK": 55,
         "MARUTI": 52,
+        "TMPV": 44,
         "BAJFINANCE": 46,
         "SUNPHARMA": 49,
         "TITAN": 50,
@@ -38375,6 +39650,12 @@
           "rvol": 55,
           "vcp": 38,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 28,
+          "vcp": 45,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -38490,6 +39771,7 @@
         "WIPRO": 53,
         "AXISBANK": 57,
         "MARUTI": 64,
+        "TMPV": 43,
         "BAJFINANCE": 59,
         "SUNPHARMA": 51,
         "TITAN": 47,
@@ -38585,6 +39867,12 @@
           "rvol": 67,
           "vcp": 45,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 45,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -38700,6 +39988,7 @@
         "WIPRO": 42,
         "AXISBANK": 55,
         "MARUTI": 60,
+        "TMPV": 62,
         "BAJFINANCE": 55,
         "SUNPHARMA": 53,
         "TITAN": 46,
@@ -38795,6 +40084,12 @@
           "rvol": 80,
           "vcp": 38,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -38910,6 +40205,7 @@
         "WIPRO": 44,
         "AXISBANK": 48,
         "MARUTI": 57,
+        "TMPV": 46,
         "BAJFINANCE": 53,
         "SUNPHARMA": 50,
         "TITAN": 43,
@@ -39005,6 +40301,12 @@
           "rvol": 80,
           "vcp": 38,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 57,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -39120,6 +40422,7 @@
         "WIPRO": 53,
         "AXISBANK": 54,
         "MARUTI": 53,
+        "TMPV": 44,
         "BAJFINANCE": 51,
         "SUNPHARMA": 50,
         "TITAN": 52,
@@ -39215,6 +40518,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -39330,6 +40639,7 @@
         "WIPRO": 40,
         "AXISBANK": 49,
         "MARUTI": 51,
+        "TMPV": 48,
         "BAJFINANCE": 51,
         "SUNPHARMA": 48,
         "TITAN": 52,
@@ -39425,6 +40735,12 @@
           "rvol": 65,
           "vcp": 30,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -39540,6 +40856,7 @@
         "WIPRO": 40,
         "AXISBANK": 49,
         "MARUTI": 50,
+        "TMPV": 49,
         "BAJFINANCE": 51,
         "SUNPHARMA": 54,
         "TITAN": 45,
@@ -39635,6 +40952,12 @@
           "rvol": 55,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 42,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -39750,6 +41073,7 @@
         "WIPRO": 38,
         "AXISBANK": 49,
         "MARUTI": 54,
+        "TMPV": 46,
         "BAJFINANCE": 53,
         "SUNPHARMA": 55,
         "TITAN": 58,
@@ -39845,6 +41169,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 50
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -39960,6 +41290,7 @@
         "WIPRO": 43,
         "AXISBANK": 48,
         "MARUTI": 52,
+        "TMPV": 43,
         "BAJFINANCE": 49,
         "SUNPHARMA": 55,
         "TITAN": 53,
@@ -40055,6 +41386,12 @@
           "rvol": 52,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 50
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -40170,6 +41507,7 @@
         "WIPRO": 41,
         "AXISBANK": 44,
         "MARUTI": 48,
+        "TMPV": 42,
         "BAJFINANCE": 64,
         "SUNPHARMA": 59,
         "TITAN": 56,
@@ -40265,6 +41603,12 @@
           "rvol": 38,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -40380,6 +41724,7 @@
         "WIPRO": 48,
         "AXISBANK": 46,
         "MARUTI": 44,
+        "TMPV": 46,
         "BAJFINANCE": 63,
         "SUNPHARMA": 56,
         "TITAN": 53,
@@ -40475,6 +41820,12 @@
           "rvol": 38,
           "vcp": 30,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 52,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -40590,6 +41941,7 @@
         "WIPRO": 55,
         "AXISBANK": 51,
         "MARUTI": 46,
+        "TMPV": 56,
         "BAJFINANCE": 59,
         "SUNPHARMA": 48,
         "TITAN": 49,
@@ -40685,6 +42037,12 @@
           "rvol": 38,
           "vcp": 38,
           "smc": 65
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 75,
+          "vcp": 38,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -40800,6 +42158,7 @@
         "WIPRO": 53,
         "AXISBANK": 47,
         "MARUTI": 44,
+        "TMPV": 51,
         "BAJFINANCE": 61,
         "SUNPHARMA": 56,
         "TITAN": 49,
@@ -40894,6 +42253,12 @@
           "vp": 50,
           "rvol": 38,
           "vcp": 38,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 51,
+          "vcp": 50,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -41010,6 +42375,7 @@
         "WIPRO": 46,
         "AXISBANK": 45,
         "MARUTI": 52,
+        "TMPV": 51,
         "BAJFINANCE": 58,
         "SUNPHARMA": 46,
         "TITAN": 56,
@@ -41105,6 +42471,12 @@
           "rvol": 61,
           "vcp": 50,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 51,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -41220,6 +42592,7 @@
         "WIPRO": 56,
         "AXISBANK": 46,
         "MARUTI": 52,
+        "TMPV": 47,
         "BAJFINANCE": 58,
         "SUNPHARMA": 56,
         "TITAN": 56,
@@ -41315,6 +42688,12 @@
           "rvol": 61,
           "vcp": 50,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -41430,6 +42809,7 @@
         "WIPRO": 61,
         "AXISBANK": 46,
         "MARUTI": 43,
+        "TMPV": 51,
         "BAJFINANCE": 53,
         "SUNPHARMA": 51,
         "TITAN": 54,
@@ -41525,6 +42905,12 @@
           "rvol": 41,
           "vcp": 42,
           "smc": 45
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -41640,6 +43026,7 @@
         "WIPRO": 56,
         "AXISBANK": 54,
         "MARUTI": 51,
+        "TMPV": 56,
         "BAJFINANCE": 55,
         "SUNPHARMA": 51,
         "TITAN": 53,
@@ -41733,6 +43120,12 @@
         "MARUTI": {
           "vp": 50,
           "rvol": 51,
+          "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
           "vcp": 50,
           "smc": 55
         },
@@ -41850,6 +43243,7 @@
         "WIPRO": 54,
         "AXISBANK": 56,
         "MARUTI": 51,
+        "TMPV": 53,
         "BAJFINANCE": 57,
         "SUNPHARMA": 54,
         "TITAN": 57,
@@ -41944,6 +43338,12 @@
           "vp": 50,
           "rvol": 51,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 51,
+          "vcp": 58,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -42060,6 +43460,7 @@
         "WIPRO": 46,
         "AXISBANK": 48,
         "MARUTI": 47,
+        "TMPV": 54,
         "BAJFINANCE": 58,
         "SUNPHARMA": 60,
         "TITAN": 56,
@@ -42155,6 +43556,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
+          "vcp": 57,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -42270,6 +43677,7 @@
         "WIPRO": 48,
         "AXISBANK": 44,
         "MARUTI": 52,
+        "TMPV": 47,
         "BAJFINANCE": 69,
         "SUNPHARMA": 56,
         "TITAN": 54,
@@ -42365,6 +43773,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 57,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -42480,6 +43894,7 @@
         "WIPRO": 56,
         "AXISBANK": 54,
         "MARUTI": 55,
+        "TMPV": 47,
         "BAJFINANCE": 54,
         "SUNPHARMA": 60,
         "TITAN": 53,
@@ -42575,6 +43990,12 @@
           "rvol": 42,
           "vcp": 42,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 45,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 70,
@@ -42690,6 +44111,7 @@
         "WIPRO": 54,
         "AXISBANK": 51,
         "MARUTI": 48,
+        "TMPV": 51,
         "BAJFINANCE": 56,
         "SUNPHARMA": 61,
         "TITAN": 56,
@@ -42785,6 +44207,12 @@
           "rvol": 42,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -42900,6 +44328,7 @@
         "WIPRO": 56,
         "AXISBANK": 47,
         "MARUTI": 56,
+        "TMPV": 46,
         "BAJFINANCE": 57,
         "SUNPHARMA": 56,
         "TITAN": 55,
@@ -42995,6 +44424,12 @@
           "rvol": 65,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 45,
+          "smc": 70
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -43110,6 +44545,7 @@
         "WIPRO": 56,
         "AXISBANK": 61,
         "MARUTI": 53,
+        "TMPV": 52,
         "BAJFINANCE": 49,
         "SUNPHARMA": 56,
         "TITAN": 55,
@@ -43205,6 +44641,12 @@
           "rvol": 65,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 65,
+          "vcp": 57,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -43320,6 +44762,7 @@
         "WIPRO": 57,
         "AXISBANK": 57,
         "MARUTI": 52,
+        "TMPV": 52,
         "BAJFINANCE": 55,
         "SUNPHARMA": 54,
         "TITAN": 55,
@@ -43415,6 +44858,12 @@
           "rvol": 73,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -43530,6 +44979,7 @@
         "WIPRO": 54,
         "AXISBANK": 56,
         "MARUTI": 48,
+        "TMPV": 54,
         "BAJFINANCE": 57,
         "SUNPHARMA": 44,
         "TITAN": 54,
@@ -43624,6 +45074,12 @@
           "vp": 35,
           "rvol": 65,
           "vcp": 30,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
+          "vcp": 45,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -43740,6 +45196,7 @@
         "WIPRO": 57,
         "AXISBANK": 60,
         "MARUTI": 47,
+        "TMPV": 54,
         "BAJFINANCE": 52,
         "SUNPHARMA": 49,
         "TITAN": 51,
@@ -43835,6 +45292,12 @@
           "rvol": 50,
           "vcp": 30,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -43950,6 +45413,7 @@
         "WIPRO": 55,
         "AXISBANK": 60,
         "MARUTI": 45,
+        "TMPV": 54,
         "BAJFINANCE": 54,
         "SUNPHARMA": 49,
         "TITAN": 56,
@@ -44045,6 +45509,12 @@
           "rvol": 42,
           "vcp": 30,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -44160,6 +45630,7 @@
         "WIPRO": 51,
         "AXISBANK": 65,
         "MARUTI": 45,
+        "TMPV": 58,
         "BAJFINANCE": 52,
         "SUNPHARMA": 43,
         "TITAN": 56,
@@ -44255,6 +45726,12 @@
           "rvol": 42,
           "vcp": 42,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 70,
+          "rvol": 65,
+          "vcp": 45,
+          "smc": 55
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -44370,6 +45847,7 @@
         "WIPRO": 53,
         "AXISBANK": 57,
         "MARUTI": 51,
+        "TMPV": 54,
         "BAJFINANCE": 48,
         "SUNPHARMA": 42,
         "TITAN": 56,
@@ -44464,6 +45942,12 @@
           "vp": 50,
           "rvol": 52,
           "vcp": 42,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 65,
+          "vcp": 38,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -44580,6 +46064,7 @@
         "WIPRO": 53,
         "AXISBANK": 54,
         "MARUTI": 55,
+        "TMPV": 55,
         "BAJFINANCE": 48,
         "SUNPHARMA": 44,
         "TITAN": 55,
@@ -44674,6 +46159,12 @@
           "vp": 50,
           "rvol": 65,
           "vcp": 42,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 52,
+          "vcp": 58,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -44790,6 +46281,7 @@
         "WIPRO": 62,
         "AXISBANK": 58,
         "MARUTI": 49,
+        "TMPV": 62,
         "BAJFINANCE": 48,
         "SUNPHARMA": 46,
         "TITAN": 56,
@@ -44885,6 +46377,12 @@
           "rvol": 42,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 75,
+          "vcp": 58,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -45000,6 +46498,7 @@
         "WIPRO": 56,
         "AXISBANK": 50,
         "MARUTI": 55,
+        "TMPV": 62,
         "BAJFINANCE": 45,
         "SUNPHARMA": 43,
         "TITAN": 54,
@@ -45095,6 +46594,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 75,
+          "vcp": 58,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -45210,6 +46715,7 @@
         "WIPRO": 49,
         "AXISBANK": 50,
         "MARUTI": 50,
+        "TMPV": 57,
         "BAJFINANCE": 43,
         "SUNPHARMA": 46,
         "TITAN": 53,
@@ -45305,6 +46811,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 67,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -45420,6 +46932,7 @@
         "WIPRO": 44,
         "AXISBANK": 49,
         "MARUTI": 53,
+        "TMPV": 46,
         "BAJFINANCE": 49,
         "SUNPHARMA": 48,
         "TITAN": 53,
@@ -45514,6 +47027,12 @@
           "vp": 50,
           "rvol": 52,
           "vcp": 50,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 42,
+          "vcp": 38,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -45630,6 +47149,7 @@
         "WIPRO": 49,
         "AXISBANK": 55,
         "MARUTI": 47,
+        "TMPV": 57,
         "BAJFINANCE": 44,
         "SUNPHARMA": 56,
         "TITAN": 46,
@@ -45725,6 +47245,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 50,
+          "rvol": 76,
+          "vcp": 38,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -45840,6 +47366,7 @@
         "WIPRO": 44,
         "AXISBANK": 61,
         "MARUTI": 44,
+        "TMPV": 47,
         "BAJFINANCE": 53,
         "SUNPHARMA": 43,
         "TITAN": 49,
@@ -45935,6 +47462,12 @@
           "rvol": 28,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
+          "vcp": 38,
+          "smc": 50
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -46050,6 +47583,7 @@
         "WIPRO": 47,
         "AXISBANK": 59,
         "MARUTI": 47,
+        "TMPV": 46,
         "BAJFINANCE": 41,
         "SUNPHARMA": 47,
         "TITAN": 50,
@@ -46145,6 +47679,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -46260,6 +47800,7 @@
         "WIPRO": 50,
         "AXISBANK": 59,
         "MARUTI": 44,
+        "TMPV": 46,
         "BAJFINANCE": 46,
         "SUNPHARMA": 46,
         "TITAN": 54,
@@ -46355,6 +47896,12 @@
           "rvol": 28,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 61,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -46470,6 +48017,7 @@
         "WIPRO": 41,
         "AXISBANK": 59,
         "MARUTI": 44,
+        "TMPV": 39,
         "BAJFINANCE": 52,
         "SUNPHARMA": 41,
         "TITAN": 61,
@@ -46565,6 +48113,12 @@
           "rvol": 28,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -46680,6 +48234,7 @@
         "WIPRO": 42,
         "AXISBANK": 59,
         "MARUTI": 47,
+        "TMPV": 39,
         "BAJFINANCE": 48,
         "SUNPHARMA": 41,
         "TITAN": 44,
@@ -46775,6 +48330,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 35,
@@ -46890,6 +48451,7 @@
         "WIPRO": 57,
         "AXISBANK": 59,
         "MARUTI": 55,
+        "TMPV": 39,
         "BAJFINANCE": 50,
         "SUNPHARMA": 52,
         "TITAN": 42,
@@ -46985,6 +48547,12 @@
           "rvol": 52,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -47100,6 +48668,7 @@
         "WIPRO": 50,
         "AXISBANK": 59,
         "MARUTI": 62,
+        "TMPV": 46,
         "BAJFINANCE": 51,
         "SUNPHARMA": 54,
         "TITAN": 44,
@@ -47195,6 +48764,12 @@
           "rvol": 75,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -47310,6 +48885,7 @@
         "WIPRO": 46,
         "AXISBANK": 57,
         "MARUTI": 47,
+        "TMPV": 42,
         "BAJFINANCE": 44,
         "SUNPHARMA": 52,
         "TITAN": 53,
@@ -47405,6 +48981,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -47520,6 +49102,7 @@
         "WIPRO": 44,
         "AXISBANK": 58,
         "MARUTI": 47,
+        "TMPV": 46,
         "BAJFINANCE": 49,
         "SUNPHARMA": 50,
         "TITAN": 51,
@@ -47615,6 +49198,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -47730,6 +49319,7 @@
         "WIPRO": 53,
         "AXISBANK": 57,
         "MARUTI": 47,
+        "TMPV": 45,
         "BAJFINANCE": 59,
         "SUNPHARMA": 50,
         "TITAN": 54,
@@ -47825,6 +49415,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 58,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -47940,6 +49536,7 @@
         "WIPRO": 63,
         "AXISBANK": 56,
         "MARUTI": 58,
+        "TMPV": 42,
         "BAJFINANCE": 44,
         "SUNPHARMA": 54,
         "TITAN": 57,
@@ -48035,6 +49632,12 @@
           "rvol": 60,
           "vcp": 50,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -48150,6 +49753,7 @@
         "WIPRO": 58,
         "AXISBANK": 54,
         "MARUTI": 55,
+        "TMPV": 42,
         "BAJFINANCE": 46,
         "SUNPHARMA": 51,
         "TITAN": 54,
@@ -48245,6 +49849,12 @@
           "rvol": 53,
           "vcp": 38,
           "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -48360,6 +49970,7 @@
         "WIPRO": 56,
         "AXISBANK": 59,
         "MARUTI": 56,
+        "TMPV": 50,
         "BAJFINANCE": 48,
         "SUNPHARMA": 46,
         "TITAN": 58,
@@ -48454,6 +50065,12 @@
           "vp": 70,
           "rvol": 60,
           "vcp": 38,
+          "smc": 60
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
           "smc": 60
         },
         "BAJFINANCE": {
@@ -48570,6 +50187,7 @@
         "WIPRO": 53,
         "AXISBANK": 57,
         "MARUTI": 60,
+        "TMPV": 46,
         "BAJFINANCE": 51,
         "SUNPHARMA": 43,
         "TITAN": 46,
@@ -48665,6 +50283,12 @@
           "rvol": 75,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -48780,6 +50404,7 @@
         "WIPRO": 44,
         "AXISBANK": 60,
         "MARUTI": 48,
+        "TMPV": 40,
         "BAJFINANCE": 56,
         "SUNPHARMA": 42,
         "TITAN": 48,
@@ -48875,6 +50500,12 @@
           "rvol": 38,
           "vcp": 38,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 32,
+          "vcp": 50,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -48990,6 +50621,7 @@
         "WIPRO": 43,
         "AXISBANK": 55,
         "MARUTI": 65,
+        "TMPV": 43,
         "BAJFINANCE": 54,
         "SUNPHARMA": 47,
         "TITAN": 55,
@@ -49085,6 +50717,12 @@
           "rvol": 75,
           "vcp": 38,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 50
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -49200,6 +50838,7 @@
         "WIPRO": 43,
         "AXISBANK": 62,
         "MARUTI": 60,
+        "TMPV": 51,
         "BAJFINANCE": 47,
         "SUNPHARMA": 48,
         "TITAN": 46,
@@ -49295,6 +50934,12 @@
           "rvol": 61,
           "vcp": 58,
           "smc": 70
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 52,
+          "vcp": 50,
+          "smc": 65
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -49410,6 +51055,7 @@
         "WIPRO": 43,
         "AXISBANK": 59,
         "MARUTI": 61,
+        "TMPV": 40,
         "BAJFINANCE": 49,
         "SUNPHARMA": 49,
         "TITAN": 50,
@@ -49505,6 +51151,12 @@
           "rvol": 83,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 42,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -49620,6 +51272,7 @@
         "WIPRO": 41,
         "AXISBANK": 58,
         "MARUTI": 56,
+        "TMPV": 37,
         "BAJFINANCE": 51,
         "SUNPHARMA": 51,
         "TITAN": 47,
@@ -49715,6 +51368,12 @@
           "rvol": 61,
           "vcp": 58,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 30,
+          "smc": 45
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -49830,6 +51489,7 @@
         "WIPRO": 46,
         "AXISBANK": 58,
         "MARUTI": 44,
+        "TMPV": 49,
         "BAJFINANCE": 50,
         "SUNPHARMA": 47,
         "TITAN": 58,
@@ -49924,6 +51584,12 @@
           "vp": 50,
           "rvol": 38,
           "vcp": 50,
+          "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 75,
+          "vcp": 30,
           "smc": 45
         },
         "BAJFINANCE": {
@@ -50040,6 +51706,7 @@
         "WIPRO": 45,
         "AXISBANK": 54,
         "MARUTI": 41,
+        "TMPV": 41,
         "BAJFINANCE": 56,
         "SUNPHARMA": 44,
         "TITAN": 54,
@@ -50134,6 +51801,12 @@
           "vp": 50,
           "rvol": 28,
           "vcp": 50,
+          "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 42,
           "smc": 45
         },
         "BAJFINANCE": {
@@ -50250,6 +51923,7 @@
         "WIPRO": 45,
         "AXISBANK": 54,
         "MARUTI": 44,
+        "TMPV": 36,
         "BAJFINANCE": 58,
         "SUNPHARMA": 49,
         "TITAN": 53,
@@ -50344,6 +52018,12 @@
           "vp": 50,
           "rvol": 38,
           "vcp": 50,
+          "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 36,
+          "vcp": 30,
           "smc": 45
         },
         "BAJFINANCE": {
@@ -50460,6 +52140,7 @@
         "WIPRO": 41,
         "AXISBANK": 70,
         "MARUTI": 44,
+        "TMPV": 36,
         "BAJFINANCE": 49,
         "SUNPHARMA": 53,
         "TITAN": 57,
@@ -50554,6 +52235,12 @@
           "vp": 50,
           "rvol": 38,
           "vcp": 50,
+          "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 36,
+          "vcp": 30,
           "smc": 45
         },
         "BAJFINANCE": {
@@ -50670,6 +52357,7 @@
         "WIPRO": 52,
         "AXISBANK": 63,
         "MARUTI": 49,
+        "TMPV": 38,
         "BAJFINANCE": 53,
         "SUNPHARMA": 55,
         "TITAN": 44,
@@ -50764,6 +52452,12 @@
           "vp": 50,
           "rvol": 52,
           "vcp": 50,
+          "smc": 45
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 42,
+          "vcp": 30,
           "smc": 45
         },
         "BAJFINANCE": {
@@ -50880,6 +52574,7 @@
         "WIPRO": 52,
         "AXISBANK": 59,
         "MARUTI": 51,
+        "TMPV": 38,
         "BAJFINANCE": 57,
         "SUNPHARMA": 49,
         "TITAN": 47,
@@ -50974,6 +52669,12 @@
           "vp": 50,
           "rvol": 46,
           "vcp": 58,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 36,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -51090,6 +52791,7 @@
         "WIPRO": 41,
         "AXISBANK": 59,
         "MARUTI": 47,
+        "TMPV": 39,
         "BAJFINANCE": 53,
         "SUNPHARMA": 56,
         "TITAN": 51,
@@ -51184,6 +52886,12 @@
           "vp": 50,
           "rvol": 38,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 30,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -51300,6 +53008,7 @@
         "WIPRO": 52,
         "AXISBANK": 56,
         "MARUTI": 53,
+        "TMPV": 42,
         "BAJFINANCE": 57,
         "SUNPHARMA": 46,
         "TITAN": 55,
@@ -51395,6 +53104,12 @@
           "rvol": 51,
           "vcp": 58,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 75,
@@ -51510,6 +53225,7 @@
         "WIPRO": 46,
         "AXISBANK": 60,
         "MARUTI": 53,
+        "TMPV": 42,
         "BAJFINANCE": 56,
         "SUNPHARMA": 49,
         "TITAN": 53,
@@ -51605,6 +53321,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -51720,6 +53442,7 @@
         "WIPRO": 53,
         "AXISBANK": 45,
         "MARUTI": 44,
+        "TMPV": 45,
         "BAJFINANCE": 46,
         "SUNPHARMA": 49,
         "TITAN": 48,
@@ -51815,6 +53538,12 @@
           "rvol": 38,
           "vcp": 50,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 50,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -51930,6 +53659,7 @@
         "WIPRO": 61,
         "AXISBANK": 50,
         "MARUTI": 53,
+        "TMPV": 45,
         "BAJFINANCE": 48,
         "SUNPHARMA": 42,
         "TITAN": 53,
@@ -52025,6 +53755,12 @@
           "rvol": 52,
           "vcp": 58,
           "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 46,
+          "vcp": 38,
+          "smc": 60
         },
         "BAJFINANCE": {
           "vp": 50,
@@ -52140,6 +53876,7 @@
         "WIPRO": 49,
         "AXISBANK": 46,
         "MARUTI": 49,
+        "TMPV": 41,
         "BAJFINANCE": 42,
         "SUNPHARMA": 52,
         "TITAN": 46,
@@ -52234,6 +53971,12 @@
           "vp": 50,
           "rvol": 38,
           "vcp": 58,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 38,
+          "vcp": 38,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -52350,6 +54093,7 @@
         "WIPRO": 43,
         "AXISBANK": 49,
         "MARUTI": 44,
+        "TMPV": 48,
         "BAJFINANCE": 46,
         "SUNPHARMA": 56,
         "TITAN": 42,
@@ -52444,6 +54188,12 @@
           "vp": 35,
           "rvol": 38,
           "vcp": 50,
+          "smc": 55
+        },
+        "TMPV": {
+          "vp": 35,
+          "rvol": 60,
+          "vcp": 38,
           "smc": 55
         },
         "BAJFINANCE": {
@@ -52552,7 +54302,7 @@
     "buy_dip": 57.0,
     "buy_breakout": 62.0
   },
-  "samples": 7250,
+  "samples": 7500,
   "sessions": 250,
   "engine_keys": {
     "vp": "Volume Profile",
@@ -52563,10 +54313,10 @@
   "engine_dispersion": {
     "Volume Profile": {
       "key": "vp",
-      "pooled_std": 14.841,
-      "mean_session_std": 14.633,
+      "pooled_std": 14.804,
+      "mean_session_std": 14.609,
       "min_session_std": 7.628,
-      "max_session_std": 18.391,
+      "max_session_std": 18.333,
       "flat_session_share": 0.0,
       "unique_values": 4,
       "min_value": 35,
@@ -52575,10 +54325,10 @@
     },
     "RVOL + CVD + VSA": {
       "key": "rvol",
-      "pooled_std": 13.553,
-      "mean_session_std": 13.013,
-      "min_session_std": 6.714,
-      "max_session_std": 17.64,
+      "pooled_std": 13.555,
+      "mean_session_std": 13.008,
+      "min_session_std": 6.602,
+      "max_session_std": 17.476,
       "flat_session_share": 0.0,
       "unique_values": 28,
       "min_value": 18,
@@ -52587,10 +54337,10 @@
     },
     "VCP V2": {
       "key": "vcp",
-      "pooled_std": 9.811,
-      "mean_session_std": 8.594,
-      "min_session_std": 3.95,
-      "max_session_std": 11.841,
+      "pooled_std": 9.806,
+      "mean_session_std": 8.599,
+      "min_session_std": 3.986,
+      "max_session_std": 11.7,
       "flat_session_share": 0.0,
       "unique_values": 14,
       "min_value": 30,
@@ -52599,10 +54349,10 @@
     },
     "SMC / ICT": {
       "key": "smc",
-      "pooled_std": 8.34,
-      "mean_session_std": 7.973,
-      "min_session_std": 5.018,
-      "max_session_std": 12.275,
+      "pooled_std": 8.359,
+      "mean_session_std": 7.991,
+      "min_session_std": 5.167,
+      "max_session_std": 12.658,
       "flat_session_share": 0.0,
       "unique_values": 11,
       "min_value": 35,

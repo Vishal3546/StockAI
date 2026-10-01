@@ -19,7 +19,7 @@
 | ✅ **Data layer** | 3-tier fallback (TradingView → NSE direct → Yahoo), JSON-safe, degrades gracefully |
 | ✅ **Indicator layer** | ATR/RSI match reference math exactly; SuperTrend 97.4 % faithful to the canonical Pine algorithm |
 | ⚠️ **ML layer** | **No measurable edge.** 7,200 out-of-sample predictions across 20 Nifty names: mean accuracy **50.7 % vs a 51.9 % baseline (edge −1.1 pp)**. Treat ML probabilities as research output, not advice. |
-| ⚠️ **Scoring layer** | FIX‑33: only **4 stock-specific daily engines** enter the master score; Market Regime (former 18%) moves to *exposure*, intraday MTF remains a diagnostic. `score_calibration.json` fits **p80 / p95** on **250 completed sessions / 7,250 observed scores / 29 of 30 NSE names**, as-of 2026‑09‑29: cutoffs **57 / 62** on THIS score definition. Due to integer-score ties, ≥p80 includes **22.1%** and ≥p95 **6.4%** of that historical sample (not exact 20%/5% quotas). **Relative ranking only**, not a prediction of profitable returns. |
+| ⚠️ **Scoring layer** | FIX‑33: only **4 stock-specific daily engines** enter the master score; Market Regime (former 18%) moves to *exposure*, intraday MTF remains a diagnostic. `score_calibration.json` fits **p80 / p95** on **250 completed sessions / 7,500 observed scores / 30 of 30 NSE names**, as-of 2026‑09‑29: cutoffs **57 / 62** on THIS score definition. Due to integer-score ties, ≥p80 includes **22.1%** and ≥p95 **6.4%** of that historical sample (not exact 20%/5% quotas). **Relative ranking only**, not a prediction of profitable returns. |
 | ⚠️ **Execution** | Live API blocks assumed-Kelly sizing when the measured plan sample is missing, applies a separately labelled regime exposure cap, and fails closed if history/index data are missing. `qty` ≤ 1× capital, **but** overlapping in-sample plan samples + fitted percentiles are **not** an out-of-sample cost-aware strategy backtest. |
 
 **None of this is investment advice.** Use it as a research dashboard, not an order generator.
@@ -273,17 +273,17 @@ purged + embargoed walk-forward (plus the shuffled-label null) into **`ml_edge_s
 at the repo root, `/api/stock` ships it as `ml_study`, and the dashboard prints the recorded
 verdict under the ML panel — with the in-app accuracy explicitly labelled a **diagnostic**.
 
-Measured on 19 large-caps, 5y, 5 purged folds, **53,295 pooled out-of-sample predictions**:
+Measured on 20 large-caps, 5y, 5 purged folds, **56,100 pooled out-of-sample predictions**:
 
 | strategy | accuracy | baseline | edge | ±95% CI |
 |---|---|---|---|---|
-| S1 `ml_dir1_app28` (the app's current design) | 51.16% | 50.02% | **+1.14pp** | ±0.74 |
-| S2 `ml_dir1_small10` | 50.61% | 50.02% | +0.59pp | ±0.74 |
-| S3 `ml_ret5atr_small10` (proposed redesign) | 54.84% | 61.99% | **−7.15pp** | ±0.73 |
-| shuffled-label null ceiling | mean 56.36%, max **59.32%** | — | — | — |
+| S1 `ml_dir1_app28` (the app's current design) | 51.03% | 50.07% | **+0.96pp** | ±0.72 |
+| S2 `ml_dir1_small10` | 50.58% | 50.07% | +0.51pp | ±0.72 |
+| S3 `ml_ret5atr_small10` (proposed redesign) | 55.03% | 62.02% | **−6.99pp** | ±0.71 |
+| shuffled-label null ceiling | mean 56.24%, max **59.32%** | — | — | — |
 
 **Verdict: NO EDGE.** The proposed design sits *below* the accuracy you get from shuffled
-labels, and the current design's +1.14pp is inside its own ±0.74pp noise band. Rebuild
+labels, and the current design's +0.96pp is inside its own ±0.72pp noise band. Rebuild
 (~3 min, needs network for daily bars):
 
 ```bash
@@ -297,30 +297,30 @@ If the artifact is missing the dashboard says *"OOS ML study absent"* — which 
 ### FIX‑43 · Scanner signals now come from fitted bands, not hardcoded ones
 
 The scanner's BUY/SELL bands were hardcoded (`70/60/45/35`) and BUY/STRONG BUY sat behind
-an ML gate. Measured on **7,250 stock-sessions** (29 symbols × 250 sessions, using the
+an ML gate. Measured on **7,500 stock-sessions** (30 symbols × 250 sessions, using the
 scanner's own `calculate_ensemble`) the old bands produced:
 
 | signal | old bands | share |
 |---|---|---|
 | STRONG BUY | **0** | 0.0% |
 | BUY | **0** | 0.0% |
-| WATCH | 6,986 | **96.4%** |
-| SELL | 264 | 3.6% |
+| WATCH | 7,162 | **95.5%** |
+| SELL | 338 | 4.5% |
 | STRONG SELL | **0** | 0.0% |
 
 They were not just uncalibrated — they were **unreachable**. BUY required
 `effective_ml_prob >= 52`, but a negative-edge model is neutralised to `50.0`, so the gate
 could never pass; and `composite >= 70` needs `ens >= 86.4` while the observed maximum
-ensemble score in 7,250 sessions is **66**.
+ensemble score in 7,500 sessions is **66**.
 
 Bands are now fitted percentiles committed in `scanner_bands.json`
-(p95/p80/p40/p10 = **63/60/51/44**), ML is a **diagnostic** and no longer gates the signal,
+(p95/p80/p40/p10 = **63/60/50/44**), ML is a **diagnostic** and no longer gates the signal,
 and a missing/stale (>60 days)/tampered artifact makes the signal `UNRATED` rather than a
 guess. Rebuild (~10 s, needs network for daily bars) and verify with:
 
 ```bash
 python tools/build_scanner_bands.py
-python tools/verify_scanner_bands.py     # 53 checks
+python tools/verify_scanner_bands.py     # 67 checks
 ```
 
 **FIX‑44 · the `Score` column now shows the number that actually decides the signal.**
@@ -338,6 +338,29 @@ live scan on 2026‑10‑01 read 1 BUY | 5 WATCH | 23 SELL (only KOTAKBANK above
 a legitimate weak-market reading, not a broken band. Net-of-cost performance is in
 [`RESEARCH_REPORT.md`](RESEARCH_REPORT.md).
 
+**FIX‑45 · `TATAMOTORS` → `TMPV`, and the summary line is now exact.**
+Every scan printed `⚠️ TATAMOTORS Skipped`. The cause was not a Yahoo outage: the ticker
+stopped existing. Tata Motors demerged effective 1 Oct 2025 and the NSE ticker became
+**`TMPV`** (Tata Motors Passenger Vehicles Ltd, from 24 Oct 2025). All four probes
+(`TATAMOTORS.NS`, `TATAMOTORS.BO`, `TATAMOTOR.NS`, `TATAMTRDVR.NS`) return **HTTP 404**.
+`TMPV` is the right successor on two counts: under NSE demerger rules the **demerged company
+stays in the Nifty 50** (the CV arm `TMCV` is carried at constant price for a few sessions
+and then excluded), and it carries the full pre-demerger history — **1,241 bars from
+2021‑10‑01**, where `TMCV` has only 225 bars from its 2025‑11‑12 listing. Calibration needs
+the long history, so `TMPV` is the drop-in replacement.
+
+The summary line was also silently lossy: it counted with `"BUY" in signal` /
+`"SELL" in signal`, so `23 SELL` was really **17 SELL + 6 STRONG SELL** and STRONG BUY never
+appeared as its own band. It now prints exact per-band counts
+(`STRONG BUY | BUY | WATCH | SELL | STRONG SELL | UNRATED`, non-zero bands only).
+
+Changing the universe invalidates the committed artifacts (the loader fails closed on a
+universe mismatch), so all three were rebuilt — calibration **29 → 30 symbols / 7,500
+scores**, scanner bands **7,500 stock-sessions / 30 symbols / 0 skipped**, ML study
+**20 symbols / 56,100 OOS predictions**. Calibration cutoffs are unchanged (43/50/57/62);
+the only scanner band that moved is WATCH 51 → **50**; and the ML verdict is still
+**NO EDGE** (+0.96 pp vs a 59.32 % shuffled-label ceiling).
+
 ---
 
 ## Still open (honest list)
@@ -348,7 +371,7 @@ a legitimate weak-market reading, not a broken band. Net-of-cost performance is 
    design shows a positive edge with CI, ML stays advisory-only — no accuracy number in the UI
    without a ≥500-prediction rolling sample behind it.
 2. **Score *performance* validation (still OPEN).** FIX‑33 fits score DISTRIBUTION, not expected
-   future return. At 2026‑09‑29: p80/p95 = 57/62 on 7,250 observed daily-engine scores. Changes to
+   future return. At 2026‑09‑29: p80/p95 = 57/62 on 7,500 observed daily-engine scores. Changes to
    formula/weights/universe, <250 completed sessions, missing stock data, same/future-date fit or
    >10-day-old fit disable directional labels. Rebuild with
    `python tools/build_score_calibration.py`; script uses Yahoo daily OHLCV and excludes the live

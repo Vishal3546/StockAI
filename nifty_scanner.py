@@ -16,6 +16,7 @@ import math
 import threading
 import time
 from datetime import time as _dtime
+from collections import Counter
 from zoneinfo import ZoneInfo
 
 # ── FIX-S1: ONE shared TradingView socket (was: a new TvDatafeed() per
@@ -113,6 +114,23 @@ def format_leaderboard_row(r, rank):
             f"{r['ml_edge']:>+6.1f}% {r['signal_score']:>5} {signal_icon(r['signal'])} {r['signal']}")
 
 
+def format_summary_line(results: list) -> str:
+    """`📊 Summary:` line — FIX-45.
+
+    Pehle ye inline tha aur `"BUY" in r['signal']` / `"SELL" in r['signal']` se count karta
+    tha. Substring match hone ki wajah se `23 SELL` me 17 SELL + 6 STRONG SELL chhupe rehte
+    the, aur STRONG BUY kabhi apna alag band nahi dikhata tha (wo "BUY" me gin liya jaata
+    tha). Ab exact per-band counts, fixed order me, sirf non-zero bands.
+
+    Function isliye hai (print inline nahi) taaki verifier isse synthetic rows par chala kar
+    assert kar sake — FIX-44 ka lesson: inline print verify nahi ho sakta.
+    """
+    counts = Counter(r['signal'] for r in results)
+    order = ['STRONG BUY', 'BUY', 'WATCH', 'SELL', 'STRONG SELL', 'UNRATED']
+    parts = [f"{counts.get(b, 0)} {b}" for b in order if counts.get(b, 0)]
+    return "📊 Summary: " + (" | ".join(parts) if parts else "(no rows)")
+
+
 def _tv_connection():
     global _TV
     with _TV_LOCK:
@@ -153,7 +171,8 @@ SECTOR_MAP = {
     "ICICIBANK": "Banking", "SBIN": "PSU Bank", "BHARTIARTL": "Telecom",
     "ITC": "FMCG", "KOTAKBANK": "Banking", "LT": "Infra",
     "WIPRO": "IT", "AXISBANK": "Banking", "MARUTI": "Auto",
-    "TATAMOTORS": "Auto", "BAJFINANCE": "NBFC", "SUNPHARMA": "Pharma",
+    # FIX-45: TATAMOTORS → TMPV (demerger; NSE ticker TATAMOTORS ab exist nahi karta)
+    "TMPV": "Auto", "BAJFINANCE": "NBFC", "SUNPHARMA": "Pharma",
     "TITAN": "Consumer", "ADANIENT": "Conglomerate", "POWERGRID": "Power",
     "NTPC": "Power", "ONGC": "Oil&Gas", "COALINDIA": "Mining",
     "TATASTEEL": "Metal", "TECHM": "IT", "ASIANPAINT": "Paint",
@@ -499,23 +518,20 @@ def run_full_scan():
     for i, r in enumerate(results):
         print(format_leaderboard_row(r, i + 1))
 
-    buys = [r for r in results if "BUY" in r['signal']]
-    sells = [r for r in results if "SELL" in r['signal']]
-    watches = [r for r in results if r['signal'] == "WATCH"]
-    unrated = [r for r in results if r['signal'] == 'UNRATED']
-
-    print(f"\n  📊 Summary: {len(buys)} BUY | {len(watches)} WATCH | {len(sells)} SELL"
-          + (f" | {len(unrated)} UNRATED" if unrated else ""))
+    # FIX-45: exact per-band counts (pehle substring-match se SELL/BUY mix ho jaate the)
+    print("\n  " + format_summary_line(results))
     # FIX-43 (C-3): signal ka basis chhupa nahi — fitted bands ya honest absent-state
     if results:
         print(f"  📐 Signal basis: {results[0].get('signal_basis', 'n/a')}")
         print("  ⚠️ Ye relative ranking hai (fitted percentiles), validated profit nahi.")
     # FIX-44: "Top Validated Buys" overclaim tha — kuch validate hua hi nahi
     # (FIX-41: ML me edge nahi). Ye sirf fitted band me aane wale naam hain.
-    if buys:
-        print(f"  🏆 Top in BUY band: {', '.join([r['symbol'] for r in buys[:5]])}")
-    if sells:
-        print(f"  💀 Top in SELL band: {', '.join([r['symbol'] for r in sells[:5]])}")
+    top_buys = [r for r in results if r['signal'] in ('STRONG BUY', 'BUY')]
+    top_sells = [r for r in results if r['signal'] in ('SELL', 'STRONG SELL')]
+    if top_buys:
+        print(f"  🏆 Top in BUY band: {', '.join([r['symbol'] for r in top_buys[:5]])}")
+    if top_sells:
+        print(f"  💀 Top in SELL band: {', '.join([r['symbol'] for r in top_sells[:5]])}")
     print(f"  💾 Saved to scan_results.json")
     print(f"{'='*78}\n")
 

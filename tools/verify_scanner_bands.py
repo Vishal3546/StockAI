@@ -188,7 +188,44 @@ def main():
     ok('🏆 Top Validated Buys' not in src2, 'overclaiming "Top Validated Buys" print removed')
     ok('Top in BUY band' in src2, 'label now says "Top in BUY band"')
 
-    print('[7] no overclaim')
+    print('[7] FIX-45 exact summary line + valid universe')
+    # (a) Summary line exact per-band counts — substring-match wala purana bug
+    ok(hasattr(NS, 'format_summary_line'), 'format_summary_line() exists (named, testable)')
+    fake = [{'symbol': f'S{i}', 'signal': s} for i, s in enumerate([
+        'STRONG BUY', 'STRONG BUY', 'BUY', 'WATCH', 'SELL', 'SELL', 'SELL',
+        'STRONG SELL', 'UNRATED'])]
+    line = NS.format_summary_line(fake)
+    ok(line == '📊 Summary: 2 STRONG BUY | 1 BUY | 1 WATCH | 3 SELL | 1 STRONG SELL | 1 UNRATED',
+       f'summary is exact per-band, got: {line!r}')
+    # purana behaviour: "BUY" in signal → 3, "SELL" in signal → 4. Wo nahi hona chahiye.
+    ok('3 BUY' not in line and '4 SELL' not in line,
+       'no substring-family counting (old bug printed 3 BUY / 4 SELL)')
+    nums = [int(p.split()[0]) for p in line.split(': ', 1)[1].split(' | ')]
+    ok(sum(nums) == len(fake), f'band counts sum to row count ({sum(nums)} == {len(fake)})')
+    ok(NS.format_summary_line([]) == '📊 Summary: (no rows)', 'empty result set does not crash')
+    # real committed bands par bhi consistent
+    from score_calibration import UNIVERSE as _UNI
+    real = [{'symbol': s, 'signal': NS.signal_from_bands(v, b['bands'])}
+            for s, v in zip(sorted(_UNI), [66, 63, 60, 58, 55, 53, 52, 50, 49, 48,
+                                           47, 46, 45, 44, 43, 42, 41, 40, 39, 38,
+                                           66, 63, 60, 58, 55, 53, 52, 50, 49, 48])]
+    rline = NS.format_summary_line(real)
+    rsum = sum(int(p.split()[0]) for p in rline.split(': ', 1)[1].split(' | '))
+    ok(rsum == len(real), f'universe-sized summary sums correctly ({rsum} == {len(real)})')
+
+    # (b) Universe me valid symbols — TATAMOTORS demerge ho chuka hai
+    ok('TATAMOTORS' not in _UNI, 'dead demerged ticker TATAMOTORS removed from UNIVERSE')
+    ok('TMPV' in _UNI, 'Nifty 50 successor TMPV present in UNIVERSE')
+    ok(len(_UNI) == 30 and len(set(_UNI)) == 30, f'universe still 30 unique names ({len(_UNI)})')
+    ok('TMPV' in NS.SECTOR_MAP, 'TMPV has a sector mapping in SECTOR_MAP')
+    ok('TATAMOTORS' not in NS.SECTOR_MAP, 'no stale TATAMOTORS sector mapping')
+    ok(sorted(b['symbols_scored']) == sorted(_UNI),
+       'scanner_bands.json scored exactly the code UNIVERSE (30 names)')
+    ok('TATAMOTORS' not in b['symbols_scored'] and 'TMPV' in b['symbols_scored'],
+       'bands artifact scored TMPV, not TATAMOTORS')
+    ok(not b['symbols_skipped'], f'no symbols skipped this run (was TATAMOTORS), got {b["symbols_skipped"]}')
+
+    print('[8] no overclaim')
     disc = (doc.get('disclosure') or '').lower()
     ok('relative ranking' in disc and 'not' in disc,
        'disclosure says relative ranking, not validated profit')
