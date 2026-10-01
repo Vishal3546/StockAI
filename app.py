@@ -306,6 +306,8 @@ CONFIG = {
     'PLAN_MEASURE_MIN_N': 30,     # itne se kam setups par measurement 'insufficient'
     'PLAN_LCB_Z': 1.0,            # conservative lower-bound (1 sd ≈ 84% one-sided)
     'REGIME_CACHE_TTL': 600,
+    # FIX-39 (M-9): NSE master list on-disk cache — import par network call nahi
+    'NSE_MASTER_CACHE_HOURS': 24,
     'ML_MIN_DAYS': 50,
     'SUPERTREND_MULTIPLIER': 3.0,
     'SUPERTREND_PERIOD': 10,
@@ -398,6 +400,12 @@ BROWSER_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
               '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 LIVE_TTL = 2.0                      # seconds — se chhota mat karo (upstream load)
 _LIVE_CACHE = {}                    # symbol -> (ts, payload)
+
+# FIX-39 (M-7): har call par naya TCP+TLS handshake hota tha (~0.2-0.4 s).
+# Shared session connections warm rakhta hai — cold quote measurably faster.
+_HTTP = http_requests.Session()
+_HTTP.mount('https://', http_requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=32))
+_HTTP.mount('http://', http_requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=32))
 _LIVE_LOCK = threading.Lock()
 
 
@@ -472,7 +480,7 @@ def fetch_yahoo_live_ltp(symbol):
     clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
     for suffix in ('.NS', '.BO'):
         try:
-            r = http_requests.get(
+            r = _HTTP.get(
                 f"https://query1.finance.yahoo.com/v8/finance/chart/{clean_sym}{suffix}",
                 params={'interval': '1d', 'range': '1d'},
                 headers={'User-Agent': BROWSER_UA, 'Accept': 'application/json'},
@@ -977,48 +985,175 @@ def si(val, default=None):
 # ═══════════════════════════════════════════════════════════════════════════
 #  DYNAMIC NSE STOCKS DATABASE LOADER (2,100+ Active Equities)
 # ═══════════════════════════════════════════════════════════════════════════
-def load_dynamic_nse_stocks():
+MASTER_CACHE_FILE = pathlib.Path(__file__).resolve().parent / 'nse_master_cache.json'
+_master_refresh_thread = None
+
+
+def _normalize_columns(df):
+    """FIX-39 (M-8): NSE CSV ke headers me leading spaces hote hain (' SERIES').
+
+    Pehle code sirf us exact string par chalta tha — NSE ne header badla to
+    silently 0 stocks load hote aur app curated fallback par chup-chaap gir jaata.
+    Ab columns strip + uppercase karke tolerant lookup hota hai.
     """
-    Downloads official NSE Equity Master List (EQUITY_L.csv) from archives.
-    Dynamically loads 2,100+ active NSE stocks into memory.
+    return df.rename(columns={c: str(c).strip().upper() for c in df.columns})
+
+
+def _pick_col(df, *candidates):
+    for cand in candidates:
+        if cand in df.columns:
+            return cand
+    return None
+
+
+def _master_cache_read():
+    """(stocks, age_hours) ya None — corrupt/chhoti cache ignore."""
+    try:
+        data = json.loads(MASTER_CACHE_FILE.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    stocks, ts = data.get('stocks'), data.get('saved_at_utc')
+    if not isinstance(stocks, list) or len(stocks) < 500 or not ts:
+        return None
+    try:
+        saved = datetime.fromisoformat(str(ts))
+    except ValueError:
+        return None
+    if saved.tzinfo is None:
+        saved = saved.replace(tzinfo=timezone.utc)
+    return stocks, round((datetime.now(timezone.utc) - saved).total_seconds() / 3600.0, 2)
+
+
+def _master_cache_write(stocks):
+    tmp = MASTER_CACHE_FILE.with_name(MASTER_CACHE_FILE.name + '.tmp')
+    try:
+        tmp.write_text(json.dumps({'saved_at_utc': datetime.now(timezone.utc).isoformat(),
+                                   'count': len(stocks), 'stocks': stocks},
+                                  ensure_ascii=False), encoding='utf-8')
+        tmp.replace(MASTER_CACHE_FILE)
+        return True
+    except OSError:
+        return False
+
+
+def _fetch_nse_master(verbose=True):
+    """NSE EQUITY_L.csv → list[dict] ya None. Kamyaab ho to cache me likhta hai."""
+    try:
+        if verbose:
+            print("🌐 Downloading Official NSE Master Stock List (2,100+ Stocks)...", end=" ", flush=True)
+        res = _HTTP.get(CONFIG['NSE_MASTER_URL'],
+                        headers={'User-Agent': BROWSER_UA}, timeout=8)
+        if res.status_code != 200:
+            if verbose:
+                print(f"❌ HTTP {res.status_code}")
+            return None
+        df_csv = _normalize_columns(pd.read_csv(io.StringIO(res.text)))
+        c_sym = _pick_col(df_csv, 'SYMBOL')
+        c_name = _pick_col(df_csv, 'NAME OF COMPANY', 'NAMEOFCOMPANY', 'NAME')
+        c_ser = _pick_col(df_csv, 'SERIES')
+        if not (c_sym and c_name and c_ser):
+            if verbose:
+                print(f"❌ CSV columns nahi mile: {list(df_csv.columns)[:6]}")
+            return None
+        stocks = []
+        for _, row in df_csv.iterrows():
+            sym = str(row.get(c_sym, '')).strip()
+            name = str(row.get(c_name, '')).strip()
+            series = str(row.get(c_ser, '')).strip().upper()
+            if sym and name and series in ('EQ', 'BE', 'SM', 'ST'):
+                stocks.append({
+                    'sym': sym,
+                    'name': name,
+                    'ex': 'NSE',
+                    # FIX-32: NSE master list me sector nahi hota — pehle har stock
+                    # par 'NSE Equity' likha jaata tha (placeholder jo asli sector
+                    # jaisa lagta hai). Ab None; dashboard blank dikhata hai.
+                    'sec': None,
+                })
+        if len(stocks) <= 500:
+            if verbose:
+                print(f"⚠️ sirf {len(stocks)} stocks — CSV adhoora lagta hai")
+            return None
+        _master_cache_write(stocks)
+        if verbose:
+            print(f"✅ Loaded {len(stocks)} Active NSE Stocks!")
+        return stocks
+    except Exception as e:
+        if verbose:
+            print(f"⚠️ NSE Master CSV fetch failed ({e})")
+        return None
+
+
+def _spawn_master_refresh():
+    """Background me fresh list lao — import/search block na ho."""
+    global _master_refresh_thread, DYNAMIC_STOCK_DB
+    if _master_refresh_thread is not None and _master_refresh_thread.is_alive():
+        return
+
+    def _run():
+        global DYNAMIC_STOCK_DB
+        fresh = _fetch_nse_master(verbose=False)
+        if fresh:
+            DYNAMIC_STOCK_DB = fresh
+            print(f"✅ NSE master list background refresh — {fresh and len(fresh)} stocks")
+
+    _master_refresh_thread = threading.Thread(target=_run, name='nse-master-refresh', daemon=True)
+    _master_refresh_thread.start()
+
+
+def load_dynamic_nse_stocks(force=False, background=False):
+    """FIX-39 (M-9): import par network call band.
+
+    Order: fresh cache → (stale cache + background refresh) → sync fetch
+    → purani cache → curated fallback. STOCKAI_OFFLINE=1 par network bilkul nahi.
     """
     global DYNAMIC_STOCK_DB
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    
-    try:
-        print("🌐 Downloading Official NSE Master Stock List (2,100+ Stocks)...", end=" ", flush=True)
-        res = http_requests.get(CONFIG['NSE_MASTER_URL'], headers=headers, timeout=8)
-        
-        if res.status_code == 200:
-            df_csv = pd.read_csv(io.StringIO(res.text))
-            stocks = []
-            
-            for _, row in df_csv.iterrows():
-                sym = str(row.get('SYMBOL', '')).strip()
-                name = str(row.get('NAME OF COMPANY', '')).strip()
-                series = str(row.get(' SERIES', '')).strip()
-                
-                if sym and name and series in ['EQ', 'BE', 'SM', 'ST']:
-                    stocks.append({
-                        'sym': sym,
-                        'name': name,
-                        'ex': 'NSE',
-                        # FIX-32: NSE master list me sector nahi hota — pehle har stock
-                        # par 'NSE Equity' likha jaata tha (placeholder jo asli sector
-                        # jaisa lagta hai). Ab None; dashboard blank dikhata hai.
-                        'sec': None
-                    })
-                    
-            if len(stocks) > 500:
-                DYNAMIC_STOCK_DB = stocks
-                print(f"✅ Loaded {len(DYNAMIC_STOCK_DB)} Active NSE Stocks!")
-                return
-                
-    except Exception as e:
-        print(f"⚠️ NSE Master CSV fetch failed ({e}). Loading fallback master list.")
+    ttl = float(CONFIG['NSE_MASTER_CACHE_HOURS'])
+    offline = (os.environ.get('STOCKAI_OFFLINE') or '').strip().lower() in ('1', 'true', 'yes')
 
-    # Curated High-Liquidity Fallback
-    DYNAMIC_STOCK_DB = [
+    if not force:
+        hit = _master_cache_read()
+        if hit:
+            stocks, age_h = hit
+            DYNAMIC_STOCK_DB = stocks
+            if age_h <= ttl:
+                print(f"💾 NSE master list cache se — {len(stocks)} stocks "
+                      f"({age_h}h purani, TTL {ttl:g}h) — koi network call nahi")
+                return len(stocks)
+            print(f"♻️  NSE master cache {age_h}h purani (TTL {ttl:g}h)"
+                  + (" — STOCKAI_OFFLINE, refresh skip" if offline else " — background me refresh"))
+            if not offline:
+                _spawn_master_refresh()
+            return len(stocks)
+        if offline:
+            DYNAMIC_STOCK_DB = _fallback_master_list()
+            print(f"⚠️ STOCKAI_OFFLINE=1 aur cache nahi — curated fallback "
+                  f"({len(DYNAMIC_STOCK_DB)} stocks)")
+            return len(DYNAMIC_STOCK_DB)
+        if background:
+            DYNAMIC_STOCK_DB = _fallback_master_list()
+            print("🌐 NSE master list background me download ho rahi hai "
+                  f"(filhaal curated fallback — {len(DYNAMIC_STOCK_DB)} stocks)")
+            _spawn_master_refresh()
+            return len(DYNAMIC_STOCK_DB)
+
+    fresh = None if offline else _fetch_nse_master()
+    if fresh:
+        DYNAMIC_STOCK_DB = fresh
+        return len(fresh)
+    hit = _master_cache_read()
+    if hit:
+        DYNAMIC_STOCK_DB = hit[0]
+        print(f"⚠️ fetch fail — purani cache use ho rahi hai ({hit[1]}h, {len(hit[0])} stocks)")
+    else:
+        DYNAMIC_STOCK_DB = _fallback_master_list()
+        print(f"⚠️ fetch fail, cache nahi — curated fallback ({len(DYNAMIC_STOCK_DB)} stocks)")
+    return len(DYNAMIC_STOCK_DB)
+
+
+def _fallback_master_list():
+    """Curated high-liquidity list — network aur cache dono fail hon to yahi."""
+    return [
         {"sym": "RELIANCE", "name": "Reliance Industries Ltd", "ex": "NSE", "sec": "Energy"},
         {"sym": "TCS", "name": "Tata Consultancy Services Ltd", "ex": "NSE", "sec": "IT"},
         {"sym": "HDFCBANK", "name": "HDFC Bank Ltd", "ex": "NSE", "sec": "Banking"},
@@ -1052,7 +1187,8 @@ def load_dynamic_nse_stocks():
     ]
 
 
-load_dynamic_nse_stocks()
+# FIX-39 (M-9): import par sirf cache padha jaata hai; network background me.
+load_dynamic_nse_stocks(background=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1083,7 +1219,7 @@ def dynamic_search():
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"{CONFIG['YAHOO_SEARCH_URL']}?q={q}&quotesCount=8&newsCount=0"
-            res = http_requests.get(url, headers=headers, timeout=3).json()
+            res = _HTTP.get(url, headers=headers, timeout=3).json()
             existing = {r['sym'] for r in results}
             
             for item in res.get('quotes', []):

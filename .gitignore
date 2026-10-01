@@ -31,3 +31,7 @@ deep_*.json.tmp
 # research artifacts
 reports/.cache/
 reports/*.log
+
+# FIX-39: NSE master list ka local cache (regenerate ho jaata hai)
+nse_master_cache.json
+nse_master_cache.json.tmp

@@ -2,6 +2,41 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-39 addendum — 2026-10-01 (startup + offline hygiene: M-9, M-8, M-7)
+
+**M-9 — import par network call.** `load_dynamic_nse_stocks()` module level par
+NSE ka `EQUITY_L.csv` download karta tha: har import (server *aur* har verifier)
+1–3 s network par rukta, aur offline startup chup-chaap 30-stock curated fallback
+par gir jaata. Ab: **on-disk cache** `nse_master_cache.json` (24 h TTL,
+`NSE_MASTER_CACHE_HOURS`) → cache stale ho to turant purani list + **background
+thread** refresh → cache na ho aur `background=True` ho to curated fallback ke
+saath background fetch → `STOCKAI_OFFLINE=1` par network bilkul nahi. Fetch fail
+ho to purani cache, warna fallback — har step console par likha jaata hai.
+Cache corrupt/chhoti/ANSI ho to ignore (crash nahi). Measured: cache se import
+**0.59 s**, 2,567 stocks, zero network.
+
+**M-8 — CSV header fragility.** Parsing `row.get(' SERIES')` (leading space) par
+tika tha; NSE ne header badla to silently 0 stocks aur app fallback par gir jaata.
+Ab `_normalize_columns()` sab headers strip+upper karta hai aur `_pick_col()`
+candidates me se match dhundta hai (`SYMBOL`, `NAME OF COMPANY`/`NAMEOFCOMPANY`/
+`NAME`, `SERIES`). Unknown columns par **loud None** (silent 0 nahi), aur ≤500
+stocks wala adhoora CSV reject hota hai taaki adhoora download cache ko overwrite
+na kare.
+
+**M-7 — connection reuse.** Har HTTP call par naya TCP+TLS handshake hota tha.
+Ab module-level shared `requests.Session` (`pool_connections=8, pool_maxsize=32`)
+Yahoo chart, Yahoo search aur master list — sab use karte hain. Measured:
+cold **342 ms → warm 14 ms**. (Cold call abhi bhi network-bound hai — purana
+"under 100 ms" claim abhi bhi galat hai, isliye M-7 poori tarah close nahi.)
+
+Verified: `tools/verify_startup_offline.py` **45/45** (header normalization,
+_pick_col, 501-row fake CSV end-to-end, series filter, unknown columns/404/adhoora
+CSV reject, cache roundtrip + corrupt/binary/chhoti cache, fresh cache par zero
+network, stale par background refresh, OFFLINE mode ke 4 cases, fetch-fail
+fallbacks, force=True, module-level `background=True`, shared session + wiring).
+Regression: security 118/118, kelly 37/37, sentinels 48/48, score-calibration
+64/64, risk-basis 45/45, no-fake 23/23, live-quote 38/38.
+
 ## FIX-37 / FIX-38 addendum — 2026-10-01 (.env robustness + token URL hygiene)
 
 **FIX-37** — do Windows-specific footguns: (1) Notepad / PowerShell 5.1
@@ -550,9 +585,9 @@ nifty_scanner_v3_6.py
 | M-4 | Every 404 became a 500 | ✅ Solved (FIX-10) |
 | M-5 | 8.1 s ML per request | ✅ Solved (FIX-06 cache + `?fast=1`) |
 | M-6 | SSE unused and unhardened | ✅ Solved (FIX-12 + dashboard D9 uses it, polling fallback) |
-| M-7 | `/api/quote` "under 100 ms" claim | ⚠️ Improved (negative cache) but still ~0.5 s cold |
-| M-8 | NSE CSV header parsing fragility | ⚠️ Open (works today only because the header really is `' SERIES'`) |
-| M-9 | Network call at import time | ⚠️ Open |
+| M-7 | `/api/quote` "under 100 ms" claim | ⚠️ Better (FIX-39 shared session: measured cold 342 ms → warm 14 ms) — cold call abhi bhi network-bound hai, "under 100 ms" claim sahi nahi |
+| M-8 | NSE CSV header parsing fragility | ✅ Solved (FIX-39) — columns strip+upper, tolerant `_pick_col`; unknown columns → loud None, silent 0 nahi |
+| M-9 | Network call at import time | ✅ Solved (FIX-39) — on-disk cache (24 h TTL), stale par background refresh, `STOCKAI_OFFLINE=1` |
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |

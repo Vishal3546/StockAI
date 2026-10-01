@@ -153,6 +153,18 @@ jayegi, phir normal URL chalega. Internet par port forward karne se pehle token 
 Verify: `python tools\verify_security.py` (64 checks) aur `node tools/verify_xss_render.js`
 (14 checks, jsdom me asli injection attempt).
 
+**Startup + offline (FIX-39):** NSE master list on-disk cache (`nse_master_cache.json`,
+24 h TTL) se aati hai — import par network call nahi. Cache stale ho to purani list
+turant use hoti hai aur refresh background me chalta hai. `.env` me:
+
+```
+NSE_MASTER_CACHE_HOURS=24     # (optional) CONFIG me bhi set kar sakte ho
+STOCKAI_OFFLINE=1             # network bilkul band — cache/fallback se chalao
+```
+
+Pehli baar (cache na ho) curated 30-stock list se shuru hota hai aur poori list
+background me aa jaati hai; uske baad har start fast aur offline-safe.
+
 **Windows note (FIX-34):** all verifiers now read source files with explicit
 `encoding='utf-8'`, so they run on a cp1252/ANSI default code page. If any tool still
 raises `UnicodeDecodeError: 'charmap' codec…`, it is a missing `encoding='utf-8'` on a
