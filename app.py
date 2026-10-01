@@ -94,7 +94,35 @@ def load_dotenv_file(path=None, override=False):
     return loaded
 
 
+# FIX-48: `.env` load hone se PEHLE ka snapshot. Iske bina ye batana namumkin hai ki
+# koi value `.env` se aayi ya process/Windows environment se — aur wahi ambiguity ne
+# real confusion banaya: user ka token Windows User env var me tha, `.env` me nahi,
+# par banner sirf "Token auth ON" kehta tha. `load_dotenv_file()` ka default
+# `override=False` hai, matlab pehle se set key par `.env` ka value LAGTA HI NAHI.
+PRE_DOTENV_KEYS = frozenset(k for k in os.environ)
+
 DOTENV_KEYS = load_dotenv_file()
+
+
+def config_source(key):
+    """Koi config key effective kahan se hui — user ko debug karne ke liye.
+
+    Return: '.env' | 'environment variable' | 'environment variable (.env ko override)'
+            | 'default (kahin set nahi)'
+    """
+    in_env_now = key in os.environ
+    in_dotenv = key in DOTENV_KEYS
+    was_set_before = key in PRE_DOTENV_KEYS
+    if not in_env_now and not in_dotenv:
+        return 'default (kahin set nahi)'
+    if was_set_before and in_dotenv:
+        # .env me likha tha, par pehle se set tha — override=False ki wajah se ignore hua
+        return 'environment variable (.env ko override kar raha hai)'
+    if was_set_before:
+        return 'environment variable'
+    if in_dotenv:
+        return '.env'
+    return 'environment variable'
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIX-35 (M-11): CORS allowlist + optional token auth + per-IP rate limit
@@ -3495,6 +3523,16 @@ if __name__ == '__main__':
           f"rate limit: {SECURITY['RATE_LIMIT_PER_MIN']}/min/IP")
     if SECURITY['TOKEN']:
         print("🔒 Token auth ON — neeche wali link me token pehle se juda hua hai")
+        # FIX-48: token KAHAN se aaya — .env se ya Windows/process env se. Pehle ye
+        # nahi dikhta tha, isliye user apne .env me token dhoondhta reh gaya jabki wo
+        # Windows User env var me tha (aur .env ka value override=False ki wajah se
+        # ignore ho raha tha).
+        _src = config_source('STOCKAI_API_TOKEN')
+        print(f"   ↳ source: {_src}")
+        if 'override' in _src:
+            print("   ⚠️  .env me bhi STOCKAI_API_TOKEN likha hai par WO IGNORE ho raha hai.")
+            print("      Env var hatane ke liye: [Environment]::SetEnvironmentVariable("
+                  "'STOCKAI_API_TOKEN',$null,'User')  — phir naya terminal kholo.")
     else:
         print("⚠️  STOCKAI_API_TOKEN set NAHI hai → LAN ka koi bhi device ye API use kar sakta hai.")
         print("    Token chahiye to .env me STOCKAI_API_TOKEN bhar dein (ya $env: set karein).")

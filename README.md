@@ -176,7 +176,7 @@ python app.py
 
 Pehli baar dashboard `http://<host>:5000/?token=<wahi-string>` se kholein — cookie set ho
 jayegi, phir normal URL chalega. Internet par port forward karne se pehle token zaroori hai.
-Verify: `python tools\verify_security.py` (64 checks) aur `node tools/verify_xss_render.js`
+Verify: `python tools\verify_security.py` (126 checks) aur `node tools/verify_xss_render.js`
 (14 checks, jsdom me asli injection attempt).
 
 **Startup + offline (FIX-39):** NSE master list on-disk cache (`nse_master_cache.json`,
@@ -496,6 +496,70 @@ times, `token=***` **2** times).
 behaviour (`'stale bar accept (market closed…)'`), so the verifier had locked the bug in
 place; it now asserts the corrected behaviour, plus grace/weekend/timezone cases and the
 duplicate-logging guards.
+
+---
+
+### FIX-48 · the startup banner now says *where* your token came from
+
+This one started with **my own wrong advice**. Seeing `🔒 Token auth ON` in a pasted log, I
+twice told the user to "change `STOCKAI_API_TOKEN` in `.env`". They replied that no such token
+was in their `.env` — and they were right. Verified: the token was nowhere in the working tree,
+`git log --all -S "…"` was empty across all history, and `.env.example` ships it blank. The
+only source in code is `os.environ.get('STOCKAI_API_TOKEN')`.
+
+It was a **Windows User-scope environment variable**:
+
+```
+[Environment]::GetEnvironmentVariable('STOCKAI_API_TOKEN','User')     → b5232050…
+[Environment]::GetEnvironmentVariable('STOCKAI_API_TOKEN','Machine')  → (empty)
+```
+
+Two design gaps made that confusing rather than obvious:
+
+**1. `load_dotenv_file()` defaults to `override=False`** — a key already present in
+`os.environ` is *never* overwritten by `.env`. Measured:
+
+```
+.env file me likha tha : FROM_DOTENV_FILE
+os.environ me pehle tha: FROM_WINDOWS_ENV
+-> app jo use karega   : FROM_WINDOWS_ENV
+```
+
+So editing `.env` to change the token would have silently done nothing. That is standard
+dotenv behaviour, but it is confusing when nothing tells you.
+
+**2. The banner never said where the value came from** — only `Token auth ON`. So the user
+reasonably went looking in `.env`.
+
+**Fix:** a `config_source(key)` helper, backed by a `PRE_DOTENV_KEYS` snapshot taken *before*
+`.env` is loaded (without it, provenance is unknowable):
+
+| state | reported source |
+|---|---|
+| only in `.env` | `.env` |
+| only in env var | `environment variable` |
+| **in both** | `environment variable (.env ko override kar raha hai)` + the exact removal command |
+| nowhere | `default (kahin set nahi)` |
+
+Real `app.py` startup output, all three cases measured:
+
+```
+🔒 Token auth ON — neeche wali link me token pehle se juda hua hai
+   ↳ source: .env
+```
+
+```
+🔒 Token auth ON — neeche wali link me token pehle se juda hua hai
+   ↳ source: environment variable (.env ko override kar raha hai)
+   ⚠️  .env me bhi STOCKAI_API_TOKEN likha hai par WO IGNORE ho raha hai.
+      Env var hatane ke liye: [Environment]::SetEnvironmentVariable('STOCKAI_API_TOKEN',$null,'User')  — phir naya terminal kholo.
+```
+
+Worth knowing: removing a Windows env var needs a **new terminal** (the old one caches
+`$env:`), and once removed, `.env` genuinely takes effect — verified.
+
+`verify_security.py` grew 118 → **126 checks** (all four provenance cases, banner wiring, and
+an assert that the snapshot is taken before `.env` loads).
 
 ---
 

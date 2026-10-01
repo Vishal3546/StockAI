@@ -381,6 +381,63 @@ check("startup par plain link bhi print hoti hai", 'Cookie set hone ke baad ye s
 check(".env.example me STOCKAI_AUTO_OPEN documented hai",
       'STOCKAI_AUTO_OPEN' in (ROOT / '.env.example').read_text(encoding='utf-8'))
 
+# ── FIX-48: config provenance (token kahan se aaya) ───────────────────────
+# Real confusion jo pakdi gayi: user ka token Windows User env var me tha, .env me
+# nahi — par banner sirf "Token auth ON" kehta tha. Aur load_dotenv_file() ka
+# override=False default matlab .env ka value pehle se set key par LAGTA HI NAHI.
+import os as _os
+
+check("config_source() defined hai", hasattr(A, 'config_source'))
+check("PRE_DOTENV_KEYS snapshot .env load se pehle liya jaata hai",
+      hasattr(A, 'PRE_DOTENV_KEYS')
+      and src_app.index('PRE_DOTENV_KEYS = frozenset') < src_app.index('DOTENV_KEYS = load_dotenv_file()'))
+
+_saved_env = {k: _os.environ.get(k) for k in ('STOCKAI_API_TOKEN', 'STOCKAI_PORT')}
+_saved_dotenv, _saved_pre = A.DOTENV_KEYS, A.PRE_DOTENV_KEYS
+try:
+    # (a) sirf .env se
+    _os.environ.pop('STOCKAI_API_TOKEN', None)
+    A.PRE_DOTENV_KEYS = frozenset(_os.environ)
+    A.DOTENV_KEYS = {'STOCKAI_API_TOKEN': 'x'}
+    _os.environ['STOCKAI_API_TOKEN'] = 'x'
+    check("source='.env' jab value sirf .env se aayi",
+          A.config_source('STOCKAI_API_TOKEN') == '.env',
+          A.config_source('STOCKAI_API_TOKEN'))
+
+    # (b) env var pehle se set + .env me bhi → override warning
+    A.PRE_DOTENV_KEYS = frozenset(_os.environ)      # ab env me pehle se hai
+    A.DOTENV_KEYS = {'STOCKAI_API_TOKEN': 'ignored'}
+    check("source env-var-override jab dono jagah hai",
+          A.config_source('STOCKAI_API_TOKEN')
+          == 'environment variable (.env ko override kar raha hai)',
+          A.config_source('STOCKAI_API_TOKEN'))
+
+    # (c) sirf env var
+    A.PRE_DOTENV_KEYS = frozenset(_os.environ)
+    A.DOTENV_KEYS = {}
+    check("source='environment variable' jab sirf env me hai",
+          A.config_source('STOCKAI_API_TOKEN') == 'environment variable',
+          A.config_source('STOCKAI_API_TOKEN'))
+
+    # (d) kahin set nahi
+    _os.environ.pop('STOCKAI_API_TOKEN', None)
+    A.PRE_DOTENV_KEYS = frozenset(_os.environ)
+    A.DOTENV_KEYS = {}
+    check("source='default' jab kahin set nahi",
+          A.config_source('STOCKAI_API_TOKEN') == 'default (kahin set nahi)',
+          A.config_source('STOCKAI_API_TOKEN'))
+finally:
+    for _k, _v in _saved_env.items():
+        if _v is None:
+            _os.environ.pop(_k, None)
+        else:
+            _os.environ[_k] = _v
+    A.DOTENV_KEYS, A.PRE_DOTENV_KEYS = _saved_dotenv, _saved_pre
+
+check("banner token ka source print karta hai", "↳ source: {_src}" in src_app)
+check("override hone par actionable fix batata hai",
+          'SetEnvironmentVariable' in src_app and 'IGNORE ho raha hai' in src_app)
+
 # ── result ───────────────────────────────────────────────────────────────
 A.configure_security(token='', cors_origins=[], rate_limit_per_min=240)
 A.reset_rate_limiter()

@@ -2,6 +2,95 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-48 addendum — 2026-10-01 (config provenance: token kahan se aaya)
+
+### Shuruaat ek galat salah se hui
+
+User ne apna server log paste kiya. Maine dekha `🔒 Token auth ON` aur **do baar kaha
+"`.env` me `STOCKAI_API_TOKEN` badal do"** — kyunki token us chat me paste hua tha aur maine
+maan liya ki wo `.env` se aa raha hai.
+
+User ne kaha: *".env me b5232050 jaisa koi token nahi hai."* Wo sahi tha. Verify kiya:
+
+- wo token working tree me **kahin nahi**
+- `git log --all -S "b5232050"` → **khaali** (poori history me bhi nahi)
+- `.env.example` me `STOCKAI_API_TOKEN=` khaali
+- code me token ka **ek hi source**: `os.environ.get('STOCKAI_API_TOKEN')`
+
+To token environment se aa raha tha, `.env` se nahi. User ne check kiya:
+
+```
+[Environment]::GetEnvironmentVariable('STOCKAI_API_TOKEN','User')     → b5232050…
+[Environment]::GetEnvironmentVariable('STOCKAI_API_TOKEN','Machine')  → (khaali)
+```
+
+**Windows User-scope env var.** Delete kar diya gaya.
+
+### Asli design gap
+
+Sirf "galat jagah dhoondh liya" nahi tha — app me do cheezein mili jo is confusion ko
+*banati* hain:
+
+**1. `load_dotenv_file()` ka default `override=False` hai.** Matlab jo key pehle se
+`os.environ` me ho, us par `.env` ka value **lagta hi nahi**. Measure kiya:
+
+```
+.env file me likha tha : FROM_DOTENV_FILE
+os.environ me pehle tha: FROM_WINDOWS_ENV
+-> app jo use karega   : FROM_WINDOWS_ENV
+```
+
+Yaani user `.env` me token daal kar usse change karne ki koshish karta, aur kuch nahi hota —
+chup-chaap. Ye standard dotenv behaviour hai, par bina bataye confusing hai.
+
+**2. Banner source nahi batata tha.** Wo sirf `🔒 Token auth ON` kehta tha — ye nahi ki token
+`.env` se aaya ya Windows env se. Isliye user (sahi tarah se) `.env` me dhoondhta reh gaya.
+
+### Fix
+
+`config_source(key)` helper, jo `.env` load hone se **pehle** ka environment snapshot
+(`PRE_DOTENV_KEYS`) leta hai — uske bina provenance batana namumkin hai:
+
+| state | source |
+|---|---|
+| sirf `.env` me | `.env` |
+| sirf env var me | `environment variable` |
+| **dono me** | `environment variable (.env ko override kar raha hai)` + actionable fix |
+| kahin nahi | `default (kahin set nahi)` |
+
+Banner ab (real `app.py` startup se, teeno cases measured):
+
+```
+🔒 Token auth ON — neeche wali link me token pehle se juda hua hai
+   ↳ source: .env
+```
+
+```
+🔒 Token auth ON — neeche wali link me token pehle se juda hua hai
+   ↳ source: environment variable (.env ko override kar raha hai)
+   ⚠️  .env me bhi STOCKAI_API_TOKEN likha hai par WO IGNORE ho raha hai.
+      Env var hatane ke liye: [Environment]::SetEnvironmentVariable('STOCKAI_API_TOKEN',$null,'User')  — phir naya terminal kholo.
+```
+
+```
+⚠️  STOCKAI_API_TOKEN set NAHI hai → LAN ka koi bhi device ye API use kar sakta hai.
+```
+
+`verify_security.py` 118 → **126 checks** (chaaron provenance cases + banner wiring +
+snapshot-order assert). Full regression: **689 checks, 0 failed.**
+
+### Jo user ko batana zaroori hai
+
+- Wo token **jal chuka hai** (chat me kai baar aaya). Dobara token chahiye to **naya**
+  generate karna, wo string reuse nahi.
+- Token auth ab OFF hai — LAN ka koi bhi device API use kar sakta hai. Ye user ka apna
+  chuna hua trade-off hai ("token ka jhanjhat nahi chahiye").
+- Env var hatne ke baad `.env` ab actually kaam karta hai (verify kiya).
+- Windows me env var hatane ke baad **naya terminal** zaroori hai — purana `$env:` cache
+  rakhta hai.
+
+---
+
 ## FIX-47 addendum — 2026-10-01 (freshness guard market band hone par bypass + duplicate log lines)
 
 User ne apna server log paste kiya aur poocha "sahi aa rha he na". Log ka core healthy tha,
@@ -1094,6 +1183,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Config provenance chhupi thi — token `.env` se aaya ya Windows env se, pata nahi chalta tha | ✅ **Solved (FIX-48)** — shuruaat **meri galat salah** se hui: maine do baar kaha "`.env` me token badal do", jabki wo token **Windows User-scope env var** me tha (verify: working tree + poori git history dono me absent). Do design gap the: `load_dotenv_file()` ka `override=False` default matlab pehle se set key par `.env` ka value **chup-chaap ignore** hota tha, aur banner sirf `Token auth ON` kehta tha — source nahi. Ab `config_source()` (`.env` load se **pehle** ka `PRE_DOTENV_KEYS` snapshot) banner par `↳ source: …` dikhata hai, aur override case me exact removal command bhi. `verify_security.py` 118 → **126 checks**. |
 | — | Freshness guard market band hone par poora bypass + duplicate log lines | ✅ **Solved (FIX-47)** — `frame_is_fresh()` market band hote hi `return True, 'market closed … (fine)'` kar deta tha, isliye **10-din purana bar bhi "fine"** kehlata tha. Real case: NSE-direct ne TCS ka bar 2 session purana diya (45.6h) jabki Yahoo ke paas aaj ka session tha (16.2h) — aur cascade ne pehle tier ko "fine" maan kar Yahoo try hi nahi kiya. Ab market band ho tab **session-level** compare hota hai (`last_completed_session()`, `CLOSED_GRACE_DAYS = 1` holiday ke liye). Saath me do **fail-open** paths theek kiye jo mere apne test ne pakde: `frame_age_minutes()` aware−naive `TypeError` ko `except` me chhupa kar `None` deta tha (→ "age unknown" → FRESH), aur `is_market_open()` aware UTC ko IST maan leta tha. Duplicate log lines: werkzeug apna handler khud add karta tha, phir koi library `basicConfig()` se root par handler laga deti → har line 2 baar; ab explicit handler + `propagate = False`. `verify_live_quote.py` 38 → **50 checks** (ek purana check *bug ko hi assert* kar raha tha). |
 | — | Pyrefly `bad-unpacking` × 4 in `app.py` (ML param unpacking) | ✅ **Solved (FIX-46)** — type-check issue tha, runtime bug nahi (`CONFIG` heterogeneous hai isliye checker mapping prove nahi kar sakta; runtime par chaaron values sach me `dict` hain, hyperparams unchanged). Reproduce karne ke liye `pyrefly.toml` + `preset = "strict"` chahiye tha — sandbox sklearn 1.7.2 me `py.typed` nahi hai, isliye default mode 0 errors deta hai. `ml_params()` helper se paanchon sites route kiye. Measured, `preset = "strict"`: total 262 → **258**, `bad-unpacking` 4 → **0**, **koi naya error kind nahi**. `verify_fixes.py` 31 → **53 checks**. |
 | — | Scanner universe me dead ticker + summary line substring-count | ✅ **Solved (FIX-45)** — `TATAMOTORS` → `TMPV` (demerger, 1 Oct 2025; NSE ticker ab exist nahi karta, chaaron probe HTTP 404). `TMPV` Nifty 50 successor hai **aur** uske paas poori history hai (1,241 bars, 2021‑10‑01 se; `TMCV` ke sirf 225). Summary line ab exact per-band counts deta hai (pehle `"SELL" in signal` se 17 SELL + 6 STRONG SELL ek hi `23 SELL` me chhupe the). Teeno artifacts rebuild: calibration 30 symbols/7,500 scores, bands 7,500 sessions/0 skipped, ML study 20 symbols/56,100 preds. `verify_scanner_bands.py` 53 → **67 checks**. **Audit me ab koi item open nahi.** |
