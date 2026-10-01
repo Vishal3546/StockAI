@@ -411,6 +411,94 @@ build with parameters identical to the old call.
 
 ---
 
+### FIX-47 · freshness guard no longer switches itself off when the market closes
+
+A real server log showed the bug:
+
+```
+⚡ [NSE Official Direct] TCS · 345 bars · market closed, last bar 45.6h old (fine)
+🌐 [Yahoo] ^NSEI (1d) · 496 bars · market closed, last bar 16.1h old (fine)
+```
+
+Yahoo actually had TCS's bar for **2026-10-01** (measured, 16.2h old) — so the current
+session *was* available, but the NSE-direct tier was serving a bar **29.5h older** (at least
+one full session behind), and `frame_is_fresh()` waved it through. Its first branch was:
+
+```python
+if not open_now:
+    return True, f'market closed, last bar {human} old (fine)'
+```
+
+An extreme test showed how deep that went: a frame **10 days old** was also reported
+`fresh=True → "fine"`. The comment claimed *"market closed, so nothing new exists"* — that
+reasoning was wrong. When the market is closed there is still a **latest completed session**,
+and a bar older than it really is stale.
+
+**Fix:** when the market is closed, compare at *session* level instead of applying the
+minute-level limit (which would flag everything stale every evening after close).
+`last_completed_session()` finds the most recent weekday whose cash session has completed and
+skips weekends itself; `CLOSED_GRACE_DAYS = 1` absorbs a single market holiday so it does not
+raise a false alarm.
+
+Measured at `2026-10-01 16:06` (Thu, closed, latest session 2026-10-01):
+
+| frame | result |
+|---|---|
+| 2026-10-01 (today's session) | `fresh=True` — fine |
+| 2026-09-30 (one behind, grace) | `fresh=True` — fine |
+| **2026-09-29 (the TCS case)** | **`fresh=False` — "STALE … (2d behind)"** |
+| 2026-09-21 (10 days) | `fresh=False` — STALE |
+
+End-to-end cascade (fetchers stubbed):
+
+| scenario | outcome |
+|---|---|
+| NSE-direct 2 sessions stale, Yahoo fresh | NSE **REJECTED** → **Yahoo Finance** served ✓ |
+| holiday — all three tiers on one session | `🟡 [NO NEWER SESSION]` honest message ✓ |
+| all fresh | first tier wins, no extra fetches ✓ |
+
+There is no holiday calendar, so when all tiers are rejected but **agree on the same
+session**, the message is `NO NEWER SESSION` rather than `STALE DATA` — that is "there was no
+session that day", not "the feed is broken".
+
+**Two fail-open paths my own test then caught.** Both were the same *swallowed exception*
+class:
+
+- `frame_age_minutes()` raised `TypeError` on aware−naive subtraction; `except Exception`
+  turned it into `None`, and `frame_is_fresh` read `None` as *"age unknown"* → **FRESH**.
+- `is_market_open()` read the caller's `.hour`/`.minute` verbatim, so an aware UTC datetime
+  (`10:36Z` = `16:06 IST`, market **closed**) was read as `10:36 IST` → market **open**.
+
+Neither fired in production (`_now=None` everywhere), but both are the same bug shape, so
+both now go through `_naive_ist()`. All three spellings of one instant now agree.
+
+### FIX-47 · duplicate request-log lines
+
+Every request printed twice:
+
+```
+127.0.0.1 - - "GET /api/stock/RELIANCE HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - "GET /api/stock/RELIANCE HTTP/1.1" 200 -
+```
+
+Reproduced, not guessed: werkzeug's `_log()` adds its own handler the first time it logs *if
+no level-handler exists yet*. Afterwards a library (`tvDatafeed` is the suspect) calls
+`logging.basicConfig()`, which puts a handler on the **root** logger — and werkzeug propagates
+to root. `_configure_werkzeug_logging()` now installs an explicit handler and sets
+`propagate = False`. The handler is added deliberately rather than left to werkzeug: if
+`basicConfig()` had already run, werkzeug sees a level-handler, adds nothing, and
+`propagate=False` alone would silence logging entirely.
+
+Verified: 2 requests → **2 lines**, and token masking still holds (real token printed **0**
+times, `token=***` **2** times).
+
+`verify_live_quote.py` grew 38 → **50 checks**. One old check was asserting the *buggy*
+behaviour (`'stale bar accept (market closed…)'`), so the verifier had locked the bug in
+place; it now asserts the corrected behaviour, plus grace/weekend/timezone cases and the
+duplicate-logging guards.
+
+---
+
 ## Still open (honest list)
 
 1. **ML edge.** Measured, and it isn't there (see [`RESEARCH_REPORT.md`](RESEARCH_REPORT.md)).

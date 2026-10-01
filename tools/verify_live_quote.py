@@ -143,7 +143,48 @@ try:
     f3, w3 = A.frame_is_fresh(stale_df, '1d', now=now_closed)
     check('fresh bar accept (market open)', f1 is True, w1)
     check('stale bar REJECT (market open)', f2 is False, w2)
-    check('stale bar accept (market closed — naya kuch hai hi nahi)', f3 is True, w3)
+    # FIX-47: ye check pehle ulta assert karta tha — "market closed → stale accept".
+    # Wahi bug tha: market band hote hi freshness poora bypass, isliye 6-session purana
+    # bar bhi "fine" kehlata tha. Ab market band ho tab bhi latest completed session se
+    # compare hota hai.
+    check('stale bar REJECT (market closed bhi — 6 session peeche)', f3 is False, w3)
+
+    # Market closed par latest completed session wala bar accept hona chahiye
+    closed_today = mk(_dt.datetime(2026, 9, 30, 0, 0))         # Wed midnight stamp
+    f6, w6 = A.frame_is_fresh(closed_today, '1d', now=now_closed)
+    check('latest session bar accept (market closed)', f6 is True, w6)
+
+    # 1-din grace: ek akel market holiday false-positive na ban jaaye
+    closed_grace = mk(_dt.datetime(2026, 9, 29, 0, 0))         # 1 session peeche
+    f7, w7 = A.frame_is_fresh(closed_grace, '1d', now=now_closed)
+    check('1-session-behind accept (market closed, holiday grace)', f7 is True, w7)
+
+    # Weekend: Monday subah ka answer Friday hona chahiye (false-positive nahi)
+    check('last_completed_session skips weekend (Sat → Fri)',
+          A.last_completed_session(_dt.datetime(2026, 10, 3, 12, 0)) == _dt.date(2026, 10, 2))
+    check('last_completed_session Mon subah → Fri',
+          A.last_completed_session(_dt.datetime(2026, 10, 5, 8, 0)) == _dt.date(2026, 10, 2))
+    check('last_completed_session close ke baad → aaj',
+          A.last_completed_session(_dt.datetime(2026, 10, 1, 16, 6)) == _dt.date(2026, 10, 1))
+    check('last_completed_session close se pehle → kal',
+          A.last_completed_session(_dt.datetime(2026, 10, 1, 10, 0)) == _dt.date(2026, 9, 30))
+
+    # FIX-47: timezone fail-open — aware/naive/UTC sab par SAME verdict aana chahiye.
+    # Pehle aware `now` par frame_age_minutes TypeError kha kar None deta tha, aur None
+    # ko "age unknown" keh kar FRESH maan liya jaata tha.
+    from zoneinfo import ZoneInfo as _ZI
+    _ist = _ZI('Asia/Kolkata')
+    _tcs_stale = mk(_dt.datetime(2026, 9, 29, 0, 0))
+    _ref = _dt.datetime(2026, 10, 1, 16, 6)
+    _verdicts = {A.frame_is_fresh(_tcs_stale, '1d', now=v)[0] for v in (
+        _ref,                                   # naive IST
+        _ref.replace(tzinfo=_ist),              # aware IST
+        _dt.datetime(2026, 10, 1, 10, 36, tzinfo=_ZI('UTC')),   # same instant, UTC
+    )}
+    check('tz-aware/naive/UTC sab par same freshness verdict (fail-open band)',
+          _verdicts == {False}, f'verdicts = {_verdicts}')
+    check('is_market_open aware UTC ko IST me convert karta hai (10:36Z = 16:06 IST = closed)',
+          A.is_market_open(_dt.datetime(2026, 10, 1, 10, 36, tzinfo=_ZI('UTC'))) is False)
 
     daily_ok = mk(now_open.replace(hour=0, minute=0), n=300)   # aaj ka daily bar (midnight stamp)
     f5, w5 = A.frame_is_fresh(daily_ok, '1d', now=now_open)
@@ -245,6 +286,22 @@ check('TTL cache app.py me hai', '_LIVE_CACHE' in app_src and 'LIVE_TTL' in app_
 check('SSE unified payload use karta hai', 'quote = get_live_quote(resolved)' in app_src)
 check('freshness guard app.py me hai', 'def frame_is_fresh' in app_src and 'smart_fetch' in app_src)
 check('tvDatafeed log noise suppressed', "getLogger('tvDatafeed').setLevel(logging.CRITICAL)" in app_src)
+
+# ── FIX-47: duplicate request-log lines ────────────────────────────────────
+# werkzeug apna handler khud add karta hai; uske baad koi library basicConfig() se root
+# par handler laga deti hai aur werkzeug root par propagate karta hai → har line 2 baar.
+# Fix: explicit handler + propagate=False.
+import logging as _logging
+_wk = _logging.getLogger('werkzeug')
+check('werkzeug logger propagate=False (root par duplicate nahi jaayega)',
+      _wk.propagate is False)
+check('werkzeug logger ke paas apna handler hai', len(_wk.handlers) >= 1,
+      f'handlers = {_wk.handlers}')
+check('token-mask filter abhi bhi werkzeug logger par hai',
+      any(type(f).__name__ == '_TokenMaskFilter' for f in _wk.filters),
+      f'filters = {[type(f).__name__ for f in _wk.filters]}')
+check('_configure_werkzeug_logging startup par call hota hai',
+      '_configure_werkzeug_logging()' in app_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

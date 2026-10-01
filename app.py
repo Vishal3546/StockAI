@@ -209,6 +209,42 @@ class _TokenMaskFilter(logging.Filter):
 logging.getLogger('werkzeug').addFilter(_TokenMaskFilter())
 
 
+def _configure_werkzeug_logging():
+    """Werkzeug logger ko ek explicit handler do aur root par propagate band karo.
+
+    FIX-47 (duplicate log lines): werkzeug ka `_log()` pehli baar log hone par khud ek
+    handler add kar leta hai agar us waqt koi level-handler na mile. Uske BAAD koi
+    library (yahan `tvDatafeed` suspect hai) `logging.basicConfig()` call kar deti hai,
+    jo root par ek StreamHandler laga deti hai — aur werkzeug root par propagate karta
+    hai, isliye tab se har request line DO baar chhapti thi:
+
+        127.0.0.1 - - "GET /api/stock/RELIANCE HTTP/1.1" 200 -
+        INFO:werkzeug:127.0.0.1 - - "GET /api/stock/RELIANCE HTTP/1.1" 200 -
+
+    Apna handler + `propagate = False` se ek hi raasta bachta hai, chahe baad me koi
+    kitni bhi library root par handler laga de.
+
+    Note: handler JAAN-BOOJH kar khud add karte hain (werkzeug par chhodne ke bajaye) —
+    agar `basicConfig()` pehle hi chal chuka ho to werkzeug `_has_level_handler()` True
+    pa kar apna handler add nahi karta, aur sirf `propagate=False` karne par output
+    poora gayab ho jaata.
+    """
+    lg = logging.getLogger('werkzeug')
+    try:  # werkzeug ka colored handler (private API — fallback zaroori hai)
+        from werkzeug._internal import _ColorStreamHandler as _HandlerCls
+    except Exception:
+        _HandlerCls = logging.StreamHandler
+    lg.handlers.clear()
+    handler = _HandlerCls()
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    lg.addHandler(handler)
+    lg.setLevel(logging.INFO)
+    lg.propagate = False
+
+
+_configure_werkzeug_logging()
+
+
 def local_ip_addresses():
     """Is machine ke LAN IP addresses — startup par clickable link dikhane ke liye."""
     ips = []
@@ -627,12 +663,32 @@ MAX_AGE_MIN = {'1d': 4 * 24 * 60, '5m': 45, '15m': 60, '1h': 150, '1w': 15 * 24 
 
 
 def is_market_open(now=None):
-    """NSE cash session: Mon-Fri 09:15–15:40 IST (close ke baad wale minutes bhi le lete hain)."""
-    now = now or datetime.now(IST)
+    """NSE cash session: Mon-Fri 09:15–15:40 IST (close ke baad wale minutes bhi le lete hain).
+
+    FIX-47: `now` pehle IST me normalize hota hai. Pehle ye caller ke `.hour`/`.minute`
+    ko as-is padhta tha — ek aware UTC datetime (10:36Z = 16:06 IST, market BAND) ko
+    10:36 IST maan kar market KHULA bata deta. Production me `_now=None` hota hai isliye
+    ye trigger nahi hua, par wahi fail-open class hai jo `frame_age_minutes` me thi.
+    """
+    now = _naive_ist(now)
     if now.weekday() > 4:            # Sat/Sun
         return False
     hm = now.hour * 60 + now.minute
     return (9 * 60 + 15) <= hm <= (15 * 60 + 40)
+
+
+def _naive_ist(now=None):
+    """`now` ko naive-IST datetime banao.
+
+    FIX-47: `frame_age_minutes()` me aware−naive subtraction TypeError deta tha, jo
+    `except Exception` me chhup kar None ban jaata tha — aur None ko `frame_is_fresh`
+    "age unknown" keh kar FRESH maan leta tha (fail-open). Ab aware `now` pehle
+    normalize hota hai, isliye wo raasta hi nahi banta.
+    """
+    now = now or datetime.now(IST)
+    if getattr(now, 'tzinfo', None) is not None:
+        now = now.astimezone(IST).replace(tzinfo=None)
+    return now
 
 
 def frame_age_minutes(df, now=None):
@@ -644,14 +700,71 @@ def frame_age_minutes(df, now=None):
         ts = pd.Timestamp(ts)
         if ts.tzinfo is not None:
             ts = ts.tz_convert(IST).tz_localize(None)
-        now = now or datetime.now(IST).replace(tzinfo=None)
+        now = _naive_ist(now)
         return max(0.0, (pd.Timestamp(now) - ts).total_seconds() / 60.0)
     except Exception:
         return None
 
 
+# FIX-47: market BAND ho tab bhi ek "latest completed session" hota hai — aur usse
+# purana bar sach me stale hota hai. Purana code market band hote hi freshness check
+# poora bypass kar deta tha (`return True, 'market closed ... (fine)'`), isliye ek
+# 10-din purana bar bhi "fine" kehlata tha. Real case jo pakda gaya: NSE-direct tier ne
+# TCS ka bar 2 session purana diya (45.6h) jabki Yahoo ke paas aaj ka session tha
+# (16.1h) — aur cascade ne pehle tier ko "fine" maan kar Yahoo try hi nahi kiya.
+#
+# Grace 1 din isliye: ek akel market holiday (bar pichhle weekday ka) false-positive na
+# ban jaaye. Weekend ka gap `last_completed_session()` khud skip kar deta hai.
+SESSION_CLOSE_HM = 15 * 60 + 40        # is_market_open ke upper bound ke saath match
+CLOSED_GRACE_DAYS = 1
+
+
+def last_completed_session(now=None):
+    """Sabse recent weekday (IST date) jiska cash session complete ho chuka hai.
+
+    Weekend skip hota hai, isliye Mon subah ka answer Friday hota hai — false-positive
+    nahi. Holiday calendar nahi hai, isliye ek holiday `CLOSED_GRACE_DAYS` se absorb hota
+    hai (aur sab tiers reject hone par honest "no newer session" message milta hai).
+    """
+    now = _naive_ist(now)
+    d = now.date()
+    hm = now.hour * 60 + now.minute
+    if not (d.weekday() <= 4 and hm >= SESSION_CLOSE_HM):
+        d = d - timedelta(days=1)       # aaj ka session abhi complete nahi hua
+    while d.weekday() > 4:              # Sat/Sun
+        d -= timedelta(days=1)
+    return d
+
+
+def frame_last_date(df):
+    """Frame ke last bar ki IST date (None agar parse na ho)."""
+    try:
+        if df is None or len(df) == 0:
+            return None
+        ts = pd.Timestamp(df.index[-1])
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert(IST).tz_localize(None)
+        return ts.date()
+    except Exception:
+        return None
+
+
+def session_gap_days(df, now=None):
+    """Last bar latest completed session se kitne din peeche hai (None = unknown)."""
+    bar_date = frame_last_date(df)
+    if bar_date is None:
+        return None
+    return (last_completed_session(now) - bar_date).days
+
+
 def frame_is_fresh(df, interval='1d', now=None):
-    """(fresh?, reason) — market band ho to freshness enforce nahi karte (kuch naya hai hi nahi)."""
+    """(fresh?, reason).
+
+    Market KHULA → minute-level limit (intraday staleness yahan asli matter karti hai).
+    Market BAND  → session-level check: bar latest completed session se zyada peeche
+                   nahi hona chahiye. Minute-limit yahan lagate to har roz close ke baad
+                   sab kuch stale dikhta, isliye date-level compare karte hain.
+    """
     open_now = is_market_open(now)
     age = frame_age_minutes(df, now)
     if age is None:
@@ -659,8 +772,18 @@ def frame_is_fresh(df, interval='1d', now=None):
     limit = MAX_AGE_MIN.get(interval, 150)
     human = (f'{age/60:.1f}h' if age < 48 * 60 else f'{age/1440:.1f}d')
     lim_h = (f'{limit/1440:.0f}d' if limit >= 24 * 60 else f'{limit}m')
+
     if not open_now:
-        return True, f'market closed, last bar {human} old (fine)'
+        gap = session_gap_days(df, now)
+        expected = last_completed_session(now)
+        if gap is None:
+            return True, f'market closed, last bar {human} old (session unknown)'
+        if gap <= CLOSED_GRACE_DAYS:
+            return True, (f'market closed, last session {frame_last_date(df)} '
+                          f'(latest {expected}) — fine')
+        return False, (f'STALE: last session {frame_last_date(df)}, latest completed '
+                       f'session {expected} ({gap}d behind)')
+
     if age <= limit:
         return True, f'last bar {human} old (fresh, limit {lim_h})'
     return False, f'STALE: last bar {human} old > {lim_h} limit'
@@ -915,11 +1038,27 @@ class MultiTechDataSourceManager:
             print(f"⚠️  [Yahoo REJECTED] {symbol} — {why}")
 
         # ── Last resort: sabse fresh stale frame (honest label ke saath) ──
+        # FIX-47: message ab session-date batata hai, sirf minutes nahi. Aur agar sab
+        # tiers EK HI session par agree karte hain to ye "stale feed" nahi, "us din
+        # session tha hi nahi" (holiday) ho sakta hai — dono me farq karna zaroori hai,
+        # warna har holiday par jhootha STALE alarm bajta.
         if stale_candidates:
             stale_candidates.sort(key=lambda t: t[0])
             age, df, src = stale_candidates[0]
-            print(f"🟡 [STALE DATA] {symbol} {interval} — sab tiers purane; '{src}' "
-                  f"use kar rahe hain (last bar {age:.0f}m old). UI ko is_realtime=False milega.")
+            bar_date = frame_last_date(df)
+            expected = last_completed_session(_now)
+            gap = session_gap_days(df, _now)
+            dates = {frame_last_date(d) for _, d, _ in stale_candidates}
+            if len(dates) == 1 and gap is not None and gap > CLOSED_GRACE_DAYS:
+                # Sabhi source same purane session par — feed stale nahi, session missing.
+                print(f"🟡 [NO NEWER SESSION] {symbol} {interval} — teeno tiers ke paas last "
+                      f"session {bar_date} hai (expected {expected}). Agar {expected} ko market "
+                      f"holiday tha to ye normal hai; warna data genuinely purana hai. "
+                      f"UI ko is_realtime=False milega.")
+            else:
+                print(f"🟡 [STALE DATA] {symbol} {interval} — sab tiers purane; '{src}' "
+                      f"use kar rahe hain (last session {bar_date}, expected {expected}, "
+                      f"{gap}d behind). UI ko is_realtime=False milega.")
             return df, src + ' (STALE)'
 
         print(f"❌ [Data Stream Failed] All 3 engines failed for symbol: {symbol}")

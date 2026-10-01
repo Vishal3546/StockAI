@@ -2,6 +2,136 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-47 addendum — 2026-10-01 (freshness guard market band hone par bypass + duplicate log lines)
+
+User ne apna server log paste kiya aur poocha "sahi aa rha he na". Log ka core healthy tha,
+par do cheezein pakdi gayi — ek data-correctness, ek cosmetic.
+
+### 1. Freshness guard market band hote hi poora bypass ho jaata tha
+
+Log me:
+```
+⚡ [NSE Official Direct] TCS · 345 bars · market closed, last bar 45.6h old (fine)
+🌐 [Yahoo] ^NSEI (1d) · 496 bars · market closed, last bar 16.1h old (fine)
+```
+
+Measure kiya: Yahoo par TCS ka daily bar `2026-10-01` tha (16.2h), matlab **aaj ka session
+available tha** — par NSE-direct tier ~45.6h purana bar de raha tha (**29.5h ka gap, kam se
+kam ek poora session peeche**). Aur `frame_is_fresh()` ne use pass kar diya, kyunki uska
+pehla branch tha:
+
+```python
+if not open_now:
+    return True, f'market closed, last bar {human} old (fine)'
+```
+
+Extreme test se confirm hua ki ye kitna gehra tha:
+
+| frame | pehle |
+|---|---|
+| 16.1h purana | `fresh=True` → "fine" |
+| 45.6h purana | `fresh=True` → "fine" |
+| **10 DIN purana** | `fresh=True` → "fine" |
+
+Code ka comment kehta tha *"market band ho to freshness enforce nahi karte (kuch naya hai
+hi nahi)"* — **wo reasoning galat thi**. Market band ho tab bhi ek *latest completed
+session* hota hai, aur usse purana bar sach me stale hota hai. Nuksaan: user ko TCS ka
+chart aaj ka session missing dikha, aur log ne "fine" kaha.
+
+**Fix:** market band ho tab minute-level limit ki jagah **session-level** compare:
+
+```python
+def last_completed_session(now=None):
+    """Sabse recent weekday (IST) jiska cash session complete ho chuka hai."""
+```
+
+`CLOSED_GRACE_DAYS = 1` rakha hai taaki ek akel market holiday false-positive na ban jaaye;
+weekend ka gap `last_completed_session()` khud skip karta hai. Minute-limit market band
+hone par lagate to har roz close ke baad sab kuch stale dikhta — isliye date-level compare.
+
+Measured, `now = 2026-10-01 16:06` (Thu, market closed, latest session 2026-10-01):
+
+| frame | ab |
+|---|---|
+| 2026-10-01 (aaj ka session) | `fresh=True` → "last session 2026-10-01 (latest 2026-10-01) — fine" |
+| 2026-09-30 (1 peeche, grace) | `fresh=True` → fine |
+| **2026-09-29 (TCS wala)** | **`fresh=False` → "STALE: … (2d behind)"** |
+| 2026-09-21 (10 din) | `fresh=False` → STALE |
+
+Cascade end-to-end test (teeno scenario, fetchers stub karke):
+
+| scenario | natija |
+|---|---|
+| NSE-direct 2 session purana, Yahoo fresh | NSE **REJECTED** → **Yahoo Finance** serve hua ✓ |
+| holiday — teeno tiers ek hi session par | `🟡 [NO NEWER SESSION]` honest message ✓ |
+| sab fresh | pehla tier hi jeeta, extra fetch nahi ✓ |
+
+**Holiday false-alarm se bachna:** sab tiers reject hone par agar teeno **ek hi** session
+par agree karte hain to message `STALE DATA` ki jagah `NO NEWER SESSION` hota hai — kyunki
+wo "feed stale" nahi, "us din session tha hi nahi" ho sakta hai. Holiday calendar nahi hai,
+isliye ye farq karna zaroori tha.
+
+### 2. Do fail-open paths jo test ne pakde (mere apne test ne)
+
+Fix likhne ke baad jab maine aware `now` ke saath test kiya, tab **do aur bug** mile — dono
+usi "exception chhup jaana" class ke:
+
+**(a) `frame_age_minutes()`** aware−naive subtraction par `TypeError` deta tha, jo
+`except Exception` me chhup kar `None` ban jaata tha — aur `None` ko `frame_is_fresh`
+*"age unknown"* keh kar **FRESH** maan leta tha. Ab `_naive_ist()` helper pehle normalize
+karta hai.
+
+**(b) `is_market_open()`** caller ke `.hour`/`.minute` ko as-is padhta tha — ek aware UTC
+datetime (`10:36Z` = `16:06 IST`, market **band**) ko `10:36 IST` maan kar market **KHULA**
+bata deta. Production me `_now=None` hota hai isliye trigger nahi hua, par wahi class thi.
+
+Ab teeno representation ek hi instant par same verdict dete hain:
+
+| `now` | `is_market_open` | TCS-stale frame |
+|---|---|---|
+| naive IST `16:06` | False | `fresh=False` |
+| aware IST `16:06+05:30` | False | `fresh=False` |
+| aware UTC `10:36Z` | False | `fresh=False` |
+
+### 3. Duplicate request-log lines
+
+User ke log me har line do baar aa rahi thi:
+```
+127.0.0.1 - - "GET /api/stock/RELIANCE HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - "GET /api/stock/RELIANCE HTTP/1.1" 200 -
+```
+
+Mechanism reproduce karke confirm kiya (guess nahi): werkzeug ka `_log()` pehli baar log
+hone par khud ek handler add kar leta hai **agar us waqt koi level-handler na mile**. Uske
+*baad* koi library (`tvDatafeed` suspect hai) `logging.basicConfig()` call kar deti hai, jo
+root par StreamHandler laga deti hai — aur werkzeug root par propagate karta hai:
+
+```
+>>> werkzeug.handlers ab = [<_ColorStreamHandler <stderr> (NOTSET)>]
+>>> [B] ab koi library basicConfig() karti hai
+127.0.0.1 - - "GET /api/search?q=b HTTP/1.1" 200 -
+INFO:werkzeug:127.0.0.1 - - "GET /api/search?q=b HTTP/1.1" 200 -
+```
+
+**Fix:** `_configure_werkzeug_logging()` — explicit handler + `propagate = False`. Handler
+jaan-boojh kar khud add karte hain: agar `basicConfig()` pehle hi chal chuka ho to werkzeug
+`_has_level_handler()` True pa kar apna handler add nahi karta, aur sirf `propagate=False`
+karne par output **poora gayab** ho jaata.
+
+Verified: 2 requests → **2 lines** (pehle doosri request 2 lines deti thi). Aur token
+masking intact — asli token **0** baar print hua, `token=***` **2** baar.
+
+### Verifier
+
+`verify_live_quote.py` 38 → **50 checks**. Ek purana check **ulta assert kar raha tha** —
+`'stale bar accept (market closed — naya kuch hai hi nahi)'` — yaani verifier ne bug ko
+lock kar rakha tha. Use naye sahi behaviour par flip kiya, plus grace/weekend/tz cases aur
+duplicate-logging guards add kiye.
+
+Full regression: **681 checks, 0 failed.**
+
+---
+
 ## FIX-46 addendum — 2026-10-01 (Pyrefly `bad-unpacking` × 4 in `app.py`)
 
 User ne VS Code (Pyrefly) ke 4 diagnostics paste kiye — `app.py` lines **1443, 1469, 1476,
@@ -964,6 +1094,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Freshness guard market band hone par poora bypass + duplicate log lines | ✅ **Solved (FIX-47)** — `frame_is_fresh()` market band hote hi `return True, 'market closed … (fine)'` kar deta tha, isliye **10-din purana bar bhi "fine"** kehlata tha. Real case: NSE-direct ne TCS ka bar 2 session purana diya (45.6h) jabki Yahoo ke paas aaj ka session tha (16.2h) — aur cascade ne pehle tier ko "fine" maan kar Yahoo try hi nahi kiya. Ab market band ho tab **session-level** compare hota hai (`last_completed_session()`, `CLOSED_GRACE_DAYS = 1` holiday ke liye). Saath me do **fail-open** paths theek kiye jo mere apne test ne pakde: `frame_age_minutes()` aware−naive `TypeError` ko `except` me chhupa kar `None` deta tha (→ "age unknown" → FRESH), aur `is_market_open()` aware UTC ko IST maan leta tha. Duplicate log lines: werkzeug apna handler khud add karta tha, phir koi library `basicConfig()` se root par handler laga deti → har line 2 baar; ab explicit handler + `propagate = False`. `verify_live_quote.py` 38 → **50 checks** (ek purana check *bug ko hi assert* kar raha tha). |
 | — | Pyrefly `bad-unpacking` × 4 in `app.py` (ML param unpacking) | ✅ **Solved (FIX-46)** — type-check issue tha, runtime bug nahi (`CONFIG` heterogeneous hai isliye checker mapping prove nahi kar sakta; runtime par chaaron values sach me `dict` hain, hyperparams unchanged). Reproduce karne ke liye `pyrefly.toml` + `preset = "strict"` chahiye tha — sandbox sklearn 1.7.2 me `py.typed` nahi hai, isliye default mode 0 errors deta hai. `ml_params()` helper se paanchon sites route kiye. Measured, `preset = "strict"`: total 262 → **258**, `bad-unpacking` 4 → **0**, **koi naya error kind nahi**. `verify_fixes.py` 31 → **53 checks**. |
 | — | Scanner universe me dead ticker + summary line substring-count | ✅ **Solved (FIX-45)** — `TATAMOTORS` → `TMPV` (demerger, 1 Oct 2025; NSE ticker ab exist nahi karta, chaaron probe HTTP 404). `TMPV` Nifty 50 successor hai **aur** uske paas poori history hai (1,241 bars, 2021‑10‑01 se; `TMCV` ke sirf 225). Summary line ab exact per-band counts deta hai (pehle `"SELL" in signal` se 17 SELL + 6 STRONG SELL ek hi `23 SELL` me chhupe the). Teeno artifacts rebuild: calibration 30 symbols/7,500 scores, bands 7,500 sessions/0 skipped, ML study 20 symbols/56,100 preds. `verify_scanner_bands.py` 53 → **67 checks**. **Audit me ab koi item open nahi.** |
 
