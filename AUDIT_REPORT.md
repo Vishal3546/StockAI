@@ -2,6 +2,33 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-37 / FIX-38 addendum — 2026-10-01 (.env robustness + token URL hygiene)
+
+**FIX-37** — do Windows-specific footguns: (1) Notepad / PowerShell 5.1
+`Set-Content` default ANSI (cp1252) me likhta hai aur `.env.example` pure ASCII
+nahi hai, isliye UTF-8 padhna `UnicodeDecodeError` deta tha — loader sirf
+`OSError` catch karta tha, to app **import par crash** ho jaati. Ab dono catch
+hote hain: aisi `.env` silently ignore, app defaults par chalti hai. (2)
+`Set-Content -Encoding UTF8` (PS 5.1) BOM likhta hai, jisse pehla key
+`\ufeffSTOCKAI_…` ban kar match hi nahi karta tha — ab loader `utf-8-sig` se
+padhta hai. Saath me startup par ready-to-click links (`startup_urls()`) aur
+browser auto-open (`STOCKAI_AUTO_OPEN=0` se band).
+
+**FIX-38** — token pehli baar `?token=…` se jaata hai, isliye browser history aur
+Werkzeug console log me dikh jaata tha:
+
+* Cookie set hote hi HTML pages (`/`, `/dashboard.html`) **302 se clean URL** par;
+  baaki query args preserve. `/api/*` par redirect **nahi** (curl/scripts safe).
+* Werkzeug logger par `_TokenMaskFilter`: `token=<anything>` → `token=***`.
+* Startup par token wali link ke saath **plain link bhi** print hoti hai.
+
+Verified: `tools/verify_security.py` **118/118** (naye 34 checks in dono fixes me —
+cp1252 ignore, BOM, `utf-8-sig`, `startup_urls` token/port/bind behaviour,
+auto-open flag, 302 + clean Location, cookie on 302, args preserved, `/api/*` par
+redirect nahi, LogRecord masking, filter mounted). Exposure ghatata hai, khatam
+nahi karta — pehli request ka URL history me ek baar reh jaata hai; public hosting
+ke liye HTTPS + reverse proxy zaroori hai.
+
 ## FIX-36 addendum — 2026-10-01 (.env config)
 
 FIX-35 ke env knobs har PowerShell session me dobara set karne padte the, isliye token

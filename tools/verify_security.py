@@ -336,6 +336,51 @@ os.environ.pop('STOCKAI_AUTO_OPEN', None)
 check("default auto-open ON", A.auto_open_enabled() is True)
 check("run block links print karta hai", 'Dashboard kholein' in src_app and 'webbrowser.open(urls[0])' in src_app)
 
+# ── [9] token URL hygiene (FIX-38) ───────────────────────────────────────
+print("\n[9] token URL exposure — redirect + log masking")
+import logging as _logging
+
+A.configure_security(token='hideme123', cors_origins=[], rate_limit_per_min=0)
+A.reset_rate_limiter()
+ch = A.app.test_client()
+r = ch.get('/?token=hideme123')
+check("HTML page par ?token= → 302 clean URL", r.status_code == 302, f"HTTP {r.status_code}")
+check("redirect Location clean hai (token nahi)", r.headers.get('Location', '').endswith('/')
+      and 'token=' not in r.headers.get('Location', ''), r.headers.get('Location'))
+check("302 ke saath cookie set hoti hai", 'stockai_token=hideme123' in (r.headers.get('Set-Cookie') or ''))
+check("redirect follow karne par 200 (cookie se)", ch.get('/').status_code == 200)
+
+# fresh client — `ch` ke paas cookie already hai, isliye redirect branch skip hota
+cq2 = A.app.test_client()
+r2 = cq2.get('/?token=hideme123&foo=bar&x=1')
+check("doosri baar (cookie ke saath) redirect nahi, seedha 200",
+      ch.get('/?token=hideme123').status_code == 200)
+loc = r2.headers.get('Location', '')
+check("baaki query args redirect me preserve hote hain",
+      'foo=bar' in loc and 'x=1' in loc and 'token=' not in loc, loc)
+
+A.reset_rate_limiter()
+api = A.app.test_client()
+r3 = api.get('/api/search?q=rel&token=hideme123')
+check("/api/* par redirect NAHI (programmatic clients safe)", r3.status_code == 200, f"HTTP {r3.status_code}")
+r4 = api.get('/api/search?q=rel', headers={'X-Api-Key': 'hideme123'})
+check("header-token par bhi redirect nahi", r4.status_code == 200, f"HTTP {r4.status_code}")
+
+# log masking
+filt = A._TokenMaskFilter()
+rec = _logging.LogRecord('werkzeug', _logging.INFO, 'app.py', 1,
+                         '127.0.0.1 - - [01/Oct/2026 12:00:00] "GET /?token=hideme123 HTTP/1.1" 302 -',
+                         None, None)
+check("filter record pass karta hai", filt.filter(rec) is True)
+check("log message me token mask ho gaya", 'hideme123' not in rec.getMessage() and 'token=***' in rec.getMessage(),
+      rec.getMessage()[-46:])
+check("masking werkzeug logger par lagi hai",
+      any(isinstance(f, A._TokenMaskFilter) for f in _logging.getLogger('werkzeug').filters))
+check("source me masking wiring hai", "getLogger('werkzeug').addFilter(_TokenMaskFilter())" in src_app)
+check("startup par plain link bhi print hoti hai", 'Cookie set hone ke baad ye saaf link chalegi' in src_app)
+check(".env.example me STOCKAI_AUTO_OPEN documented hai",
+      'STOCKAI_AUTO_OPEN' in (ROOT / '.env.example').read_text(encoding='utf-8'))
+
 # ── result ───────────────────────────────────────────────────────────────
 A.configure_security(token='', cors_origins=[], rate_limit_per_min=240)
 A.reset_rate_limiter()

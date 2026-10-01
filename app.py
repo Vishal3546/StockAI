@@ -29,7 +29,9 @@ import logging
 import math
 import os
 import pathlib
+import re
 import socket
+from urllib.parse import urlencode
 import threading
 import time
 import warnings
@@ -38,7 +40,7 @@ from datetime import datetime, timedelta, timezone
 
 import score_calibration as SCORE_CAL
 
-from flask import Flask, Response, g, jsonify, request, send_from_directory
+from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
 import numpy as np
 import pandas as pd
 import requests as http_requests
@@ -181,6 +183,30 @@ def _rate_limited(ip):
         return False, 0
 
 
+class _TokenMaskFilter(logging.Filter):
+    """FIX-38: server console log me `?token=…` chhupao.
+
+    Werkzeug har request line log karta hai — query string ke saath. Token URL me
+    tha to log file/history me bhi chala jaata. Ab record message me
+    `token=<anything>` → `token=***` ho jaata hai.
+    """
+
+    _PATTERN = re.compile(r'([?&]token=)[^&\s"\']+')
+
+    def filter(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        if 'token=' in msg:
+            record.msg = self._PATTERN.sub(r'\1***', msg)
+            record.args = ()
+        return True
+
+
+logging.getLogger('werkzeug').addFilter(_TokenMaskFilter())
+
+
 def local_ip_addresses():
     """Is machine ke LAN IP addresses — startup par clickable link dikhane ke liye."""
     ips = []
@@ -250,6 +276,13 @@ def _security_gate():
                             'detail': 'STOCKAI_API_TOKEN set hai — X-Api-Key header ya ?token=… bhejein.'}), 401
         if request.cookies.get(SECURITY['COOKIE']) != token:
             g.set_token_cookie = True  # browser ko cookie do, phir dashboard ke fetch khud chalenge
+            # FIX-38: token URL me khula dikhta hai (history/log). Cookie set karke
+            # HTML pages ko clean URL par bhej do. /api/* par redirect NAHI —
+            # programmatic clients (curl/scripts) break ho jaate.
+            if request.args.get('token') and not path.startswith('/api/'):
+                args = {k: v for k, v in request.args.items(multi=True) if k != 'token'}
+                clean = request.path + (('?' + urlencode(args, doseq=True)) if args else '')
+                return redirect(clean, code=302)
     if path.startswith('/api/') and not path.startswith('/api/stream'):
         limited, retry = _rate_limited(_client_ip())
         if limited:
@@ -3074,9 +3107,15 @@ if __name__ == '__main__':
         print("    Token chahiye to .env me STOCKAI_API_TOKEN bhar dein (ya $env: set karein).")
     # FIX-37: link khud jodni nahi padegi — server ready-to-click URLs print karta hai
     urls = startup_urls(HOST, PORT)
+    plain = startup_urls(HOST, PORT)  # same hosts, token ke bina
     print("👉 Dashboard kholein (Ctrl+click / copy-paste):")
     for i, u in enumerate(urls):
         print(f"   {'🖥 ' if i == 0 else '📱'} {u}")
+    if SECURITY['TOKEN']:
+        print("   ℹ️  Cookie set hone ke baad ye saaf link chalegi (24 ghante):")
+        for u in plain:
+            print(f"      {u.replace('?token=' + SECURITY['TOKEN'], '')}")
+        print("   🔒 Console log me token mask hota hai (token=***)")
     print("=" * 78)
     if urls and auto_open_enabled():
         try:
