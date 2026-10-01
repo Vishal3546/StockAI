@@ -265,6 +265,28 @@ check("override=True par .env jeetti hai", os.environ['STOCKAI_RATE_LIMIT'] == '
 # missing file → crash nahi
 check(".env na ho to crash nahi, empty dict", A.load_dotenv_file(pathlib.Path(tempfile.mkdtemp()) / 'nope.env') == {})
 
+# ANSI/cp1252 me save hui .env (Windows Notepad/PowerShell default) — crash nahi hona chahiye
+ansi_dir = pathlib.Path(tempfile.mkdtemp())
+(ansi_dir / '.env').write_bytes(b'STOCKAI_RATE_LIMIT=9\n# em-dash \x97 comment\n')
+_rl_before = A.SECURITY['RATE_LIMIT_PER_MIN']
+check("cp1252/ANSI .env par crash nahi (ignore + defaults)",
+      A.load_dotenv_file(ansi_dir / '.env', override=True) == {})
+check("ANSI .env ke baad SECURITY badla nahi (jo tha wahi raha)",
+      A.SECURITY['RATE_LIMIT_PER_MIN'] == _rl_before,
+      f"{A.SECURITY['RATE_LIMIT_PER_MIN']} == {_rl_before}")
+check("loader UnicodeDecodeError catch karta hai", 'UnicodeDecodeError' in src_app)
+
+# BOM wali .env (PowerShell 5.1 Set-Content -Encoding UTF8)
+bom_dir = pathlib.Path(tempfile.mkdtemp())
+(bom_dir / '.env').write_bytes('\ufeffSTOCKAI_RATE_LIMIT=11\nSTOCKAI_API_TOKEN=abc123\n'.encode('utf-8'))
+_bom = A.load_dotenv_file(bom_dir / '.env', override=True)
+check("BOM wali .env me pehla key corrupt NAHI hota",
+      not any(k.startswith('\ufeff') for k in _bom) and _bom.get('STOCKAI_RATE_LIMIT') == '11', str(_bom))
+check("loader utf-8-sig se padhta hai", "encoding='utf-8-sig'" in src_app)
+for _k in ('STOCKAI_RATE_LIMIT', 'STOCKAI_API_TOKEN'):
+    os.environ.pop(_k, None)
+A.refresh_security_from_env()
+
 # secret hygiene
 gitignore = (ROOT / '.gitignore').read_text(encoding='utf-8')
 check(".gitignore me .env hai", '\n.env\n' in gitignore or gitignore.strip().endswith('.env'))
@@ -281,6 +303,38 @@ for k in ('STOCKAI_API_TOKEN', 'STOCKAI_CORS_ORIGINS', 'STOCKAI_RATE_LIMIT',
           'STOCKAI_HOST', 'STOCKAI_TRUST_PROXY'):
     os.environ.pop(k, None)
 A.configure_security(token='', cors_origins=[], rate_limit_per_min=240)
+
+# ── [8] startup auto-link (FIX-37) ───────────────────────────────────────
+print("\n[8] startup par ready-to-click link")
+check("startup_urls() defined", 'def startup_urls(' in src_app)
+check("local_ip_addresses() defined", 'def local_ip_addresses(' in src_app)
+check("auto_open_enabled() defined", 'def auto_open_enabled(' in src_app)
+
+A.configure_security(token='')
+u_off = A.startup_urls('0.0.0.0', 5000)
+check("token OFF par link me ?token= NAHI", all('?token=' not in u for u in u_off), str(u_off[:2]))
+check("pehla URL 127.0.0.1 (same PC)", u_off and u_off[0].startswith('http://127.0.0.1:5000/'), u_off[0] if u_off else '')
+
+A.configure_security(token='abc123XYZ')
+u_on = A.startup_urls('0.0.0.0', 5000)
+check("token ON par ?token= apne aap jud jaata hai",
+      all(u.endswith('?token=abc123XYZ') for u in u_on), u_on[0] if u_on else '')
+check("link me port aata hai", ':5000/' in u_on[0])
+check("LAN IP wali link bhi milti hai (phone ke liye)", len(u_on) >= 1)
+u_alt = A.startup_urls('0.0.0.0', 8080)
+check("custom port link me dikhta hai", ':8080/' in u_alt[0], u_alt[0])
+u_bind = A.startup_urls('192.168.1.50', 5000)
+check("STOCKAI_HOST bind ho to wahi host link me", u_bind[0].startswith('http://192.168.1.50:'), u_bind[0])
+check("bind par 127.0.0.1 link nahi (bind hi serve karta hai)",
+      all('127.0.0.1' not in u for u in u_bind), str(u_bind))
+
+os.environ['STOCKAI_AUTO_OPEN'] = '0'
+check("STOCKAI_AUTO_OPEN=0 → auto-open OFF", A.auto_open_enabled() is False)
+os.environ['STOCKAI_AUTO_OPEN'] = '1'
+check("STOCKAI_AUTO_OPEN=1 → auto-open ON", A.auto_open_enabled() is True)
+os.environ.pop('STOCKAI_AUTO_OPEN', None)
+check("default auto-open ON", A.auto_open_enabled() is True)
+check("run block links print karta hai", 'Dashboard kholein' in src_app and 'webbrowser.open(urls[0])' in src_app)
 
 # ── result ───────────────────────────────────────────────────────────────
 A.configure_security(token='', cors_origins=[], rate_limit_per_min=240)

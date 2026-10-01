@@ -29,9 +29,11 @@ import logging
 import math
 import os
 import pathlib
+import socket
 import threading
 import time
 import warnings
+import webbrowser
 from datetime import datetime, timedelta, timezone
 
 import score_calibration as SCORE_CAL
@@ -63,8 +65,12 @@ def load_dotenv_file(path=None, override=False):
     target = pathlib.Path(path) if path is not None else ENV_FILE
     loaded = {}
     try:
-        text = target.read_text(encoding='utf-8')
-    except OSError:
+        # utf-8-sig: PowerShell 5.1 'Set-Content -Encoding UTF8' BOM likhta hai —
+        # warna pehla key '\ufeffKEY' ban kar match hi nahi karta.
+        text = target.read_text(encoding='utf-8-sig')
+    except (OSError, UnicodeDecodeError):
+        # Windows par Notepad/PowerShell ne ANSI/cp1252 me save kar diya ho to
+        # app crash na ho — .env ignore karke defaults par chalao.
         return loaded
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -173,6 +179,60 @@ def _rate_limited(ip):
         hits.append(now)
         _rate_hits[ip] = hits
         return False, 0
+
+
+def local_ip_addresses():
+    """Is machine ke LAN IP addresses — startup par clickable link dikhane ke liye."""
+    ips = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith('127.') and ip not in ips:
+                ips.append(ip)
+    except OSError:
+        pass
+    if not ips:  # fallback: default-route wala interface (koi packet bheje bina)
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.connect(('10.255.255.255', 1))
+            ip = sock.getsockname()[0]
+            if ip and not ip.startswith('127.'):
+                ips.append(ip)
+        except OSError:
+            pass
+        finally:
+            if sock is not None:
+                sock.close()
+    return ips
+
+
+def auto_open_enabled():
+    """STOCKAI_AUTO_OPEN=0 se browser auto-open band (default ON)."""
+    val = (os.environ.get('STOCKAI_AUTO_OPEN') or '1').strip().lower()
+    return val not in ('0', 'false', 'no', 'off')
+
+
+def startup_urls(host=None, port=None):
+    """Dashboard ke ready-to-click URLs. Token set ho to `?token=…` jud jaata hai,
+    taaki aapko link khud na jodni pade. Pehla URL hamesha 127.0.0.1 (same PC)."""
+    try:
+        port = int(port or os.environ.get('PORT') or 5000)
+    except (TypeError, ValueError):
+        port = 5000
+    bind = (host or os.environ.get('STOCKAI_HOST') or '0.0.0.0').strip()
+    if bind in ('0.0.0.0', ''):
+        # sab interfaces par bind → localhost + LAN IPs dono reachable hain
+        hosts = ['127.0.0.1'] + [ip for ip in local_ip_addresses()]
+    else:
+        # ek specific interface par bind → sirf wahi address reachable hai
+        hosts = [bind]
+    token = SECURITY['TOKEN']
+    urls = []
+    for h in hosts:
+        base = f'http://{h}:{port}/'
+        urls.append(base + (f'?token={token}' if token else ''))
+    return urls
 
 
 @app.before_request
@@ -3008,10 +3068,19 @@ if __name__ == '__main__':
     print(f"👉 CORS allowlist: {SECURITY['CORS_ORIGINS'] or 'same-origin only'} | "
           f"rate limit: {SECURITY['RATE_LIMIT_PER_MIN']}/min/IP")
     if SECURITY['TOKEN']:
-        print("🔒 Token auth ON — pehli baar http://…/?token=… se kholein (cookie set ho jayegi)")
+        print("🔒 Token auth ON — neeche wali link me token pehle se juda hua hai")
     else:
         print("⚠️  STOCKAI_API_TOKEN set NAHI hai → LAN ka koi bhi device ye API use kar sakta hai.")
-        print("    Internet par expose karne se pehle token set karein (PowerShell):")
-        print("      $env:STOCKAI_API_TOKEN='koi-lamba-random-string'")
+        print("    Token chahiye to .env me STOCKAI_API_TOKEN bhar dein (ya $env: set karein).")
+    # FIX-37: link khud jodni nahi padegi — server ready-to-click URLs print karta hai
+    urls = startup_urls(HOST, PORT)
+    print("👉 Dashboard kholein (Ctrl+click / copy-paste):")
+    for i, u in enumerate(urls):
+        print(f"   {'🖥 ' if i == 0 else '📱'} {u}")
     print("=" * 78)
+    if urls and auto_open_enabled():
+        try:
+            webbrowser.open(urls[0])   # STOCKAI_AUTO_OPEN=0 se band hota hai
+        except Exception:
+            pass
     app.run(host=HOST, port=PORT, debug=False, threaded=True)
