@@ -320,11 +320,21 @@ guess. Rebuild (~10 s, needs network for daily bars) and verify with:
 
 ```bash
 python tools/build_scanner_bands.py
-python tools/verify_scanner_bands.py     # 41 checks
+python tools/verify_scanner_bands.py     # 53 checks
 ```
 
+**FIX‑44 · the `Score` column now shows the number that actually decides the signal.**
+FIX‑43 moved the signal onto `ens` but left the *display* and the *sort* on the legacy
+`composite`, so every row contradicted itself (`NTPC Score: 62 → STRONG SELL`,
+`KOTAKBANK Score: 47 → BUY`) and the leaderboard ranked high‑ML names on top while their
+signal was a SELL band. All three sites now print/sort `signal_score`; the redundant `ENS`
+column is gone (it *is* the Score now) and `ML%`/`Edge` stay as diagnostics.
+`🏆 Top Validated Buys` became `🏆 Top in BUY band`, because nothing is validated.
+Section **[6] display consistency** of the verifier executes the formatting functions on a
+synthetic row so this cannot silently come back.
+
 **Fitted percentiles are a relative ranking, not a probability and not profit.** The
-live scan on 2026‑10‑01 read 0 BUY | 6 WATCH | 23 SELL (no stock above p80 = 60) — that is
+live scan on 2026‑10‑01 read 1 BUY | 5 WATCH | 23 SELL (only KOTAKBANK above p80 = 60) —
 a legitimate weak-market reading, not a broken band. Net-of-cost performance is in
 [`RESEARCH_REPORT.md`](RESEARCH_REPORT.md).
 

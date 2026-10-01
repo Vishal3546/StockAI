@@ -92,6 +92,27 @@ def signal_from_bands(score, bands):
     return 'STRONG SELL'
 
 
+def signal_icon(signal):
+    return "🟢" if "BUY" in signal else "🔴" if "SELL" in signal else "🟡"
+
+
+def format_progress_row(r, idx, total):
+    """FIX-44: Score = signal_score (jo signal decide karta hai), composite nahi."""
+    edge_flag = "⚠️ NEG-EDGE" if r['ml_edge'] < 0 else "✅ POS-EDGE"
+    return (f"  [{idx:02d}/{total}] {r['source'][:2]} {r['symbol']:<11} {signal_icon(r['signal'])} "
+            f"Score:{r['signal_score']:>3}/100 ({r['signal']:<11}) "
+            f"ML:{r['ml_prob']:>5.1f}% [{edge_flag}]")
+
+
+def format_leaderboard_row(r, rank):
+    """FIX-44: 'Score' column = signal_score. ML%/Edge diagnostic hain, gate nahi."""
+    return (f"  {rank:<3} {r['symbol']:<12} {r['sector']:<10} "
+            f"₹{r['price']:>7.0f} {r['change_pct']:>+5.1f}% "
+            f"{r['rsi']:>5.0f} {r['vol_ratio']:>4.1f}x "
+            f"{r['ml_prob']:>5.1f}% "
+            f"{r['ml_edge']:>+6.1f}% {r['signal_score']:>5} {signal_icon(r['signal'])} {r['signal']}")
+
+
 def _tv_connection():
     global _TV
     with _TV_LOCK:
@@ -438,11 +459,7 @@ def run_full_scan():
         r = scan_stock(symbol)
         completed[0] += 1
         if r:
-            icon = "🟢" if "BUY" in r['signal'] else "🔴" if "SELL" in r['signal'] else "🟡"
-            edge_flag = "⚠️ NEG-EDGE" if r['ml_edge'] < 0 else "✅ POS-EDGE"
-            print(f"  [{completed[0]:02d}/{total}] {r['source'][:2]} {symbol:<11} {icon} "
-                  f"Score:{r['composite']:>3}/100 ({r['signal']:<11}) "
-                  f"ML:{r['ml_prob']:>5.1f}% [{edge_flag}]")
+            print(format_progress_row(r, completed[0], total))
         else:
             print(f"  [{completed[0]:02d}/{total}] ⚠️ {symbol:<11} Skipped")
         return r
@@ -458,7 +475,9 @@ def run_full_scan():
                 print(f"  ❌ {futures[future]}: {e}")
 
     elapsed = round(time.time() - start_time, 1)
-    results.sort(key=lambda x: x['composite'], reverse=True)
+    # FIX-44: leaderboard usi score par sort hota hai jo signal deta hai. Pehle
+    # composite par sort hota tha → #2 par STRONG SELL aur #13 par BUY aa jaata tha.
+    results.sort(key=lambda x: x['signal_score'], reverse=True)
 
     scan_data = {
         'timestamp': datetime.now().isoformat(),
@@ -474,17 +493,11 @@ def run_full_scan():
     print(f"  🏆 RANKED LEADERBOARD (⏱️ {elapsed}s)")
     print(f"{'='*78}")
     print(f"  {'#':<3} {'Stock':<12} {'Sector':<10} {'Price':>8} {'Chg%':>6} "
-          f"{'RSI':>5} {'Vol':>5} {'ENS':>4} {'ML%':>6} {'Edge':>6} {'Score':>5} {'Signal':<12}")
+          f"{'RSI':>5} {'Vol':>5} {'ML%':>6} {'Edge':>6} {'Score':>5} {'Signal':<12}")
     print("-" * 78)
 
     for i, r in enumerate(results):
-        icon = "🟢" if "BUY" in r['signal'] else "🔴" if "SELL" in r['signal'] else "🟡"
-        edge_str = f"{r['ml_edge']:+.1f}%"
-        print(f"  {i+1:<3} {r['symbol']:<12} {r['sector']:<10} "
-              f"₹{r['price']:>7.0f} {r['change_pct']:>+5.1f}% "
-              f"{r['rsi']:>5.0f} {r['vol_ratio']:>4.1f}x "
-              f"{r['ensemble']:>4} {r['ml_prob']:>5.1f}% "
-              f"{edge_str:>6} {r['composite']:>5} {icon} {r['signal']}")
+        print(format_leaderboard_row(r, i + 1))
 
     buys = [r for r in results if "BUY" in r['signal']]
     sells = [r for r in results if "SELL" in r['signal']]
@@ -497,10 +510,12 @@ def run_full_scan():
     if results:
         print(f"  📐 Signal basis: {results[0].get('signal_basis', 'n/a')}")
         print("  ⚠️ Ye relative ranking hai (fitted percentiles), validated profit nahi.")
+    # FIX-44: "Top Validated Buys" overclaim tha — kuch validate hua hi nahi
+    # (FIX-41: ML me edge nahi). Ye sirf fitted band me aane wale naam hain.
     if buys:
-        print(f"  🏆 Top Validated Buys: {', '.join([r['symbol'] for r in buys[:5]])}")
+        print(f"  🏆 Top in BUY band: {', '.join([r['symbol'] for r in buys[:5]])}")
     if sells:
-        print(f"  💀 Top Sells: {', '.join([r['symbol'] for r in sells[:5]])}")
+        print(f"  💀 Top in SELL band: {', '.join([r['symbol'] for r in sells[:5]])}")
     print(f"  💾 Saved to scan_results.json")
     print(f"{'='*78}\n")
 

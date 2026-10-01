@@ -2,6 +2,51 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-44 addendum — 2026-10-01 (FIX-43 ka display bug: Score column jhooth bol raha tha)
+
+FIX-43 ne signal ko `ens` par shift kiya, par **display aur sort abhi bhi legacy
+`composite` use kar rahe the**. Natija: scanner ki har row self-contradictory thi.
+Ye bug user ke live run (2026-10-01 14:26 IST) se pakda gaya — mere sandbox run me
+maine sirf summary line dekhi thi, per-row consistency check nahi kiya tha.
+
+**Kya galat dikhta tha (user ka actual output):**
+
+| row | dikhta tha | hona chahiye tha |
+|---|---|---|
+| NTPC | `Score: 62 → STRONG SELL` | score 42 → STRONG SELL |
+| KOTAKBANK | `Score: 47 → BUY` | score 60 → BUY |
+| TITAN | `Score: 70 → WATCH` | score 57 → WATCH |
+| leaderboard order | `#2 NTPC = STRONG SELL`, `#13 KOTAKBANK = BUY` | BUY sabse upar |
+
+Teen jagah legacy `composite` chhupa hua tha: progress line (`Score:{composite}`),
+leaderboard column, aur `results.sort(key=...['composite'])`. Isliye high-ML stocks
+(TITAN 87.2%, NTPC 87.9%) top par dikhte the jabki unka signal SELL-band ka tha —
+yaani ranking usi noise number se drive ho rahi thi jise FIX-41 ne reject kiya.
+
+**Fix:**
+- Display formatting ko functions me nikala: `format_progress_row()`,
+  `format_leaderboard_row()`, `signal_icon()` — taaki verifier inhe **actually chala
+  sake**, sirf source-grep na kare.
+- Teeno jagah ab `signal_score` (ens) chhapta/sort hota hai. Leaderboard se redundant
+  `ENS` column hata diya (ab `Score` hi ens hai); `ML%` aur `Edge` diagnostic columns
+  ke roop me rahte hain.
+- `🏆 Top Validated Buys` → `🏆 Top in BUY band` (kuch validate hua hi nahi).
+- `tools/verify_scanner_bands.py` me naya **[6] display consistency** block: 12 checks
+  jo synthetic row par wahi functions chalate hain — printed score == `signal_score`,
+  composite display me kahin nahi (`r['composite']` refs = 0), ML 88% + edge −12% hone
+  par bhi signal score se hi banta hai, aur sort key `signal_score` hai. **53 checks total.**
+
+**Live re-run (2026-10-01) fix ke baad:** `1 BUY | 5 WATCH | 23 SELL`, leaderboard
+`#1 KOTAKBANK score 60 → BUY`, `#2 TITAN score 57 → WATCH` — ab har row ka Score aur
+Signal ek doosre se match karte hain, aur 29/29 rows descending sorted hain (programmatically
+verify kiya: 0 contradictions in leaderboard rows, 0 in progress lines, 0 in
+`scan_results.json`).
+
+**Sabak jo maine note kiya:** summary line dekh kar "ho gaya" kehna kaafi nahi —
+per-row invariant check karna padta hai. Isliye ab verifier display path ko execute karta hai.
+
+---
+
 ## FIX-43 addendum — 2026-10-01 (C-3 scanner thresholds: measured, then refitted)
 
 C-3 audit me likha tha *"score scale uncalibrated → 0 BUYs possible"*. Maine pehle

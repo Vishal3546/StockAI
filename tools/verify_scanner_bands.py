@@ -156,7 +156,39 @@ def main():
        'old hardcoded ML-gated bands removed')
     ok('ML diagnostic only' in src or 'diagnostic' in src, 'ML labelled diagnostic, not a gate')
 
-    print('[6] no overclaim')
+    print('[6] display consistency (FIX-44 regression guard)')
+    # Ye wahi functions chalata hai jo scanner print karta hai — synthetic row par.
+    row = {'symbol': 'TESTSYM', 'sector': 'Test', 'price': 1000.0, 'change_pct': -1.5,
+           'rsi': 44.0, 'vol_ratio': 1.2, 'ml_prob': 88.0, 'ml_edge': -12.0,
+           'source': 'Yahoo Finance', 'signal_score': 42,
+           'signal': NS.signal_from_bands(42, b['bands']), 'composite': 62}
+    line = NS.format_leaderboard_row(row, 1)
+    ok(str(row['signal_score']) in line, f'leaderboard row prints signal_score ({row["signal_score"]})')
+    ok(' 62 ' not in line, f"leaderboard row does NOT print legacy composite (62): {line.strip()}")
+    ok(row['signal'] in line and NS.signal_from_bands(row['signal_score'], b['bands']) == row['signal'],
+       f'printed signal matches bands(signal_score) → {row["signal"]}')
+    # ML 88% hone ke bawajood signal SELL-band me rehna chahiye (ML gate nahi hai)
+    ok(row['signal'] == 'STRONG SELL',
+       f'ML 88% + edge −12% does not move the signal: score 42 → {row["signal"]}')
+
+    prog = NS.format_progress_row(row, 1, 30)
+    ok(f"Score:{row['signal_score']:>3}/100" in prog, f'progress line prints signal_score: {prog.strip()}')
+    ok('Score: 62' not in prog and 'Score:62' not in prog, 'progress line does NOT print composite')
+
+    hi = dict(row, signal_score=64, signal=NS.signal_from_bands(64, b['bands']))
+    ok(NS.signal_from_bands(64, b['bands']) == 'STRONG BUY' and 'STRONG BUY' in NS.format_leaderboard_row(hi, 1),
+       'high score with terrible ML still ranks STRONG BUY (ML is diagnostic only)')
+
+    src2 = (ROOT / 'nifty_scanner.py').read_text(encoding='utf-8')
+    ok("results.sort(key=lambda x: x['signal_score']" in src2,
+       'leaderboard sorted by signal_score, not legacy composite')
+    ok("x['composite'], reverse=True" not in src2, 'no remaining sort on composite')
+    ok(src2.count("r['composite']") == 0,
+       f"display code never reads composite (r['composite'] refs = {src2.count(chr(114) + chr(91) + chr(39) + 'composite' + chr(39) + chr(93))})")
+    ok('🏆 Top Validated Buys' not in src2, 'overclaiming "Top Validated Buys" print removed')
+    ok('Top in BUY band' in src2, 'label now says "Top in BUY band"')
+
+    print('[7] no overclaim')
     disc = (doc.get('disclosure') or '').lower()
     ok('relative ranking' in disc and 'not' in disc,
        'disclosure says relative ranking, not validated profit')
