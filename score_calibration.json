@@ -2,7 +2,7 @@
   "schema": 1,
   "model": "daily4-trailing250-v1",
   "formula_hash": "55cd3da1ce11d8dbc5efe259e356f0a4b99f4652f2de347397105e5cfd5de4af",
-  "generated_at_utc": "2026-10-01T05:02:15.042739+00:00",
+  "generated_at_utc": "2026-10-01T05:44:33.206790+00:00",
   "source": "Yahoo Finance daily adjusted OHLCV (no intraday/ML)",
   "universe": [
     "RELIANCE",
@@ -5167,7 +5167,7 @@
         "POWERGRID": 50,
         "NTPC": 52,
         "ONGC": 50,
-        "COALINDIA": 46,
+        "COALINDIA": 42,
         "TATASTEEL": 59,
         "TECHM": 46,
         "ASIANPAINT": 63,
