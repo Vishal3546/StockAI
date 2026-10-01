@@ -2390,6 +2390,93 @@ def engine_multitimeframe(symbol, daily_df=None):
 #  ENSEMBLE SCORER & INSTITUTIONAL KELLY RISK ENGINE
 # ═══════════════════════════════════════════════════════════════════════════
 # ── FIX-33: cross-sectional calibration (the scanner's "composite" is unrelated) ──
+# ── FIX-41: recorded ML edge study (C-2) ──
+# App ka internal ML number in-sample hai. Purged+embargoed walk-forward +
+# permutation null ka OOS verdict `ml_edge_study.json` me recorded hai aur UI
+# usi ko quote karta hai — internal number diagnostic label ke saath dikhta hai.
+ML_STUDY_PATH = pathlib.Path('ml_edge_study.json')
+ML_STUDY_SCHEMA = 1
+ML_STUDY_MODEL = 'ml-edge-purged-wf-v1'
+ML_STUDY_MAX_AGE_DAYS = 365
+_ml_study_cache = {'mtime': None, 'size': None, 'data': None}
+_ml_study_lock = threading.Lock()
+
+
+def load_ml_study():
+    """`ml_edge_study.json` padho (mtime/size badle to re-read). Missing/invalid → None.
+
+    Fail-closed in the *honest* direction: artifact na ho to UI "OOS study absent"
+    dikhata hai — iska matlab ye NAHI ki edge hai.
+    """
+    try:
+        st = ML_STUDY_PATH.stat()
+    except OSError:
+        return None
+    with _ml_study_lock:
+        if (_ml_study_cache['mtime'] == st.st_mtime
+                and _ml_study_cache['size'] == st.st_size
+                and _ml_study_cache['data'] is not None):
+            return _ml_study_cache['data']
+        try:
+            doc = json.loads(ML_STUDY_PATH.read_text(encoding='utf-8'))
+            if doc.get('schema') != ML_STUDY_SCHEMA or doc.get('model') != ML_STUDY_MODEL:
+                raise ValueError('schema/model mismatch')
+            strategies = doc.get('strategies')
+            if not isinstance(strategies, dict) or not strategies:
+                raise ValueError('no strategies')
+            for name, s in strategies.items():
+                if not isinstance(s, dict) or 'accuracy_pct' not in s:
+                    raise ValueError(f'strategy {name} incomplete')
+            _ml_study_cache.update(mtime=st.st_mtime, size=st.st_size, data=doc)
+            return doc
+        except Exception:
+            _ml_study_cache.update(mtime=st.st_mtime, size=st.st_size, data=None)
+            return None
+
+
+def ml_study_payload():
+    """UI/API ke liye compact study block (+ staleness note)."""
+    doc = load_ml_study()
+    if not doc:
+        return {'ready': False,
+                'error': ('OOS ML study absent — python tools/build_ml_edge_study.py '
+                          'run karein (internal ML number unvalidated hai)'),
+                'edge_found': None}
+    days = None
+    try:
+        ts = datetime.fromisoformat(doc['generated_at_utc'])
+        days = (datetime.now(timezone.utc) - ts).days
+    except Exception:
+        pass
+    strategies = {}
+    for name, s in doc.get('strategies', {}).items():
+        strategies[name] = {
+            'label': s.get('label'), 'features': s.get('features'),
+            'accuracy_pct': s.get('accuracy_pct'),
+            'baseline_pct': s.get('baseline_pct'),
+            'edge_pp': s.get('edge_pp'),
+            'ci95_pp': s.get('ci95_pp'),
+            'n_oos': s.get('n_oos'),
+            'symbols_with_positive_edge': s.get('symbols_with_positive_edge'),
+            'note': s.get('note'),
+        }
+    return {
+        'ready': True,
+        'model': doc.get('model'),
+        'method': doc.get('method'),
+        'period': doc.get('period'),
+        'as_of': (doc.get('generated_at_utc') or '')[:10],
+        'symbols': doc.get('symbols_scored') or [],
+        'strategies': strategies,
+        'permutation_null': doc.get('permutation_null'),
+        'verdict': doc.get('verdict'),
+        'edge_found': bool(doc.get('edge_found')),
+        'stale': (days is not None and days > ML_STUDY_MAX_AGE_DAYS),
+        'age_days': days,
+        'disclosure': doc.get('disclosure'),
+    }
+
+
 _SCORE_FORMULA_HASH = None
 _SCORE_CAL_CACHE = {'key': None, 'fitted': None, 'error': None}
 _SCORE_CAL_LOCK = threading.Lock()
@@ -3091,6 +3178,9 @@ def stock_api(symbol):
             'change': change,
             'pChange': pChange,
             'ml': ml_res,
+            # FIX-41 (C-2): recorded OOS study — internal `ml` number sirf
+            # diagnostic hai; UI/API ka "edge hai ya nahi" jawaab yahaan se aata hai.
+            'ml_study': ml_study_payload(),
             'engines': {
                 'vol_profile': e1,
                 'rvol_cvd': e2,
@@ -3159,7 +3249,8 @@ def stock_api(symbol):
             'ensemble_v2': ensemble_v2(engines, ens),
             'is_realtime': ('NSE' in str(active_source) and 'TradingView' not in str(active_source)),
             'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
-                           'ML accuracy is a single 80/20 split unless walk_forward_accuracy is quoted.'),
+                           'ml.* accuracy is in-sample/diagnostic; the OOS verdict comes from '
+                           'ml_study (tools/build_ml_edge_study.py) — see ml_study.verdict.'),
             'chart': chart_data
         }
 

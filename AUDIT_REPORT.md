@@ -2,6 +2,48 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-41 addendum — 2026-10-01 (C-2 "ML ka asli edge": measured, recorded, published)
+
+C-2 ab tak sirf UI honesty tak simta tha: in-app accuracy ke saath walk-forward band
+dikhta tha, par *"edge hai ya nahi"* ka koi recorded, reproducible jawaab nahi tha.
+`research/` me purged walk-forward + permutation null pehle se tha — lekin uska natija
+sirf `RESEARCH_REPORT.md` me pada tha, aur live app apna **in-sample** number dikhata
+raha. Ab wahi study ek artifact me record hoti hai aur UI usi ko quote karti hai.
+
+**Naya tool:** `tools/build_ml_edge_study.py` → `ml_edge_study.json` (repo root, committed).
+
+**Measured result — 19 large-caps, 5y window, 5 purged folds, embargo = label horizon,
+53,295 pooled out-of-sample predictions:**
+
+| strategy | accuracy | baseline (majority class) | edge | ±95% CI | verdict |
+|---|---|---|---|---|---|
+| S1 `ml_dir1_app28` (app ka current design) | 51.16% | 50.02% | **+1.14pp** | ±0.74 | noise band ke andar |
+| S2 `ml_dir1_small10` | 50.61% | 50.02% | +0.59pp | ±0.74 | noise band ke andar |
+| S3 `ml_ret5atr_small10` (proposed redesign) | 54.84% | 61.99% | **−7.15pp** | ±0.73 | baseline se neeche |
+| shuffled-label permutation null (S3 design) | mean 56.36%, max **59.32%** | — | — | — | model is ceiling se upar nahi gaya |
+
+**Verdict: NO EDGE.** Proposed design ka 54.84% shuffled-label ceiling (59.32%) se
+neeche hai — matlab wo accuracy random labels par bhi mil jaati. App ka current design
++1.14pp ±0.74 hai, yaani coin-flip se statistically alag nahi. Costs ke baad ka hissa
+`RESEARCH_REPORT.md` me hai: 5y net **−25.6%** vs buy-and-hold **+32.5%**, costs
+₹46,755 / ₹1 L (≈12.2pp/yr).
+
+**Kya badla code me (koi model/weight change nahi):**
+- `app.py`: `load_ml_study()` (mtime/size cache, schema+model check, fail-closed) +
+  `ml_study_payload()` → `/api/stock` payload me `ml_study` block; purana
+  "single 80/20 split" disclaimer hata.
+- `Dashboard.html`: ML panel me recorded OOS study block (verdict + per-strategy table +
+  null ceiling + as-of), aur in-app accuracy ko explicitly **diagnostic** bola.
+  Artifact missing ho to "OOS ML study absent" — iska matlab *edge hai* nahi hota.
+- `tools/verify_ml_edge_study.py`: **46 checks** — artifact integrity, internal
+  consistency, verdict ko numbers se dobara derive karna, app wiring (missing/tampered →
+  rejected), Dashboard labels, no-overclaim.
+
+**Scope discipline:** ye profitability ka proof nahi hai, sirf predictive-edge test.
+Aur "no edge" ko chhupaya nahi gaya — wahi verdict UI me dikhta hai.
+
+---
+
 ## FIX-40 addendum — 2026-10-01 (H-11 engine weights: measured, then left alone)
 
 Audit ka claim tha: *"Volume Profile aur Regime near-constant hain — weights redesign
@@ -610,7 +652,7 @@ nifty_scanner_v3_6.py
 | ID | Finding | Status |
 |---|---|---|
 | C-1 | Leveraged / self-contradictory position sizing | ✅ **Solved** (FIX-07, verified `qty=0, leverage 0x` on non-directional) |
-| C-2 | ML has no measurable edge; single-split number shown as proof | ⚠️ **Partially** — honesty fixed (walk-forward + ±noise band now in the UI, `best_edge` relabelled). **The model itself still has no edge — that is a research problem, not a bug.** |
+| C-2 | ML has no measurable edge; single-split number shown as proof | ✅ **Answered (FIX-41)** — purged + embargoed walk-forward + shuffled-label null on **53,295 pooled OOS predictions** across 19 large-caps, recorded in `ml_edge_study.json` and shown in the UI. Measured verdict: **NO EDGE** (best design 54.84% vs 61.99% majority baseline = **−7.15pp**; app's own 28-feature design 51.16% vs 50.02% = **+1.14pp ±0.74** = inside the noise band; shuffled-label ceiling 59.3%). The honest finding is published, not hidden — and the in-app accuracy is now labelled a diagnostic. |
 | C-3 | Score scale uncalibrated → 0 BUYs possible | ⚠️ **Partially** — `ensemble_v2` re-centres VCP/MTF and is shown as a *diagnostic*; the scanner's BUY path works again after the RVOL fix. **Proper fix = fit thresholds on history (still open).** |
 | H-1 | Tier-2 Method A key `gRapData` → `grapthData` | ✅ Solved (FIX-04) |
 | H-2 | Method A fabricates OHLCV / Volume=100000 | ✅ Solved (FIX-04 refuses intraday-only payloads) |
@@ -639,7 +681,7 @@ nifty_scanner_v3_6.py
 
 **Honest answer to "sab solve ho gaya?":** all the *code* defects that were fixable in a session are fixed and verified — 15 of them. Two things remain that a patch cannot fix, because they are not bugs:
 
-1. **The ML still has no edge** (C-2). I made the UI tell the truth about it; I did not make it work. That needs a re-labelled target, purged CV, a smaller feature set and a rolling ≥500-prediction study.
+1. **The ML still has no edge** (C-2) — and FIX-41 measured it properly instead of guessing: 53,295 pooled out-of-sample predictions, purged + embargoed walk-forward, shuffled-label null. Best design is **7.15pp below** its own majority-class baseline and below the noise ceiling; the app's current 28-feature design is +1.14pp ±0.74, i.e. indistinguishable from a coin flip. The verdict is now recorded in `ml_edge_study.json` and printed in the UI. **That is the answer, not a to-do.**
 2. **The score thresholds are still uncalibrated** (C-3). `ensemble_v2` is a diagnostic shim, not a calibrated model. Fit the BUY/AVOID bands on the score's own 1-year distribution.
 
 Plus the remaining operational items (M-2, M-8, M-9) that are hygiene, not correctness. M-11 and M-12 were closed by FIX-35.

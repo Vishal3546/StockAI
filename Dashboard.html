@@ -1220,8 +1220,43 @@ function render(d) {
           🧪 Walk-forward OOS accuracy: <b>${wf === null ? '—' : wf + '%'}</b>
           (baseline ${sv(ml.baseline_accuracy, '?')}%, edge ${wfEdge === null ? '—' : (wfEdge > 0 ? '+' : '') + wfEdge.toFixed(1) + 'pp'})
           → <b>${honest}</b><br>
-          <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.</span>
+          <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.
+          Ye in-app number <b>diagnostic</b> hai; edge ka faisla neeche wali recorded OOS study karta hai.</span>
         </div>`;
+
+    // FIX-41 (C-2): recorded out-of-sample study — "ML me asli edge hai ya nahi"
+    // ka jawaab yahi hai (purged walk-forward + shuffled-label null), in-app
+    // number nahi. Costs ke baad ka result RESEARCH_REPORT.md me hai.
+    const study = d.ml_study || {};
+    if (study.ready) {
+      const stColor = study.edge_found ? 'var(--color-green)' : 'var(--color-red)';
+      let stRows = '';
+      Object.keys(study.strategies || {}).forEach(k => {
+        const s = study.strategies[k] || {};
+        const e = isMissing(s.edge_pp) ? '—' : (s.edge_pp > 0 ? '+' : '') + s.edge_pp + 'pp';
+        stRows += safeHtml`
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span style="color:var(--text-muted)">${sv(k, '')}</span>
+            <span class="mono">${sv(s.accuracy_pct, '—')}% vs ${sv(s.baseline_pct, '—')}% → <b>${e}</b></span>
+          </div>`;
+      });
+      const nul = study.permutation_null || {};
+      const nullLine = isMissing(nul.max_pct) ? '' : safeHtml`
+          <div style="color:var(--text-muted)">Shuffled-label null: mean ${sv(nul.mean_pct, '—')}%, max ${sv(nul.max_pct, '—')}% — model isse upar nahi gaya.</div>`;
+      mlh += safeHtml`
+        <div style="font-size:0.65rem;margin-top:6px;padding:6px;border-radius:6px;background:rgba(255,77,79,0.07);border:1px solid rgba(255,77,79,0.35)">
+          🎯 <b>OOS study</b> · purged walk-forward · ${sv(study.period, '?')} · ${sv(study.as_of, '?')}${study.stale ? ' · ⚠️ stale' : ''}
+          <div class="mono" style="color:${stColor};margin:3px 0"><b>${sv(study.verdict, '—')}</b></div>
+          ${raw(stRows)}
+          ${raw(nullLine)}
+          <div style="color:var(--text-muted);margin-top:3px">${sv(study.disclosure, 'Predictive-edge test only; profitability ka proof nahi.')} Net-of-cost: RESEARCH_REPORT.md</div>
+        </div>`;
+    } else {
+      mlh += safeHtml`
+        <div style="font-size:0.65rem;margin-top:6px;padding:6px;border-radius:6px;background:rgba(255,179,0,0.08);color:var(--color-yellow)">
+          🎯 OOS ML study absent — ${sv(study.error, 'python tools/build_ml_edge_study.py run karein')}. Iska matlab edge hai, ye nahi.
+        </div>`;
+    }
     mlh += safeHtml`
         <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Trained: ${svd(ml.train_days)}D | Tested: ${svd(ml.test_days)}D</div>
         <div style="font-size:0.65rem;color:var(--color-yellow);margin-top:2px">

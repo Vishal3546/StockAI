@@ -251,6 +251,35 @@ round trip, shuffled-label permutation null) ran **17,885 out-of-sample predicti
 python3 research/run_study.py --period 5y && python3 research/analyze.py 5y
 ```
 
+### FIX‑41 · The verdict is now recorded, and the dashboard quotes it
+
+The study above lived only in a markdown report while the live dashboard kept showing its own
+**in-sample** accuracy. That is fixed: `tools/build_ml_edge_study.py` records the same
+purged + embargoed walk-forward (plus the shuffled-label null) into **`ml_edge_study.json`**
+at the repo root, `/api/stock` ships it as `ml_study`, and the dashboard prints the recorded
+verdict under the ML panel — with the in-app accuracy explicitly labelled a **diagnostic**.
+
+Measured on 19 large-caps, 5y, 5 purged folds, **53,295 pooled out-of-sample predictions**:
+
+| strategy | accuracy | baseline | edge | ±95% CI |
+|---|---|---|---|---|
+| S1 `ml_dir1_app28` (the app's current design) | 51.16% | 50.02% | **+1.14pp** | ±0.74 |
+| S2 `ml_dir1_small10` | 50.61% | 50.02% | +0.59pp | ±0.74 |
+| S3 `ml_ret5atr_small10` (proposed redesign) | 54.84% | 61.99% | **−7.15pp** | ±0.73 |
+| shuffled-label null ceiling | mean 56.36%, max **59.32%** | — | — | — |
+
+**Verdict: NO EDGE.** The proposed design sits *below* the accuracy you get from shuffled
+labels, and the current design's +1.14pp is inside its own ±0.74pp noise band. Rebuild
+(~3 min, needs network for daily bars):
+
+```bash
+python tools/build_ml_edge_study.py
+```
+
+If the artifact is missing the dashboard says *"OOS ML study absent"* — which means
+**unverified**, never *"edge found"*. Verify the wiring with
+`python tools/verify_ml_edge_study.py` (46 checks).
+
 ---
 
 ## Still open (honest list)
