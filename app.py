@@ -21,6 +21,8 @@
 #  Search "FIX-" to see each change; see AUDIT_REPORT.md for evidence.
 # ─────────────────────────────────────────────────────────────
 
+import hashlib
+import inspect
 import io
 import json
 import logging
@@ -30,6 +32,8 @@ import threading
 import time
 import warnings
 from datetime import datetime, timedelta, timezone
+
+import score_calibration as SCORE_CAL
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -66,13 +70,21 @@ CONFIG = {
     'SSE_STREAM_INTERVAL': 3,
     'NSE_MASTER_URL': 'https://archives.nseindia.com/content/equities/EQUITY_L.csv',
     'YAHOO_SEARCH_URL': 'https://query1.finance.yahoo.com/v1/finance/search',
-    'ENGINE_WEIGHTS': {
-        'Volume Profile': 0.12,
-        'RVOL + CVD + VSA': 0.20,
-        'VCP V2': 0.15,
-        'SMC / ICT': 0.15,
-        'Market Regime': 0.18,
-        'Multi-Timeframe': 0.20
+    # FIX-33: sirf daily stock-specific engines ko cross-sectional rank me weight.
+    # Market Regime sab shares par same hota hai → sector/stock ranking me 18%
+    # constant bias; MTF 5m/15m ka comparable 250-session history available nahi,
+    # isliye woh standalone diagnostic hai (daily-only as-of backfill apples-to-apples).
+    'ENGINE_WEIGHTS': dict(SCORE_CAL.DAILY_WEIGHTS),
+    # FIX-33: regime ka use sirf DIRECTIONAL exposure gate me. Ye risk POLICY hai,
+    # model-fit alpha nahi. UNKNOWN/missing index => new positions 0.
+    'REGIME_EXPOSURE': {
+        'STRONG BULL': {'LONG': 1.00, 'SHORT': 0.00},
+        'BULL': {'LONG': 0.75, 'SHORT': 0.25},
+        'VOLATILE BULL': {'LONG': 0.50, 'SHORT': 0.25},
+        'RECOVERY': {'LONG': 0.50, 'SHORT': 0.50},
+        'WEAK BEAR': {'LONG': 0.25, 'SHORT': 0.50},
+        'BEAR': {'LONG': 0.00, 'SHORT': 0.50},
+        'STRONG BEAR': {'LONG': 0.00, 'SHORT': 0.50},
     },
     'ML_WEIGHTS_3': [
         0.45,
@@ -1996,76 +2008,148 @@ def engine_multitimeframe(symbol, daily_df=None):
 # ═══════════════════════════════════════════════════════════════════════════
 #  ENSEMBLE SCORER & INSTITUTIONAL KELLY RISK ENGINE
 # ═══════════════════════════════════════════════════════════════════════════
-def ensemble_score(engines):
-    # FIX-28: degraded engines (jinka data hi nahi mila) ka placeholder '50'
-    # weighted average me ghus kar poora composite distort karta tha — jaise
-    # ek engine ne vote diya ho, jabki usne vote diya hi nahi. Ab unhe EXCLUDE
-    # karke baaki engines par weights renormalize hote hain, aur kaun exclude
-    # hua wo response me saaf-saaf likha jaata hai.
-    w = CONFIG['ENGINE_WEIGHTS']
-    excluded = [e['name'] for e in engines if e.get('degraded')]
-    live = [e for e in engines if not e.get('degraded')]
-    if not live:                      # sab degraded → purana behaviour (safe fallback)
-        live, excluded = list(engines), []
-    ws = sum(e['score'] * w.get(e['name'], 0.1) for e in live)
-    tw = sum(w.get(e['name'], 0.1) for e in live)
-    base = ws / tw if tw > 0 else 50
-    be = sum(1 for e in live if e['score'] >= 65)
-    bre = sum(1 for e in live if e['score'] <= 35)
-    cb = 8 if be >= 5 else 5 if be >= 4 else 2 if be >= 3 else -8 if bre >= 4 else 0
-    final = int(max(5, min(98, base + cb)))
-    
-    return {
-        'score': final,
-        'action': 'BUY_BREAKOUT' if final >= 78 else 'BUY_DIP' if final >= 65 else 'WATCHLIST' if final >= 50 else 'AVOID' if final >= 35 else 'SHORT_SELL',
-        'bullish_engines': be,
-        'bearish_engines': bre,
-        'confluence_bonus': cb,
-        'tradeable': final >= 78,
-        'engines_used': len(live),
-        'degraded_engines': excluded,
-        'note': (f'Degraded engines averaging se exclude kiye: {", ".join(excluded)}'
-                 if excluded else None)
+# ── FIX-33: cross-sectional calibration (the scanner's "composite" is unrelated) ──
+_SCORE_FORMULA_HASH = None
+_SCORE_CAL_CACHE = {'key': None, 'fitted': None, 'error': None}
+_SCORE_CAL_LOCK = threading.Lock()
+
+
+def score_formula_hash():
+    """Invalidate a historical fit if any daily engine/score formula changes."""
+    global _SCORE_FORMULA_HASH
+    if _SCORE_FORMULA_HASH is None:
+        funcs = (_data_ok, engine_volume_profile, engine_rvol_cvd,
+                 engine_vcp, engine_smc, SCORE_CAL.stock_rank)
+        source = '\n'.join(inspect.getsource(fn) for fn in funcs)
+        source += json.dumps({'weights': CONFIG['ENGINE_WEIGHTS'],
+                              'percentiles': SCORE_CAL.PERCENTILES,
+                              'window': SCORE_CAL.LOOKBACK_BARS,
+                              'model': SCORE_CAL.MODEL}, sort_keys=True)
+        _SCORE_FORMULA_HASH = hashlib.sha256(source.encode('utf8')).hexdigest()
+    return _SCORE_FORMULA_HASH
+
+
+def _score_history_for(asof_session, bars, symbol):
+    """Read validated JSON once per file change; fail CLOSED if missing/stale.
+
+    A single scanner run has 29 `composite` scores, NOT comparable to this
+    pipeline. Only 250 historical snapshots of THIS exact stock-score formula
+    can supply percentile bands.
+    """
+    if symbol not in SCORE_CAL.UNIVERSE:
+        return None, 'symbol calibration universe me nahi (30 NSE names)'
+    path = SCORE_CAL.ARTIFACT_PATH
+    try:
+        st = path.stat()
+        if st.st_size > 5_000_000:
+            raise SCORE_CAL.CalibrationError('artifact unusually large')
+        key = (str(path), st.st_mtime_ns, st.st_size, score_formula_hash())
+    except FileNotFoundError:
+        return None, 'score history missing — python tools/build_score_calibration.py run karein'
+    except (OSError, SCORE_CAL.CalibrationError) as exc:
+        return None, f'history unreadable: {exc}'
+
+    with _SCORE_CAL_LOCK:
+        if _SCORE_CAL_CACHE['key'] != key:
+            try:
+                with path.open(encoding='utf8') as f:
+                    data = json.load(f)
+                _SCORE_CAL_CACHE['fitted'] = SCORE_CAL.validate_artifact(data, key[-1])
+                _SCORE_CAL_CACHE['error'] = None
+            except (OSError, ValueError, SCORE_CAL.CalibrationError) as exc:
+                _SCORE_CAL_CACHE['fitted'] = None
+                _SCORE_CAL_CACHE['error'] = f'invalid score history: {exc}'
+            _SCORE_CAL_CACHE['key'] = key
+        fitted, error = _SCORE_CAL_CACHE['fitted'], _SCORE_CAL_CACHE['error']
+    if not fitted:
+        return None, error
+    if symbol not in fitted['symbols_covered']:
+        return None, f'{symbol} historical snapshots me absent — no fitted rank'
+    try:
+        SCORE_CAL.for_session(fitted, asof_session, bars=bars,
+                              current_day=datetime.now(IST).date().isoformat())
+        return fitted, None
+    except SCORE_CAL.CalibrationError as exc:
+        return None, str(exc)
+
+
+def ensemble_score(engines, *, asof_session=None, bars=None, symbol=None,
+                   calibration=None, data_fresh=True):
+    """Four daily stock engines → stock rank; p80/p95 labels only with a valid fit.
+
+    Regime (market-wide) has ZERO stock-score weight and never contributes to
+    confluence. Minute-level MTF is diagnostic because historical minute data
+    cannot be reconstructed to fit its bands without look-ahead / fake input.
+    Missing/partial history, degraded engine, stale fit, or unlisted symbol:
+    show raw *partial* score but NEVER emit a BUY/SHORT direction or tradeable.
+    """
+    result = SCORE_CAL.stock_rank(engines)
+    fitted, reason = None, None
+    if not result['complete']:
+        reason = '4/4 daily stock engines required for comparable calibration'
+    elif not data_fresh:
+        reason = 'stock daily source STALE — past score ko current label nahi maan sakte'
+    elif not asof_session:
+        reason = 'bar date unavailable — history fit disabled'
+    elif calibration is not None:
+        try:
+            if symbol is not None and symbol not in calibration['symbols_covered']:
+                raise SCORE_CAL.CalibrationError(f'{symbol} historical snapshots me absent')
+            fitted = SCORE_CAL.for_session(calibration, asof_session, bars=bars)
+        except (KeyError, SCORE_CAL.CalibrationError) as exc:
+            reason = str(exc)
+    else:
+        fitted, reason = _score_history_for(asof_session, bars, symbol)
+
+    ready = bool(fitted) and result['score'] is not None
+    threshold = fitted['thresholds'] if ready else None
+    action = (SCORE_CAL.label(result['score'], threshold) if ready else
+              'DATA_UNAVAILABLE' if result['score'] is None else 'WATCHLIST')
+    meta = {
+        'ready': ready, 'model': SCORE_CAL.MODEL,
+        'asof_session': fitted['asof_session'] if ready else None,
+        'sessions': fitted['sessions'] if ready else 0,
+        'samples': fitted['samples'] if ready else 0,
+        'thresholds': threshold,
+        'percentiles': dict(SCORE_CAL.PERCENTILES),
+        'relative_rank_pct': (SCORE_CAL.percentile_rank(fitted['_sorted_scores'], result['score'])
+                              if ready else None),
+        'universe_size': len(SCORE_CAL.UNIVERSE),
+        'basis': '250 completed NSE-universe sessions; 4 daily OHLCV engines; trailing 250 bars',
+        'note': ('Relative ranking ONLY — calibrated labels do not imply future return / edge'
+                 if ready else f'UNFITTED — {reason or "history not ready"}; no directional action'),
     }
+    result.update({'action': action, 'tradeable': False, 'rank_only': True,
+                   'score_model': SCORE_CAL.MODEL, 'calibration': meta,
+                   'note': ' | '.join(x for x in [result.get('note'), meta['note']] if x)})
+    return result
 
 
 def ensemble_v2(engines, ens):
-    """
-    FIX-08: DIAGNOSTIC re-centred score.
+    """Legacy VCP re-centering DIAGNOSTIC; NOT the fitted score scale.
 
-    The six engines are not on a common 0-100 scale: VCP's additive base is 30,
-    Multi-Timeframe divided by a hardcoded 4 even when only 2-3 timeframes
-    loaded, Volume Profile returns only {35,50,70,75} and Market Regime returns
-    the SAME value for every stock. Measured effect: the weighted mean sits at
-    ~42 and the documented bands (65 / 78) are effectively unreachable — 0 BUYs
-    in 10 symbols, mean 42.4, max 56.
-
-    This re-centres VCP and normalises MTF so the number is readable. It is NOT
-    a calibrated model: thresholds still have to be fitted on the score's own
-    historical distribution (see AUDIT_REPORT.md §C-3).
+    Uses the same four stock-specific daily engines; Regime and intraday MTF
+    remain separate UI panels. No v2 cutoff is used for actions or Kelly.
     """
     w = CONFIG['ENGINE_WEIGHTS']
-    adj, notes = {}, []
-    live = [e for e in engines if not e.get('degraded')] or list(engines)   # FIX-28
-    for e in engines:
-        if e.get('degraded') and e in live:
-            continue
-        s, n = e['score'], e['name']
-        if n == 'VCP V2':
-            s = max(5, min(98, 50 + (s - 30)))
+    live = [e for e in engines if e.get('name') in w and not e.get('degraded')]
+    if not live:
+        return {'score': None, 'raw_score': ens['score'], 'delta': None,
+                'adjustments': [], 'note': 'DIAGNOSTIC unavailable — no daily engines'}
+    notes = []
+    weighted = 0.0
+    for e in live:
+        val = e['score']
+        if e['name'] == 'VCP V2':
+            val = max(5, min(98, 50 + (val - 30)))
             notes.append('VCP re-centred (+20)')
-        if n == 'Multi-Timeframe' and e.get('total'):
-            s = round(100 * e.get('bullish_count', 0) / e['total'])
-            notes.append('MTF normalised by loaded TFs')
-        adj[n] = s
-    tw = sum(w.get(e['name'], 0.1) for e in live) or 1
-    v2 = round(sum(adj[e['name']] * w.get(e['name'], 0.1) for e in live) / tw, 1)
-    return {
-        'score': int(round(v2)),
-        'raw_score': ens['score'],
-        'delta': round(v2 - ens['score'], 1),
-        'adjustments': notes,
-        'note': 'UNCALIBRATED diagnostic — re-centres VCP/MTF only; fit thresholds on history before trading',
+        weighted += val * w[e['name']]
+    v2 = round(weighted / sum(w[e['name']] for e in live), 1)
+    return {'score': int(round(v2)), 'raw_score': ens['score'],
+            'delta': round(v2 - ens['score'], 1) if ens['score'] is not None else None,
+            'adjustments': notes,
+            'note': ('UNCALIBRATED diagnostic — daily VCP re-centred; percentile labels '
+                     'only apply to the raw 4-engine stock rank'),
     }
 
 
@@ -2073,13 +2157,21 @@ def ensemble_v2(engines, ens):
 MIN_PLAN_SAMPLE = 30          # default; asli value CONFIG['PLAN_MEASURE_MIN_N'] se aati hai
 
 
-def plan_geometry(score):
-    """Score bucket → (sl_mult, assumed_win_rate).
+def plan_geometry(score, action=None):
+    """Plan geometry follows calibrated RANK band, not arbitrary score cutoffs.
 
-    FIX-31: ye sirf FALLBACK hai. Pehle win-rate yahin se aata tha
-    (0.62/0.55/0.45) aur Kelly usi assumption par banti thi. Ab asli 'p'
-    measure_plan_hit_rate() se aata hai; ye values tabhi use hoti hain jab
-    measurement possible na ho (aur UI par 'assumed' likha jaata hai)."""
+    For historical standalone `calculate_risk(..., action='BUY')` callers only,
+    retain the old numeric bucket mapping (deprecated compatibility). The live
+    API always supplies BUY_BREAKOUT/BUY_DIP/SHORT_SELL etc from a fitted score.
+    Assumed win rates are an explicitly labelled fallback, NOT a model edge.
+    """
+    if action == 'BUY_BREAKOUT':
+        return 1.5, 0.62
+    if action == 'BUY_DIP':
+        return 2.0, 0.55
+    if action in ('SHORT_SELL', 'WATCHLIST', 'AVOID', 'DATA_UNAVAILABLE'):
+        return 2.5, 0.45
+    # FIX-33: legacy direct unit-call compatibility; NEVER used by live labels.
     if score >= 78:
         return 1.5, 0.62
     if score >= 60:
@@ -2180,8 +2272,9 @@ def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
             'direction': direction,
             'basis': (f"T1-before-SL backtest ({direction}, SL {sl_mult}x ATR / "
                       f"T1 {t1_mult}x ATR, {horizon}-bar horizon, is symbol ka daily data)"),
-            'scope': ('unconditional — score par conditioned nahi (score-conditional '
-                      'history reconstruct nahi hoti), isliye ye ek floor hai'),
+            'scope': ('unconditional, overlapping in-sample setups; score par conditioned '
+                      'nahi, costs/slippage included nahi. Current signal ka profit '
+                      'ya statistical edge prove NAHI hota'),
         }
         if key:
             if len(_PLAN_MEASURE_CACHE) > 64:
@@ -2192,9 +2285,30 @@ def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
         return None
 
 
+def regime_exposure(regime, direction, *, required=False):
+    """FIX-33: market-wide regime affects DIRECTIONAL exposure, never stock rank.
+
+    The factors are explicitly POLICY, not fitted to P&L. UNKNOWN data =>
+    fail closed for live risk; direct standalone calculate_risk() calls without
+    a regime keep old unit-test maths but carry an explicit basis label.
+    """
+    if direction == 'NONE':
+        return 0.0, 'no directional trade'
+    if regime is None:
+        return ((0.0, 'market regime missing — live sizing blocked') if required
+                else (1.0, 'standalone calculation: no regime supplied; policy NOT applied'))
+    if not isinstance(regime, dict) or regime.get('degraded'):
+        return 0.0, 'market regime unavailable/degraded — sizing blocked'
+    name = str(regime.get('regime') or 'UNKNOWN').upper()
+    policy = CONFIG['REGIME_EXPOSURE'].get(name)
+    if policy is None:
+        return 0.0, f'market regime {name} unknown — sizing blocked'
+    return policy[direction], f'{name}: {direction} exposure cap {policy[direction]:.0%} (risk policy, NOT backtested edge)'
+
+
 def calculate_risk(price, atr, score, capital=None, action=None,
                    measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None,
-                   plan_measure=None, atr_basis=None):
+                   plan_measure=None, atr_basis=None, regime=None, require_plan=False):
     """
     Institutional Kelly risk plan.
 
@@ -2211,17 +2325,23 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     """
     capital = capital if capital is not None else CONFIG['DEFAULT_CAPITAL']
     if action is None:
-        action = ensemble_score([{'name': 'x', 'score': score}])['action']
+        # Live flow ALWAYS passes an explicitly calibrated action; without one,
+        # abstain rather than fabricating a BUY from an arbitrary raw score.
+        action = 'WATCHLIST'
     direction = 'SHORT' if 'SHORT' in action else ('LONG' if action.startswith('BUY') else 'NONE')
     _no_trade = (direction == 'NONE')
 
     atr = max(float(atr or 0), price * 0.005)
-    sl_mult, win_rate_assumed = plan_geometry(score)
+    sl_mult, win_rate_assumed = plan_geometry(score, action)
 
     # FIX-31: ab 'p' MEASURED hota hai — is plan ka asli T1-before-SL hit-rate
     _plan = plan_measure if isinstance(plan_measure, dict) else None
     _measured_ok = bool(_plan and _plan.get('rate') is not None
                         and (_plan.get('n') or 0) >= CONFIG['PLAN_MEASURE_MIN_N'])
+    # FIX-33: LIVE API me measurement unavailable hone par assumed bucket se
+    # Kelly compute karna bhi band. Standalone helper old calculation disclose
+    # karta hai for regression/research; live = require_plan=True fail closed.
+    _blocked_no_plan = require_plan and direction != 'NONE' and not _measured_ok
     # FIX-31: point estimate par seedha size dena over-confident hai — RELIANCE par
     # 50.93% mila jabki breakeven 50% aur n=214 (se ≈ 3.4pp) — ye sampling error ke
     # andar hai. Isliye sizing conservative LOWER CONFIDENCE BOUND (1 sd) se hoti hai.
@@ -2271,6 +2391,8 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     if _measured_ok:
         # FIX-31: primary basis — measured plan hit-rate breakeven se upar hai?
         _edge_verified = bool(win_rate > _plan_breakeven)
+    elif _blocked_no_plan:
+        _edge_verified = False  # model accuracy plan win-rate ki jagah nahi le sakti
     else:
         _edge_verified = bool(_checks) and all(_checks)
 
@@ -2282,11 +2404,15 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     if direction == 'NONE':
         _risk_note = ("Koi directional trade nahi (verdict neutral) — position size "
                       "apply nahi hota." + _note_atr)
+    elif _blocked_no_plan:
+        _risk_note = ("Plan ka measured sample nahi mila. Score-bucket win-rate "
+                      "ASSUMED hai, live Kelly me USE NAHI hua — qty 0. "
+                      "Relative percentile profitable signal ka proof nahi.")
     elif _measured_ok:
         _risk_note = (f"Plan ka ASLI hit-rate measured: {_p_hat:.1%} (n={_plan.get('n')} setups, "
                       f"breakeven {_plan_breakeven:.1%}). Sizing conservative lower-bound "
                       f"{_p_lcb:.1%} (±{_se:.1%} sampling error) se — "
-                      f"{'measured edge hai.' if _edge_verified else 'measured edge NAHI (sampling error ke andar) — qty 0 rakha gaya.'}")
+                      f"{'geometric breakeven check pass; profitable strategy ka proof NAHI.' if _edge_verified else 'measured edge NAHI (sampling error ke andar) — qty 0 rakha gaya.'}")
         if _wf is not None:
             _risk_note += (f" (ML walk-forward {_wf:.1f}%"
                            + (f" vs baseline {_base:.1f}%" if _base is not None else '') + ")")
@@ -2315,13 +2441,35 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     b = abs(t1 - price) / risk_per_share if risk_per_share > 0 else 0.0
     kelly = ((win_rate * b - (1 - win_rate)) / b) if b > 0 else 0.0
     kelly = max(0.0, min(kelly, CONFIG['MAX_KELLY_PCT']))
+    if _blocked_no_plan:
+        kelly = 0.0  # production me unmeasured p se ek bhi share size nahi hoga
 
     qty_by_risk = int((capital * kelly) / risk_per_share) if risk_per_share > 0 else 0
     qty_by_notional = int(capital / price) if price > 0 else 0
-    qty = max(0, min(qty_by_risk, qty_by_notional))
+    qty_pre_regime = max(0, min(qty_by_risk, qty_by_notional))
     if direction == 'NONE' or kelly <= 0:
-        qty = 0
+        qty_pre_regime = 0
+    exposure, regime_basis = regime_exposure(regime, direction, required=require_plan)
+    # ALWAYS floor: exposure cannot accidentally exceed the stated policy cap.
+    qty = int(math.floor(qty_pre_regime * exposure))
     notional = round(qty * price, 2)
+
+    if direction == 'NONE':
+        status = '⚠️ WATCHLIST / NO TRADE'
+    elif _blocked_no_plan:
+        status = '⚠️ NO TRADE (measured plan unavailable)'
+    elif _measured_ok and kelly <= 0:
+        status = '⚠️ NO TRADE (measured edge nahi)'
+    elif exposure <= 0:
+        status = '⚠️ NO TRADE (market regime exposure 0)'
+    elif qty <= 0:
+        status = '⚠️ NO TRADE (size cap/rounding)'
+    elif direction == 'SHORT':
+        status = '🧪 SHORT rank — research only, strategy unverified'
+    else:
+        status = '🧪 BUY rank — research only, strategy unverified'
+    if direction != 'NONE':
+        _risk_note += f' | Market regime: {regime_basis}.'
 
     return {
         'direction': direction,
@@ -2331,10 +2479,13 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         't2': round(t2, 2),
         't3': round(t3, 2),
         'kelly_pct': round(kelly * 100, 1),
+        'kelly_pct_after_regime': round(kelly * exposure * 100, 1),
         'kelly_rr_used': round(b, 2),
-        # FIX-30: risk plan ka basis disclose karo (assumed vs measured)
-        'win_rate_used': win_rate,
-        'win_rate_basis': ('n/a (no directional trade)' if _no_trade else win_rate_basis_txt),
+        # FIX-33: live sample missing ho to koi assumed p actually USE nahi hota.
+        'win_rate_used': None if _blocked_no_plan else win_rate,
+        'win_rate_basis': ('n/a (no directional trade)' if _no_trade else
+                           'unavailable (assumed fallback BLOCKED — measured plan missing)'
+                           if _blocked_no_plan else win_rate_basis_txt),
         'win_rate_assumed': win_rate_assumed,
         'plan_hit_rate': round(_p_hat, 4) if _measured_ok else None,
         'plan_hit_rate_lcb': round(_p_lcb, 4) if _measured_ok else None,
@@ -2350,6 +2501,10 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         'edge_verified': _edge_verified,
         'risk_note': _risk_note,
         'qty': qty,
+        'qty_pre_regime': qty_pre_regime,
+        'regime_exposure_factor': exposure,
+        'regime_basis': regime_basis,
+        'regime_required': bool(require_plan),
         'qty_uncapped': qty_by_risk,
         'capital': capital,
         'notional': notional,
@@ -2358,11 +2513,7 @@ def calculate_risk(price, atr, score, capital=None, action=None,
         'rr_ratio': round(b, 2),
         'entry_zone': f"₹{round(price - 0.3 * atr, 2)} - ₹{round(price + 0.2 * atr, 2)}",
         'trail_sl_plan': f"T1 hit hone ke baad SL ko ₹{round(price, 2)} (Cost) pe shift karein",
-        'exec_status': ("⚠️ NO TRADE (measured edge nahi)" if (_measured_ok and direction != 'NONE' and kelly <= 0) else
-                        "🟢 READY TO BUY" if score >= 78 else
-                        "🟡 WAIT FOR DIP" if score >= 65 else
-                        "🔴 SHORT SETUP" if direction == 'SHORT' else
-                        "⚠️ WATCHLIST / NO TRADE")
+        'exec_status': status
     }
 
 
@@ -2421,6 +2572,7 @@ def stock_api(symbol):
                                   f"(cached miss, retry in {int(_hit - time.time())}s)"}), 404
     resolved = resolve_symbol(symbol)
     df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d', n_bars=CONFIG['CHART_CANDLES'] * 2)
+    daily_source = active_source  # price path NSE live source se baad me replace ho sakta hai
 
     if df is None or len(df) < 20:
         _FAIL_CACHE[symbol.upper()] = time.time() + 300
@@ -2466,33 +2618,62 @@ def stock_api(symbol):
             'debt_val': info.get('debtToEquity')
         }
 
-        # Run 6 Institutional Engines
-        e1 = engine_volume_profile(df)
-        e2 = engine_rvol_cvd(df)
-        e3 = engine_vcp(df)
-        e4 = engine_smc(df)
-        e5 = engine_market_regime()
-        e6 = engine_multitimeframe(resolved, daily_df=df)
+        # FIX-33: completed 250-bar DAILY window for both historical and live
+        # stock ranking. In-market today's volume/candle is incomplete → last
+        # completed bar wins; live LTP still comes from the dedicated quote path.
+        now_ist = datetime.now(IST)
+        last_daily = pd.Timestamp(df.index[-1]).date()
+        partial_today = last_daily == now_ist.date() and is_market_open(now_ist)
+        ranked_df = df.iloc[:-1] if partial_today else df
+        rank_window = ranked_df.tail(SCORE_CAL.LOOKBACK_BARS)
+        rank_session = pd.Timestamp(ranked_df.index[-1]).strftime('%Y-%m-%d')
+        e1 = engine_volume_profile(rank_window)
+        e2 = engine_rvol_cvd(rank_window)
+        e3 = engine_vcp(rank_window)
+        e4 = engine_smc(rank_window)
+        e5 = engine_market_regime()                 # market-wide exposure ONLY
+        e6 = engine_multitimeframe(resolved, daily_df=df)  # independent diagnostic
         engines = [e1, e2, e3, e4, e5, e6]
 
-        ens = ensemble_score(engines)
+        ens = ensemble_score(engines, asof_session=rank_session,
+                             bars=len(ranked_df), symbol=resolved,
+                             data_fresh='STALE' not in str(daily_source).upper())
+        ens['calibration']['reference_session'] = rank_session
         # FIX-30: ML ka measured accuracy bhi bhejo — risk plan ab apna win-rate
         # assumption disclose karta hai (pehle 0.62/0.55/0.45 chup-chaap use hote the)
         _ml_acc = ml_res.get('ensemble_accuracy') if isinstance(ml_res, dict) else None
         _ml_wf = ml_res.get('walk_forward_accuracy') if isinstance(ml_res, dict) else None
         _ml_base = ml_res.get('baseline_accuracy') if isinstance(ml_res, dict) else None
-        # FIX-31: is plan ka ASLI hit-rate measure karo — Kelly ka 'p' ab
-        # 0.62/0.55/0.45 assumption se nahi, balki symbol ke data se aata hai
+        # FIX-31/33: measured plan geometry calibrated rank band se aati hai.
+        # Unfitted/invalid history → no directional label, qty 0. Regime/ML
+        # stock rank ko change nahi karte; regime sirf exposure factor hai.
         _dir = ('SHORT' if 'SHORT' in str(ens['action'])
                 else 'LONG' if str(ens['action']).startswith('BUY') else 'NONE')
-        _sl_mult, _ = plan_geometry(ens['score'])
-        _plan = (measure_plan_hit_rate(df, _dir, _sl_mult, symbol=resolved)
-                 if _dir != 'NONE' else None)
-        risk = calculate_risk(price, atr, ens['score'], action=ens['action'],
-                              measured_accuracy=_ml_acc,
-                              measured_wf_accuracy=_ml_wf,
-                              measured_baseline=_ml_base,
-                              plan_measure=_plan, atr_basis=atr_basis)
+        if ens['score'] is None:
+            risk = {'direction': 'NONE', 'qty': 0, 'kelly_pct': 0.0,
+                    'win_rate_used': None, 'edge_verified': False,
+                    'risk_note': 'Stock-specific daily engines unavailable — no plan.',
+                    'exec_status': '⚠️ NO DATA / NO TRADE', 'regime_exposure_factor': 0.0,
+                    'regime_basis': 'no stock score', 'qty_pre_regime': 0}
+        else:
+            _sl_mult, _ = plan_geometry(ens['score'], ens['action'])
+            _plan = (measure_plan_hit_rate(ranked_df, _dir, _sl_mult, symbol=resolved)
+                     if _dir != 'NONE' else None)
+            risk = calculate_risk(price, atr, ens['score'], action=ens['action'],
+                                  measured_accuracy=_ml_acc,
+                                  measured_wf_accuracy=_ml_wf,
+                                  measured_baseline=_ml_base,
+                                  plan_measure=_plan, atr_basis=atr_basis,
+                                  regime=e5, require_plan=True)
+            if not ens['calibration']['ready']:
+                risk['risk_note'] += ' | ' + ens['calibration']['note']
+        ens['tradeable'] = bool(ens['calibration']['ready'] and
+                                ens['action'] == 'BUY_BREAKOUT' and risk.get('qty', 0) > 0 and
+                                risk.get('plan_hit_rate') is not None and
+                                risk.get('edge_verified') and not e5.get('degraded'))
+        ens['tradeable_basis'] = ('Rules passed (p95 rank + in-sample plan check + regime sizing); '
+                                  'out-of-sample profit NOT verified' if ens['tradeable'] else
+                                  'No executable BUY_BREAKOUT: calibration/plan/regime/size gate')
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 

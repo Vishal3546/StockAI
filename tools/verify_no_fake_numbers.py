@@ -54,8 +54,9 @@ check('wf_accuracy ab None deta hai', "if wf_results else None" in app_src)
 
 n_degraded = len(re.findall(r"'degraded':\s*(True|not enough)", app_src))
 check('engine error paths me degraded flag', n_degraded >= 6, f'{n_degraded} jagah mila')
-check('ensemble_response me degraded_engines field', "'degraded_engines': excluded" in app_src)
-check('ensemble note deta hai', 'Degraded engines averaging se exclude' in app_src)
+score_src = (ROOT / 'score_calibration.py').read_text()  # FIX-33: formula yahan shared hai
+check('ensemble_response me degraded_engines field', "'degraded_engines': excluded" in score_src)
+check('ensemble note deta hai', 'Degraded engines averaging se exclude' in score_src)
 
 # ─────────────────────────── 2. ensemble behaviour ────────────────────────
 print('\n[2] ensemble: degraded engines exclude + renormalize')
@@ -64,14 +65,16 @@ import app as A  # noqa: E402
 two_live = [{'name': 'Volume Profile', 'score': 70},
             {'name': 'RVOL + CVD + VSA', 'score': 30}]
 r_all = A.ensemble_score(two_live)
-check('sab live → dono count', r_all['engines_used'] == 2 and r_all['degraded_engines'] == [],
+check('2 live → dono count, 2 missing ko mark karte hain',
+      r_all['engines_used'] == 2 and len(r_all['degraded_engines']) == 2 and
+      not r_all['calibration']['ready'],
       f"score={r_all['score']} used={r_all['engines_used']}")
 
 one_degraded = [{'name': 'Volume Profile', 'score': 70},
                 {'name': 'RVOL + CVD + VSA', 'score': 30, 'degraded': True}]
 r_deg = A.ensemble_score(one_degraded)
-check('degraded exclude hota hai', r_deg['degraded_engines'] == ['RVOL + CVD + VSA'],
-      f"excluded={r_deg['degraded_engines']}")
+check('degraded exclude hota hai', 'RVOL + CVD + VSA' in r_deg['degraded_engines']
+      and r_deg['engines_used'] == 1, f"excluded={r_deg['degraded_engines']}")
 check('weights renormalize (score badalna chahiye)', r_deg['score'] != r_all['score'],
       f"all-live={r_all['score']} vs degraded-excluded={r_deg['score']}")
 check('note me exclude list aati hai', r_deg['note'] and 'RVOL' in r_deg['note'])
@@ -80,8 +83,10 @@ check('engines_used = live count', r_deg['engines_used'] == 1)
 all_degraded = [{'name': 'Volume Profile', 'score': 50, 'degraded': True},
                 {'name': 'SMC / ICT', 'score': 50, 'degraded': True}]
 r_none = A.ensemble_score(all_degraded)
-check('sab degraded → crash nahi, safe fallback', r_none['engines_used'] == 2
-      and r_none['degraded_engines'] == [], f"score={r_none['score']}")
+check('sab degraded → fake 50 nahi, null score + no trade',
+      r_none['engines_used'] == 0 and r_none['score'] is None
+      and r_none['action'] == 'DATA_UNAVAILABLE' and not r_none['tradeable'],
+      f"score={r_none['score']}")
 
 # ─────────────────────────── 3. engine-level honesty ──────────────────────
 print('\n[3] engines: data na mile to degraded flag + None (fake number nahi)')

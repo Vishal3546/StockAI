@@ -104,7 +104,7 @@ check("score 40 → (2.5, 0.45)", A.plan_geometry(40) == (2.5, 0.45))
 
 print("\n[7] source-level wiring")
 src = (ROOT / "app.py").read_text()
-check("call site measure_plan_hit_rate call karta hai", "measure_plan_hit_rate(df, _dir, _sl_mult, symbol=resolved)" in src)
+check("call site measured plan completed bars par call karta hai", "measure_plan_hit_rate(ranked_df, _dir, _sl_mult, symbol=resolved)" in src)
 check("call site plan_measure bhejta hai", "plan_measure=_plan" in src)
 check("CONFIG me PLAN_MEASURE_MIN_N", "'PLAN_MEASURE_MIN_N'" in src)
 check("CONFIG me PLAN_LCB_Z", "'PLAN_LCB_Z'" in src)

@@ -65,6 +65,24 @@ check('asli RSI 61.2 dikhta hai', /RSI \(14\) 61.2/.test(txt('indList')));
 check('missing risk par ₹0 nahi', !/₹0\b/.test(txt('riskPlan')));
 check('verdict me 71/100', /Master Score: 71\/100/.test(txt('aiVerdict')));
 
+console.log('\n[2b] unfit history + no measured plan (FIX-33)');
+err = render({ ensemble: { score: 72, action: 'WATCHLIST', tradeable: false,
+    calibration: { ready: false, note: 'history missing; no BUY' } },
+  risk: { qty: 0, win_rate_used: null, risk_note: 'ASSUMED fallback blocked; no trade',
+    regime_exposure_factor: 0, qty_pre_regime: 0, regime_basis: 'UNKNOWN' }, engines: {} });
+check('unfit payload crash nahi hota', !err, err || '');
+check('score panel UNFITTED + no directional action batata hai',
+  /UNFITTED.*history missing/.test(txt('scoreCalNote')));
+check('unfit score panel me magic p80/65/78 nahi', !/p80 ≥/.test(txt('scoreCalNote')));
+check('no-plan risk note visible even if win_rate_used null',
+  /ASSUMED fallback blocked/.test(txt('riskPlan')));
+check('unknown regime cap qty 0 visible', /Market-regime exposure cap .*0%.*0 → 0/.test(txt('riskPlan')));
+err = render({ risk: { plan_hit_rate: 0.50, plan_sample_size: null,
+    plan_breakeven: null, plan_hit_rate_lcb: null }, ensemble: {}, engines: {} });
+check('partial measured-plan metadata crash nahi hota', !err, err || '');
+check('partial plan me fake 0.0% lower-bound/breakeven nahi',
+  /breakeven —, lower-bound —/.test(txt('riskPlan')));
+
 const payloadPath = process.argv[2];
 if (payloadPath && fs.existsSync(payloadPath)) {
   console.log('\n[3] real payload — ' + payloadPath);
@@ -76,6 +94,25 @@ if (payloadPath && fs.existsSync(payloadPath)) {
   if (p.ensemble?.score != null) check('real master score ' + p.ensemble.score, new RegExp('Master Score: ' + p.ensemble.score + '/100').test(v));
   if (p.ml?.probability != null) check('real ML probability ' + p.ml.probability + '%', v.includes(p.ml.probability + '%'));
   check('gauges fill hue (khaali nahi)', Math.abs(parseFloat(w.document.getElementById('gMaster').style.strokeDashoffset) - 2 * Math.PI * 47) > 0.01);
+  if (p.ensemble?.calibration) {
+    const fit = p.ensemble.calibration;
+    const label = txt('scoreCalNote');
+    if (fit.ready) {
+      check('fitted history sessions/sample/p80/p95 visible (FIX-33)',
+        label.includes(String(fit.sessions) + ' past sessions') &&
+        label.includes(String(fit.samples) + ' stock-scores') &&
+        /p80 ≥ .*p95 ≥/.test(label) && /NOT profit probability/.test(label));
+      check('score panel absolute as-of date visible', label.includes(fit.asof_session));
+    } else {
+      check('stale/unfit clearly labelled', /UNFITTED/.test(label));
+    }
+    if (p.risk?.regime_exposure_factor != null)
+      check('live risk regime exposure cap visible',
+        txt('riskPlan').includes((p.risk.regime_exposure_factor * 100).toFixed(0) + '%'));
+    if (p.ensemble.action === 'BUY_BREAKOUT' && !p.ensemble.tradeable)
+      check('top rank but plan edge missing → UI NO TRADE (not green recommendation)',
+        /NO TRADE/.test(txt('targetsBox')) && !/🟢/.test(txt('aiVerdict')));
+  }
   if (p.risk && p.risk.win_rate_used != null) {
     const riskText = txt('riskPlan');
     // FIX-31 ke baad measured plan available ho to ASSUMED nahi dikhna chahiye.

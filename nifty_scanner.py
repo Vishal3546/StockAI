@@ -53,14 +53,11 @@ import requests as http_requests
 import warnings
 warnings.filterwarnings('ignore')
 
-NIFTY_STOCKS = [
-    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
-    "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK", "LT",
-    "WIPRO", "AXISBANK", "MARUTI", "TATAMOTORS", "BAJFINANCE",
-    "SUNPHARMA", "TITAN", "ADANIENT", "POWERGRID", "NTPC",
-    "ONGC", "COALINDIA", "TATASTEEL", "TECHM", "ASIANPAINT",
-    "ULTRACEMCO", "NESTLEIND", "BAJAJFINSV", "DRREDDY", "JSWSTEEL"
-]
+# FIX-33: scanner ka ML composite calibration ke liye KABHI use nahi hota.
+# Lekin symbol universe ek jagah defined rahe taaki score history aur scanner
+# alag-alag stocks ki list ke chalte silently drift na karein.
+from score_calibration import UNIVERSE
+NIFTY_STOCKS = list(UNIVERSE)
 
 SECTOR_MAP = {
     "RELIANCE": "Energy", "TCS": "IT", "HDFCBANK": "Banking", "INFY": "IT",

@@ -624,6 +624,9 @@ body::after {
       <div class="col-4 col-md-2"><div class="gc eng-card" style="border-color:rgba(0,240,255,0.12)"><div class="eng-score" style="color:var(--accent-cyan)" id="e6s">—</div><div class="eng-name">MTF</div><div class="eng-sig sig-hold" id="e6sig">—</div></div></div>
     </div>
 
+    <!-- FIX-33: fitted rank status; missing/stale history NEVER silently uses 65/78 -->
+    <div class="gc mb-3" id="scoreCalNote" style="padding:10px 14px;font-size:0.78rem;color:var(--color-yellow)" aria-live="polite">Score history loading…</div>
+
     <!-- Chart + Indicators -->
     <div class="row g-2 mb-3">
       <div class="col-lg-8">
@@ -1075,6 +1078,21 @@ function render(d) {
   rb.textContent = sv(reg.regime, '—');
   rb.className = 'badge-tag ' + sc(reg.score);
   document.getElementById('vixBadge').textContent = `VIX: ${sv(reg.vix, '—')} (${sv(reg.vix_status, 'UNKNOWN')})`;
+  rb.title = 'FIX-33: market regime affects exposure cap only; stock rank me 0% weight';
+  const mtfCard = document.getElementById('e6s');
+  if (mtfCard) mtfCard.title = 'Intraday MTF diagnostic; 250-session comparable history nahi, rank se alag';
+
+  // FIX-33: fitted history + policy disclosure. textContent prevents HTML injection.
+  const scoreCal = document.getElementById('scoreCalNote');
+  const fit = ens.calibration;
+  if (scoreCal && fit?.ready) {
+    const th = fit.thresholds || {};
+    scoreCal.textContent = `📊 Score FIT: ${fit.sessions} past sessions, ${fit.samples} stock-scores (as-of ${fit.asof_session}, current bar ${fit.reference_session || '—'}). Relative rank ${svd(fit.relative_rank_pct)}% · p80 ≥ ${svd(th.buy_dip)} · p95 ≥ ${svd(th.buy_breakout)}. Percentile = rank, NOT profit probability. Regime → exposure; MTF → diagnostic only.`;
+    scoreCal.style.color = 'var(--accent-cyan)';
+  } else if (scoreCal) {
+    scoreCal.textContent = `⚠️ Score UNFITTED — ${sv(fit?.note, 'score history unavailable')}. No directional signal/position. Run python tools/build_score_calibration.py; do not use old 65/78.`;
+    scoreCal.style.color = 'var(--color-yellow)';
+  }
 
   // KPI Score Gauges Map
   const gaugeKeys = ['intraday', 'swing', 'longterm', 'master'];
@@ -1326,7 +1344,7 @@ function render(d) {
   // FIX-30: risk plan neeche apna win-rate ASSUMPTION disclose karta hai
   document.getElementById('riskPlan').innerHTML = `
     <div class="row g-2 mb-2">
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly %</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly % (before regime)</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div>${!isMissing(rk.kelly_pct_after_regime) ? `<small style="color:var(--text-muted)">after regime: ${pctd(rk.kelly_pct_after_regime)}</small>` : ''}</div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${svd(rk.qty)}</div></div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">1:${svd(rk.rr_ratio)}</div></div></div>
     </div>
@@ -1334,9 +1352,12 @@ function render(d) {
     <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${money(rk.capital)}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>
+    ${(rk.regime_exposure_factor === null || rk.regime_exposure_factor === undefined) ? '' :
+      `<div class="ind-row" title="Risk policy, not backtested alpha"><span style="color:var(--text-secondary)">Market-regime exposure cap (rank me 0%)</span><span class="mono">${(rk.regime_exposure_factor * 100).toFixed(0)}% · qty ${svd(rk.qty_pre_regime)} → ${svd(rk.qty)}<br><small>${sv(rk.regime_basis, 'unknown')}</small></span></div>`}
     ${(rk.plan_hit_rate === null || rk.plan_hit_rate === undefined) ? '' :
-      `<div class="ind-row"><span style="color:var(--text-secondary)">Measured plan win-rate</span><span class="mono" style="color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-red)'}">${(rk.plan_hit_rate * 100).toFixed(1)}% <span style="color:var(--text-muted);font-size:0.65rem">(n=${rk.plan_sample_size}, breakeven ${(rk.plan_breakeven * 100).toFixed(1)}%, lower-bound ${(rk.plan_hit_rate_lcb * 100).toFixed(1)}%)</span></span></div>`}
-    ${(rk.win_rate_used === null || rk.win_rate_used === undefined) ? '' : `<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${rk.risk_note || ('Position size ' + (rk.win_rate_used * 100).toFixed(0) + '% ASSUMED win-rate par based hai — verified nahi.')}</div>`}`;
+      `<div class="ind-row"><span style="color:var(--text-secondary)">Measured plan win-rate</span><span class="mono" style="color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-red)'}">${(rk.plan_hit_rate * 100).toFixed(1)}% <span style="color:var(--text-muted);font-size:0.65rem">(n=${svd(rk.plan_sample_size)}, breakeven ${isMissing(rk.plan_breakeven) ? '—' : (rk.plan_breakeven * 100).toFixed(1) + '%'}, lower-bound ${isMissing(rk.plan_hit_rate_lcb) ? '—' : (rk.plan_hit_rate_lcb * 100).toFixed(1) + '%'})</span></span></div>`}
+    ${(rk.risk_note || (rk.win_rate_used !== null && rk.win_rate_used !== undefined)) ?
+      `<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${sv(rk.risk_note, 'Position size assumed; basis unavailable.')}</div>` : ''}`;
 
   // Technical SMC & Contraction Patterns Sizer
   const smc = (d.engines && d.engines.smc) || {};
@@ -1350,15 +1371,15 @@ function render(d) {
   // Deep AI Verdict Synthesis Output
   let finalVerdictHtml = '';
   if (ens.tradeable) {
-    finalVerdictHtml = `<strong style="color:var(--color-green)">🟢 ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100</strong><br><br>`;
+    finalVerdictHtml = `<strong style="color:var(--color-green)">🧪 ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (rule checks pass; NOT validated profit)</strong><br><br>`;
   } else {
-    finalVerdictHtml = `<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (Below Institutional Threshold)</strong><br><br>`;
+    finalVerdictHtml = `<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (${ens.calibration?.ready ? 'Relative rank only; no executable trade' : 'Threshold fit unavailable'})</strong><br><br>`;
   }
   
   finalVerdictHtml += `<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} probability (${sv(ml.confidence, 'UNKNOWN')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
   finalVerdictHtml += `<strong>Engines:</strong> VolProfile: ${sv(d.engines?.vol_profile?.score, '?')} | RVOL: ${sv(d.engines?.rvol_cvd?.score, '?')} (${sv(d.engines?.rvol_cvd?.rvol, '?')}x) | VCP: ${sv(d.engines?.vcp?.score, '?')} | SMC: ${sv(d.engines?.smc?.score, '?')} | Regime: ${sv(d.engines?.regime?.score, '?')} | MTF: ${sv(d.engines?.mtf?.score, '?')}<br>`;
-  finalVerdictHtml += `<strong>Risk Plan:</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Position Size (Kelly): ${pctd(rk.kelly_pct)}<br><br>`;
-  finalVerdictHtml += `<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Multi-layer verification complete. System operational. Always protect capital.</span>`;
+  finalVerdictHtml += `<strong>Risk Plan (illustrative):</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Kelly before regime: ${pctd(rk.kelly_pct)} | after regime: ${pctd(rk.kelly_pct_after_regime)} | qty: ${svd(rk.qty)}<br><br>`;
+  finalVerdictHtml += `<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Percentiles describe relative rank, not future profit. Strategy edge has not been independently verified; research only, not investment advice.</span>`;
   
   document.getElementById('aiVerdict').innerHTML = finalVerdictHtml;
 }

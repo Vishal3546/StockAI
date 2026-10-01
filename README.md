@@ -1,10 +1,11 @@
 # StockAI — Institutional Multi-Tech Hybrid Engine (V6.1)
 
 > **Hinglish, chhota sa:** ye repo ek NSE stock-analysis engine hai (TradingView → NSE → Yahoo
-> 3-tier data, ML ensemble, 6 scoring engines, dashboard). **V6.1 me ek deep audit ke 15 defects
-> fix kiye gaye hain** — sab ek regression suite se verified. Do cheezein **jaan-boojh kar open**
-> chhodi gayi hain kyunki wo bug nahi, research problems hain: **ML ka measurable edge nahi hai**
-> aur **score thresholds calibrated nahi hain**. Details: [`AUDIT_REPORT.md`](AUDIT_REPORT.md).
+> 3-tier data, ML ensemble, 6 panels, dashboard). V6.1 ke audit me 15 defects fix huye.
+> **FIX‑31/32/33 (2026‑10‑01):** Kelly ka p plan-data se measure hota hai; missing values null;
+> score *distribution* par 250-session percentile bands fit hote hain (pehle 65/78 hardcoded the).
+> **Lekin ML aur fitted rank me proven profit edge ABHI BHI NAHI hai.** Original audit historical
+> snapshot hai; [audit addendum](AUDIT_REPORT.md#fix-33-addendum--2026-10-01) dekhein.
 
 [![verified](https://img.shields.io/badge/regression%20suite-31%20passed%20%2F%200%20failed-brightgreen)](#verification)
 [![python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)]()
@@ -18,8 +19,8 @@
 | ✅ **Data layer** | 3-tier fallback (TradingView → NSE direct → Yahoo), JSON-safe, degrades gracefully |
 | ✅ **Indicator layer** | ATR/RSI match reference math exactly; SuperTrend 97.4 % faithful to the canonical Pine algorithm |
 | ⚠️ **ML layer** | **No measurable edge.** 7,200 out-of-sample predictions across 20 Nifty names: mean accuracy **50.7 % vs a 51.9 % baseline (edge −1.1 pp)**. Treat ML probabilities as research output, not advice. |
-| ⚠️ **Scoring layer** | The six engines are **not on a common 0-100 scale**, so the master score sits near 42 and the label bands (65/78) are effectively unreachable. `ensemble_v2` is a diagnostic shim, **not** a calibrated model. |
-| ⚠️ **Execution** | `qty`/`notional` are now capped at 1× capital, but this is **not** a backtested system. No slippage, no costs, no walk-forward P&L. |
+| ⚠️ **Scoring layer** | FIX‑33: only **4 stock-specific daily engines** enter the master score; Market Regime (former 18%) moves to *exposure*, intraday MTF remains a diagnostic. `score_calibration.json` fits **p80 / p95** on **250 completed sessions / 7,250 observed scores / 29 of 30 NSE names**, as-of 2026‑09‑29: cutoffs **57 / 62** on THIS score definition. Due to integer-score ties, ≥p80 includes **22.1%** and ≥p95 **6.4%** of that historical sample (not exact 20%/5% quotas). **Relative ranking only**, not a prediction of profitable returns. |
+| ⚠️ **Execution** | Live API blocks assumed-Kelly sizing when the measured plan sample is missing, applies a separately labelled regime exposure cap, and fails closed if history/index data are missing. `qty` ≤ 1× capital, **but** overlapping in-sample plan samples + fitted percentiles are **not** an out-of-sample cost-aware strategy backtest. |
 
 **None of this is investment advice.** Use it as a research dashboard, not an order generator.
 
@@ -32,6 +33,7 @@ git clone https://github.com/Vishal3546/StockAI.git && cd StockAI
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
+python tools/build_score_calibration.py  # update 250-day history when >10 calendar days old
 python app.py            # dashboard + API  ->  http://127.0.0.1:5000/
 ```
 
@@ -66,10 +68,12 @@ cp313 wheels — the file documents that too.
 │    ├─ fetch_nse_live_ltp()   realtime LTP when NSE is reachable (+negative cache)
 │    ├─ calculate_all_indicators()  20+ indicators (ATR/RSI/MACD/BB/ADX/VWAP/Ichimoku…)
 │    ├─ ml_engine()            28 features · GB+RF+LR(+XGB) · expanding-window walk-forward
-│    ├─ 6 engines             Volume Profile · RVOL/CVD/VSA · VCP · SMC/ICT · Regime · Multi-TF
-│    ├─ ensemble_score()      weighted blend  (+ ensemble_v2 diagnostic)
-│    └─ calculate_risk()      direction-aware Kelly sizing with a 1× notional cap
-├─ nifty_scanner.py ───────── threaded scanner → scan_results.json
+│    ├─ 6 engine panels       Volume Profile · RVOL/CVD/VSA · VCP · SMC/ICT · Regime · Multi-TF
+│    ├─ ensemble_score()      4 DAILY stock engines + p80/p95 history fit (v2 diagnostic)
+│    └─ calculate_risk()      measured plan → Kelly; regime exposure cap; 1× notional
+├─ score_calibration.py ────── shared score formula, universe + strict history validator
+├─ score_calibration.json ──── past 250 sessions; rebuild via tools/build_score_calibration.py
+├─ nifty_scanner.py ───────── SEPARATE ML-composite scanner → scan_results.json
 ├─ deep_analyzer.py ───────── quant risk (Sharpe/Sortino/Calmar/VaR), sector RS & beta
 └─ tools/ ─────────────────── reproducible fix + verification scripts
 ```
@@ -85,6 +89,35 @@ cp313 wheels — the file documents that too.
 | `GET /api/stream/<SYMBOL>` | Server-Sent Events tick stream |
 | `GET /api/search?q=…` | autocomplete over 2,565 NSE equities |
 
+### FIX‑33 · Fitted distribution ≠ validated trading edge
+
+`score_calibration.json` stores **each actual stock score by past session** (250 dates, >=20
+observed stocks/date). Build script downloads 3y Yahoo daily OHLCV for the *same* 30-name universe,
+then computes the exact live daily stock-engine formula on rolling 250-bar windows **as of each
+completed date**. It excludes current analysis day from the fit, and never substitutes the
+scanner's separate ML `composite` or invents historical intraday MTF bars. The four ranking
+weights (0.12/0.20/0.15/0.15) are renormalised; market regime gets **0% stock-rank weight**.
+MTF and regime still appear in the six UI panels. Regime now applies a clearly labelled
+**directional exposure policy** *after* Kelly/notional caps: e.g. BULL → LONG ×0.75,
+STRONG BEAR → LONG ×0/SHORT ×0.50; UNKNOWN → no live position. These factors are **policy,
+not backtested alpha**.
+
+`ensemble.calibration` exposes `ready`, `asof_session`, `reference_session`, `sessions`, `samples`,
+`thresholds`, `relative_rank_pct` and an explicit status note. If history is invalid/stale or
+stock/engine data are insufficient **or the stock daily feed is labelled STALE**, the raw score
+may show but **BUY/SHORT labels and sizing are blocked**. **Out-of-universe names (2,500+ searchable stocks) and the one missing-history name
+are NOT fitted**: they show the raw score only, never inherit NIFTY percentiles by accident.
+Live API also blocks the fallback assumed Kelly p when the measured plan sample is
+missing. `tradeable` requires p95 rank + measured plan break-even check + nonzero regime-capped qty,
+**not** a proof of positive out-of-sample net returns. `nifty_scanner.py` signals use a separate
+formula and keep their own bands.
+
+**Refresh:** run `python tools/build_score_calibration.py` at least every 10 calendar days; this
+artifact is as-of 2026‑09‑29 and will intentionally become stale. If market is open, the builder
+skips today's partial candle *and* the current ranked completed session to avoid same-day leakage.
+It writes atomically, validates formula hash/weights/universe and refuses an incomplete rebuild.
+Verify offline: `python tools/verify_score_calibration.py` (64 checks) plus existing suites.
+
 ---
 
 ## What V6.1 fixed
@@ -97,7 +130,7 @@ All 15 fixes live in the code, marked `FIX-nn` (search for `FIX-`). Full evidenc
 |---|---|---|
 | C-1 | `qty` had **no notional cap** — a ₹1,00,000 account was told to buy 454 RELIANCE = **₹5,39,942 (5.4× leverage)**; Kelly used a hardcoded `b=2.5` while the function's own `rr_ratio` printed `1.0` (true Kelly **negative** = no trade); a SHORT_SELL verdict still produced a **long** plan | direction-aware mirror, `qty ≤ capital/price`, `b` derived from real levels, `kelly ≤ 0 → qty = 0`, `direction=NONE → no trade` |
 | C-2 | ML accuracy shown as a **single 80/20 split** ("Best Edge +10 %", "HIGH confidence") while the honest walk-forward number was buried; 8.1 s of retraining per request | ML cached per (symbol, bar) → 5.5 s → 1.5 s warm; `walk_forward_accuracy`, `walk_forward_edge` and the ±1σ window band are now in the payload **and** the UI, with a plain-language verdict (`NO EDGE (below baseline)`) |
-| C-3 | 0 BUYs possible by construction (engine scales incompatible; measured mean 42.4, max 56 over 10 symbols) | `ensemble_v2` diagnostic re-centres VCP (+20) and normalises MTF by loaded timeframes — explicitly labelled *uncalibrated* |
+| C-3 | Original six-engine score mean 42.4, 65/78 BUY bands seldom reachable | FIX‑33: daily four-engine *rank* fitted against 250 prior universe sessions: p80=57 / p95=62 as-of 2026‑09‑29. No forward-return proof. `ensemble_v2` remains a separate uncalibrated diagnostic. |
 
 ### 🟠 High
 | ID | Defect | Fix |
@@ -163,10 +196,15 @@ python3 research/run_study.py --period 5y && python3 research/analyze.py 5y
    was *also* tested and **also failed** (−7.2 pp vs baseline, 0/20 symbols positive). Until a
    design shows a positive edge with CI, ML stays advisory-only — no accuracy number in the UI
    without a ≥500-prediction rolling sample behind it.
-2. **Score calibration.** Thresholds (65/78) are hardcoded on an arbitrary scale. Fit them on the
-   score's own 1-year distribution (e.g. BUY = 80th percentile). Volume Profile returns only
-   `{35,50,70,75}` and Market Regime is constant across stocks — both need redesign, and Market
-   Regime belongs in exposure sizing, not in a stock's rank.
+2. **Score *performance* validation (still OPEN).** FIX‑33 fits score DISTRIBUTION, not expected
+   future return. At 2026‑09‑29: p80/p95 = 57/62 on 7,250 observed daily-engine scores. Changes to
+   formula/weights/universe, <250 completed sessions, missing stock data, same/future-date fit or
+   >10-day-old fit disable directional labels. Rebuild with
+   `python tools/build_score_calibration.py`; script uses Yahoo daily OHLCV and excludes the live
+   bar (and yesterday if today's bar is in progress). **Scanner `composite` is a different model**;
+   never fit these cutoffs on `scan_results.json`. Remaining research: cost-aware OOS returns, CI,
+   conditional plan hit-rate and market-regime exposure policy validation. Neither percentile rank
+   nor a 1-sigma bound on overlapping, unconditional setups proves profitable trading.
 3. **Ops.** `CORS(*)` with no auth/rate-limit (do not expose the port), NSE master-list parse
    survives only because the CSV header really is `' SERIES'`, network call at import time,
    `innerHTML` search rendering.

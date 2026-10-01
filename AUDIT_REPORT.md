@@ -2,6 +2,38 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-33 addendum — 2026-10-01
+
+**This audit is an as-of-2026-09-30 record; C-3 / the 65/78 comments below describe the *old*
+score.** Subsequently, FIX‑31 measured the actual T1-before-SL *plan geometry* for Kelly p,
+FIX‑32 removed silent `sf`/`si` 0 fallbacks, and FIX‑33 implemented a genuinely reproducible
+**distribution fit** (not a future-return backtest). For FIX‑33 the master score now uses only
+**four daily stock-specific engines**, each on the same trailing 250 bars in live and historical
+runs. Regime's former 18% stock-rank weight is **zero**; it instead caps directional position
+exposure. Intraday MTF (old 20%) stays in its diagnostic panel: inventing 250 sessions of 5m/15m
+history would break comparability and would be worse than excluding it from the fitted rank.
+
+Builder `tools/build_score_calibration.py` fetched 3y Yahoo daily bars (2026‑10‑01 morning run),
+excluded the current partial bar and the current ranked completed session, and retained **250
+completed sessions from 2025‑10‑01 through 2026‑09‑29**. There are **7,250 observed scores,
+29/30 NSE universe stocks** (TATAMOTORS lacked >=500 clean bars; no fabricated fill).
+Type‑7 pooled percentiles on the new four-engine raw score: **p10=43, p40=50, p80=57, p95=62**.
+BUY_DIP maps to p80, BUY_BREAKOUT to p95; score ties mean ≥p80 contains **22.1%** and
+≥p95 **6.4%** of observed historical scores (not exactly 20%/5%). Old absolute 65/78 are
+not used in live labels.
+The JSON artifact includes every per-session score, formula fingerprint, universe, weights and
+source. Missing/stale history, mismatched formula/weights/recorded cutoffs, same/future-day fit or
+absent symbol disables directional labels (this is consistency checking, not a digital signature).
+The live API also blocks an assumed Kelly p without a measured plan; missing NIFTY regime caps
+quantity to zero. Standalone legacy risk helper still accepts generic `action='BUY'` score
+buckets for backward-compatibility tests; **not** used by `/api/stock` labels.
+
+**This is NOT evidence of trading profit.** Percentiles rank scores, not returns. Measured plan
+setups overlap and are unconditional/in-sample, independent-sample SE is optimistic, and neither
+borrow/slippage/cost-aware conditional P&L nor walk-forward rank performance was verified. The
+regime exposure fractions are explicitly risk *policy*, not fitted alpha. Scanner's separate
+`composite` has not been calibrated here. See README and `tools/verify_score_calibration.py`.
+
 ---
 
 ## 0. How this audit was done (so you can reproduce every number)
