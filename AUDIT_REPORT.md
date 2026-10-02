@@ -2,6 +2,95 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-54 addendum — 2026-10-02 (BSE-only stocks: "NSE feed fail" nahi, listed hi nahi)
+
+### User ne DHOOTIN search kiya — log me hi jawab tha
+
+```
+ERROR:yfinance:HTTP Error 404: Quote not found for symbol: DHOOTIN.NS
+```
+
+Aur user ne wahi sawaal dohraya jo maine FIX-53 me bina verify kiye chhod diya tha:
+*"NSE feed kyun khaali aata hai?"*
+
+**Mera FIX-53 ka andaza ("tvDatafeed ka anonymous session limit") is case me galat tha.**
+Verify kiya:
+
+```
+DHOOTIN.NS  -> Yahoo 404 "No data found"          TV-NSE:DHOOTIN -> EMPTY
+DHOOTIN.BO  -> Yahoo OK, exchange=BSE, 251.0      TV-BSE:DHOOTIN -> 244.60 (01-Oct)
+NSE master (2593 rows) me 'DHOOT*' ka sirf 1 match:
+    DHOOTTRANS, Dhoot Transmission Limited, EQ, 17-AUG-2026, ISIN INE01NH01023
+```
+
+**`DHOOTIN` NSE par listed hi nahi.** NSE master me jo `DHOOTTRANS` hai wo **alag company**
+hai — measured:
+
+| | company | 01-Oct close | marketCap |
+|---|---|---|---|
+| `DHOOTIN.BO` | **Dhoot Industrial Finance Ltd** | 244.60 | ₹158.6Cr |
+| `DHOOTTRANS.NS` | **Dhoot Transmission Ltd** | 1443.40 | ₹29,578Cr |
+
+Yaani NSE feed "fail" nahi hua tha — stock wahan exist hi nahi karta. BSE fallback ne bilkul
+sahi kaam kiya. Par FIX-53 ka message "NSE feed khaali tha" bol kar use fault jaisa dikhata
+tha.
+
+### Bug — fundamentals hamesha `.NS` try karte the
+
+```python
+info = yf.Ticker(f"{resolved}.NS").info or {}
+```
+
+BSE-only stocks par ye hamesha 404 deta tha, isliye **poora Fundamentals panel N/A** tha —
+jabki `.BO` se sab milta hai. Ye FIX-53 ke `frame_exchange` se free me fix ho gaya:
+
+```python
+_yf_suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'
+```
+
+Live verified (DHOOTIN):
+
+| | pehle | ab | Yahoo raw |
+|---|---|---|---|
+| Market Cap | N/A | **₹159Cr** | 1,585,817,984 |
+| P/E | N/A | **2.8** | 2.8451598 |
+| P/B | N/A | **0.36** | 0.36405092 |
+| D/E | N/A | **0.0% D/E** | 0.027 |
+| sector | N/A | **Financial Services** | — |
+
+### Bug — `priceGapWarn` ki wajah galat likhi thi
+
+FIX-52 me maine message me likha tha "Yahoo ka quote 15:15 ka continuous-session price ho
+sakta hai, official close nahi" — **wo theory FIX-53 me khud maine disprove ki thi**, par
+message text waisa hi reh gaya. Ab sahi wajah likhi hai: live quote ek point-in-time snapshot
+hai (uska apna `regularMarketTime` hota hai), daily frame ka close session ka final close —
+thin stocks par ye kaafi alag ho sakte hain.
+
+DHOOTIN par measured: Yahoo `.BO` `regularMarketPrice = 251.0 @ 15:27:03`, jabki uska apna
+01-Oct daily bar `None` hai aur TV-BSE ka close 244.60. Yaani 2.62% ka gap — aur ye gap
+**asli** hai, warning sahi fire hui.
+
+### Fix
+
+1. yfinance suffix frame ke exchange se choose hota hai
+2. `/api/stock` me `on_nse_master` — symbol NSE master me hai ya nahi
+3. Dashboard BSE-only aur NSE-feed-failure me farq karta hai ("ℹ️ sirf BSE par listed" vs
+   "⚠️ NSE feed khaali")
+4. Terminal warning neutral wording
+5. `priceGapWarn` ki galat CAS explanation hati
+
+### Jo abhi bhi khula hai
+
+**Yahoo ka `DHOOTIN.BO` internally inconsistent hai** — `regularMarketPrice` 251.0 deta hai
+par us session ka daily bar `None`. App isko theek nahi kar sakta; warning dikhana hi sahi
+hai. Aur `debtToEquity = 0.027` (yaani 0.027%) ek NBFC ke liye implausibly kam lagta hai —
+wo Yahoo ka data hai, app ka bug nahi, par `:.1f` format se "0.0%" dikhta hai (precision
+lost, value fake nahi).
+
+`verify_live_quote.py` 168 → **174 checks** · regression **815 passed, 0 failed**
+
+---
+
 ## FIX-53 addendum — 2026-10-02 (asli wajah: TradingView ka silent BSE fallback)
 
 ### ⚠️ Pehle: FIX-52 me maine teen galat cheezein likhi thi
@@ -1747,6 +1836,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | BSE-only stocks par poora Fundamentals panel N/A tha, aur "NSE feed fail" wala galat message dikhta tha | ✅ **Solved (FIX-54)** — user ne DHOOTIN search kiya; log me hi jawab tha (`404: Quote not found for symbol: DHOOTIN.NS`). Verify kiya: `DHOOTIN.NS` Yahoo par 404, `TV-NSE:DHOOTIN` EMPTY, aur NSE master (2593 rows) me sirf `DHOOTTRANS` hai — jo **alag company** hai (Dhoot Transmission, close 1443.40, mcap Rs29,578Cr) vs `DHOOTIN` = **Dhoot Industrial Finance** (close 244.60, mcap Rs158.6Cr). Yaani NSE feed "fail" nahi hua tha, **stock NSE par listed hi nahi** — aur mera FIX-53 ka "tvDatafeed session limit" wala andaza is case me galat tha. Do bugs: yfinance hamesha `.NS` try karta tha isliye poora Fundamentals N/A (jabki `.BO` se sab milta hai — ab mcap Rs159Cr, P/E 2.8, P/B 0.36, sector Financial Services live verified), aur `priceGapWarn` me wahi galat CAS explanation likhi thi jo FIX-53 me maine khud disprove ki thi. Ab suffix frame ke exchange se chunta hai, `on_nse_master` bhejta hai, aur Dashboard BSE-only vs feed-failure me farq karta hai. `verify_live_quote.py` 168 → **174 checks**, regression **815 passed, 0 failed**. |
 | — | TradingView ka fetch silently NSE se BSE par gir jaata tha, aur label batata hi nahi tha | ✅ **Solved (FIX-53)** — user ne FIX-52 ke teen "verify nahi kiya" items par sawaal kiya; verify karne par **teeno meri galtiyan nikli**. `tvDatafeed` se direct measure: `NSE:TCS 2075.00` vs `BSE:TCS 2079.30`, `NSE:RELIANCE 1167.70` vs `BSE:RELIANCE 1166.00`. Yaani **"Yahoo 4.30 off tha" galat tha** — 2079.30 BSE ka close hai, NSE ka nahi. **"Yahoo CAS close miss karta hai" bhi galat** — 11 sessions × 2 stocks = **22 din, 0 mismatch** (Yahoo = TradingView-NSE). **"ML study par asar" bhi nahi.** Asli wajah: `fetch_tradingview` me silent `exchange='BSE'` fallback tha aur caller dono ko `'TradingView Direct'` kehta tha. **Proof:** user ke dashboard ke chaaron numbers (2079.30 / ATR 57.54 / 52W 3336.7 / 1976) TV-BSE se **exact match** — poora analysis BSE data se bana tha jabki calibration NSE universe par fitted hai. Ab `fetch_tradingview` `(df, exchange)` return karta hai, label `'TradingView Direct (NSE|BSE)'`, `/api/stock` me `frame_exchange`, aur Dashboard BSE frame par warn karta hai. `verify_live_quote.py` 160 → **168 checks**, regression **809 passed, 0 failed**. |
 | — | Price exchange se match nahi karta tha — aur `is_market_open` me duplicate constant | ✅ **Solved (FIX-52)** — user ne "Moneycontrol/NSE/BSE se compare karo, 100% match ho raha hai" poocha. Yahoo crumb + BSE API se cross-check kiya: **BSE official TCS ₹2079.30 vs app ₹2075.00 (−4.30)**, RELIANCE ₹1166.00 vs ₹1167.70. Karan: Aug-2026 se NSE ka Closing Auction 15:15–15:35 chalta hai aur Yahoo ka `regularMarketTime` dono stocks par exactly **15:15:00** tha — continuous session ka last trade, official close nahi. Saath me **ROE 100x galat** tha (TCS "0.48%" jabki Yahoo raw 0.47743 = **47.74%**) — FIX-09 ka comment maanta tha `dividendYield` aur `returnOnEquity` dono percent me aate hain, par ROE fraction me aata hai, aur heuristic dono branches me galat tha. Aur `is_market_open` me apna literal `15*60+40` tha jo `SESSION_CLOSE_HM` padhta hi nahi tha — naya test pakda. Baaki fundamentals (P/E, P/B, D/E, market cap ÷ shares) Yahoo se **exact match** nikle. **Correction:** maine pehle kaha tha "TradingView BSE se match karta hai" — ek hi data point se nikala tha, aur sandbox me live run ne ulta dikhaya (usi label ke neeche 2075.00). **BSE ko live tier nahi banaya** — ~40 requests ke baad Akamai 403, aur 2s polling me minutes me block ho jaata. `verify_live_quote.py` 141 → **160 checks**, regression **801 passed, 0 failed**. |
 | — | Do badges ek hi screen par contradict karte the + browser ki ghadi quote ke waqt ki jagah | ✅ **Solved (FIX-51)** — user ke pasted dashboard me ek hi screen par `DELAYED (15-20 min)` (upar) aur `LIVE` (price ke baju) tha. Karan: **FIX-50 adhoora tha** — maine `app.py` L3585 ka source-name bug theek kiya, par `Dashboard.html` L1111 me uska apna copy (`/NSE/i.test(data_source)`) dekha hi nahi. Saath me `"DELAYED (15-20 min)"` hardcoded jhooth tha (asli staleness 1175 min / 19.6h, aur market hi band tha), aur `setLiveChip` me `new Date().toLocaleTimeString()` tha — yaani **browser ki ghadi** quote ke waqt ki jagah (`yahoo.ns · 10:31:31` jabki quote `2026-10-01 15:15` ka tha). Ab server ek hi `feed_state` ∈ {LIVE, DELAYED, **CLOSED**} + `feed_label` + `quote_age_min` + `quote_time` bhejta hai; UI guess nahi karta. `CLOSED` teesra state isliye zaroori tha kyunki FIX-50 ke baad holiday par quote "fresh" kehlata hai — data ke liye sahi, par "LIVE" jhooth. Saath me 4 label bug: `kpi.master.score` (42) aur `ensemble.score` (37) dono "Master Score" kehlate the; OBV ki koi bhi negative value "0" dikhti thi (measured `obv = -381723268`) aur UI label `obv > 0` se banta tha jabki scoring `obv > obv_ema` use karta hai; Bollinger %B 0.04 par "MID" kehlata tha; aur `debtToEquity` (percentage) bina `%` ke dikhaya jaata tha + falsy-check se asli 0.0 bhi 'N/A' ban jaata tha. **Arithmetic verify kiya — sab sahi nikla** (change%, 52W position, SL=2.5×ATR, T1=1R, breakeven, win-rate LCB, Kelly, master average, model edges, OOS). `verify_live_quote.py` 114 → **141 checks**. |

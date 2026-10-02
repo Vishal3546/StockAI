@@ -781,6 +781,32 @@ check('Dashboard BSE frame par warn karta hai',
 check('purana bare "TradingView Direct" return gaya',
       "return df_tv, 'TradingView Direct'" not in app_src)
 
+# ── FIX-54: BSE-only stocks (DHOOTIN = Dhoot Industrial Finance) ───────────
+# User ne DHOOTIN search kiya. Log me hi jawab tha:
+#     ERROR:yfinance:HTTP Error 404: Quote not found for symbol: DHOOTIN.NS
+# Measured:
+#     DHOOTIN.NS -> 404 "No data found"        DHOOTIN.BO -> OK, exchange=BSE
+#     TV-NSE:DHOOTIN -> EMPTY                  TV-BSE:DHOOTIN -> 244.60 (01-Oct)
+#     NSE master (2593 rows) me sirf DHOOTTRANS hai — wo ALAG company hai
+#     (Dhoot Transmission, close 1443.40), Dhoot Industrial Finance nahi.
+# Yaani NSE feed "fail" nahi hua tha — stock NSE par listed hi nahi. Aur yfinance
+# hamesha `.NS` try karta tha, isliye poora Fundamentals panel N/A tha jabki
+# `.BO` se sab milta hai (mcap Rs158.6Cr, P/E 2.85, P/B 0.36).
+
+print('\n-- FIX-54: BSE-only stocks')
+check('yfinance suffix exchange se choose hota hai (hamesha .NS nahi)',
+      "_yf_suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'" in app_src)
+check('purana hardcoded .NS call gaya',
+      'yf.Ticker(f"{resolved}.NS")' not in app_src)
+check('/api/stock on_nse_master bhejta hai', "'on_nse_master':" in app_src)
+check('Dashboard BSE-only aur NSE-feed-fail me farq karta hai',
+      'd.on_nse_master === false' in _HTML)
+check('terminal warning ab neutral hai ("NSE feed khaali tha" nahi)',
+      'NSE feed khaali tha, BSE par gir' not in app_src
+      and 'NSE par data nahi mila' in app_src)
+check('priceGapWarn me galat CAS explanation nahi bacha (comments me theek hai)',
+      'Closing Auction 15:15' not in _CODE_ONLY)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

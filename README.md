@@ -499,6 +499,72 @@ duplicate-logging guards.
 
 ---
 
+### FIX-54 · BSE-only stocks: "NSE feed failed" was the wrong message
+
+The user searched `DHOOTIN`. The terminal log had the answer:
+
+```
+ERROR:yfinance:HTTP Error 404: Quote not found for symbol: DHOOTIN.NS
+```
+
+I had left the "why is the NSE feed empty?" question unverified in FIX-53 and guessed
+*anonymous session limit*. **That guess was wrong for this case.** Measured:
+
+```
+DHOOTIN.NS  -> Yahoo 404 "No data found"        TV-NSE:DHOOTIN -> EMPTY
+DHOOTIN.BO  -> Yahoo OK, exchange=BSE           TV-BSE:DHOOTIN -> 244.60 (01-Oct)
+NSE master (2593 rows), only 'DHOOT*' match:
+    DHOOTTRANS, Dhoot Transmission Limited, EQ, 17-AUG-2026, ISIN INE01NH01023
+```
+
+**`DHOOTIN` isn't listed on NSE at all.** The `DHOOTTRANS` in the NSE master is a *different
+company*:
+
+| | company | 01-Oct close | market cap |
+|---|---|---|---|
+| `DHOOTIN.BO` | **Dhoot Industrial Finance Ltd** | 244.60 | ₹158.6 Cr |
+| `DHOOTTRANS.NS` | **Dhoot Transmission Ltd** | 1443.40 | ₹29,578 Cr |
+
+So the NSE feed didn't fail — the stock doesn't exist there, and the BSE fallback did exactly
+the right job. But FIX-53's message said "NSE feed khaali tha", which reads like a fault.
+
+**The real bug:** `yf.Ticker(f"{resolved}.NS")` — always `.NS`, so every BSE-only stock got
+**404 and a completely blank Fundamentals panel**, even though `.BO` has all of it. FIX-53's
+`frame_exchange` made this a one-line fix:
+
+```python
+_yf_suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'
+```
+
+Live-verified on DHOOTIN:
+
+| | before | after | Yahoo raw |
+|---|---|---|---|
+| Market Cap | N/A | **₹159Cr** | 1,585,817,984 |
+| P/E | N/A | **2.8** | 2.8451598 |
+| P/B | N/A | **0.36** | 0.36405092 |
+| D/E | N/A | **0.0% D/E** | 0.027 |
+| sector | N/A | **Financial Services** | — |
+
+**Second bug:** `priceGapWarn` still carried the CAS explanation I had disproved in FIX-53.
+Now it states the real reason — the live quote is a point-in-time snapshot with its own
+`regularMarketTime`, while the frame's close is the session close; on thin stocks they diverge.
+On DHOOTIN, measured: Yahoo `.BO` `regularMarketPrice = 251.0 @ 15:27:03`, its own 01-Oct daily
+bar is `None`, and TV-BSE's close is 244.60 — a genuine 2.62% gap, correctly flagged.
+
+**Also:** the dashboard now distinguishes BSE-only (`ℹ️ sirf BSE par listed`, driven by the new
+`on_nse_master` field) from an actual NSE feed failure (`⚠️ NSE feed khaali`).
+
+**Still open, honestly:** Yahoo's `DHOOTIN.BO` is internally inconsistent — it reports a
+`regularMarketPrice` of 251.0 while that session's daily bar is `None`. The app can't fix
+that; flagging it is the right behaviour. And `debtToEquity = 0.027` (i.e. 0.027%) looks
+implausibly low for an NBFC — that's Yahoo's data, not an app bug, though `:.1f` renders it as
+"0.0%" (precision lost, value not invented).
+
+`verify_live_quote.py` 168 → **174 checks**; regression **815 passed, 0 failed**.
+
+---
+
 ### FIX-53 · the real cause: TradingView was silently falling back to BSE
 
 **Three things I wrote in FIX-52 were wrong.** The user asked why I hadn't verified them.

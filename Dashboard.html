@@ -755,8 +755,9 @@ function checkPriceGap(tickerPrice) {
     + ` (live quote) aur analysis ₹${a.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`
     + ` (${analysisBasis || 'daily frame close'}) me ${diff > 0 ? '+' : '−'}`
     + `₹${Math.abs(diff).toFixed(2)} (${pct.toFixed(2)}%) ka fark. SL/Target/indicators`
-    + ` analysis price se bane hain. NSE ka Closing Auction 15:15–15:35 chalta hai;`
-    + ` Yahoo ka quote 15:15 ka continuous-session price ho sakta hai, official close nahi.`;
+    + ` analysis price se bane hain. Wajah: live quote ek point-in-time snapshot hai`
+    + ` (uska apna timestamp hota hai), aur daily frame ka close session ka final close —`
+    + ` thin/illiquid stocks par ye dono kaafi alag ho sakte hain.`;
 }
 let liveTickerInterval = null;
 
@@ -1233,9 +1234,16 @@ function render(d) {
   if (exchEl) {
     if (d.frame_exchange === 'BSE') {
       exchEl.style.display = 'block';
-      exchEl.textContent = '⚠️ Ye frame BSE se aaya hai (NSE feed khaali tha). BSE aur NSE ke '
-        + 'closing prices alag hote hain — TCS par 01-Oct ko BSE ₹2,079.30 vs NSE ₹2,075.00. '
-        + 'Score percentile NSE universe par fitted hai, isliye BSE frame par rank indicative hai.';
+      if (d.on_nse_master === false) {
+        // FIX-54: 'feed fail hua' aur 'NSE par listed hi nahi' alag baatein hain.
+        exchEl.textContent = 'ℹ️ Ye stock sirf BSE par listed hai (NSE master list me nahi), isliye '
+          + 'saara data BSE se aa raha hai. BSE aur NSE ke closing prices alag hote hain. Score '
+          + 'percentile NSE universe par fitted hai, isliye yahan rank indicative hai.';
+      } else {
+        exchEl.textContent = '⚠️ Ye frame BSE se aaya hai (NSE feed khaali tha). BSE aur NSE ke '
+          + 'closing prices alag hote hain — TCS par 01-Oct ko BSE ₹2,079.30 vs NSE ₹2,075.00. '
+          + 'Score percentile NSE universe par fitted hai, isliye BSE frame par rank indicative hai.';
+      }
     } else {
       exchEl.style.display = 'none';
     }

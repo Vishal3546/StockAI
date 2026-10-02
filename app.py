@@ -1198,8 +1198,11 @@ class MultiTechDataSourceManager:
                 if _d is not None and not _d.empty:
                     df, used_exch = _d, exch
                     if exch == 'BSE':
-                        print(f"⚠️  [TradingView] {clean_sym}: NSE feed khaali tha, BSE par gir "
-                              f"gaya. BSE ka close NSE se alag hota hai — label me dikhega.")
+                        # FIX-54: "NSE feed khaali tha" misleading tha — BSE-only
+                        # stocks (DHOOTIN = Dhoot Industrial Finance) NSE par hote
+                        # hi nahi. Neutral wording.
+                        print(f"ℹ️  [TradingView] {clean_sym}: NSE par data nahi mila, BSE se le "
+                              f"rahe hain (stock BSE-only ho sakta hai). Label me dikhega.")
                     break
 
             if df is not None and not df.empty:
@@ -3597,7 +3600,13 @@ def stock_api(symbol):
 
         try:
             import yfinance as yf
-            info = yf.Ticker(f"{resolved}.NS").info or {}
+            # FIX-54: pehle hamesha `.NS` lagta tha. BSE-only stocks (jaise
+            # DHOOTIN = Dhoot Industrial Finance) par Yahoo 404 deta tha aur
+            # poora Fundamentals panel N/A dikh jaata tha — jabki `.BO` se sab
+            # milta hai (measured: mcap Rs158.6Cr, P/E 2.85, P/B 0.36).
+            # Frame kis exchange se aaya wo FIX-53 se pata hai.
+            _yf_suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'
+            info = yf.Ticker(f"{resolved}{_yf_suffix}").info or {}
         except Exception:
             info = {}
 
@@ -3829,6 +3838,13 @@ def stock_api(symbol):
             # ho rahe hote hain. Chhupana nahi, batana.
             'frame_exchange': ('BSE' if '(BSE)' in str(daily_source)
                                else 'NSE' if '(NSE)' in str(daily_source) else None),
+            # FIX-54: 'NSE feed khaali tha' aur 'ye stock NSE par listed hi nahi'
+            # do alag baatein hain. DHOOTIN (Dhoot Industrial Finance) NSE master
+            # me hai hi nahi — uska NSE symbol DHOOTTRANS nahi, wo ALAG company
+            # hai (Dhoot Transmission). Bina is field ke dashboard hamesha "feed
+            # fail hua" bolta, jo galat tha.
+            'on_nse_master': any(s.get('sym', '').upper() == resolved.upper()
+                                 for s in DYNAMIC_STOCK_DB),
             'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
                            'ml.* accuracy is in-sample/diagnostic; the OOS verdict comes from '
                            'ml_study (tools/build_ml_edge_study.py) — see ml_study.verdict.'),
