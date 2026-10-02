@@ -499,6 +499,56 @@ duplicate-logging guards.
 
 ---
 
+### FIX-59 · There were two cost models, and mine was wrong
+
+Auditing `research/` — the least-reviewed part of the project — turned up
+`research/costs.py`, which already had a full notional-aware cost model with a
+brokerage cap and a self-test. **FIX-57 had duplicated it, with wrong rates.**
+
+| item | FIX-57 did | correct for 2026 | error |
+|---|---|---|---|
+| Delivery STT | 0.1% **sell only** | 0.1% on **both** sides | **0.10pp understate** |
+| Delivery stamp | 0.003% (that's the **intraday** rate) | **0.015%** | **0.012pp understate** |
+| Intraday STT | 0.025% **×2** | **sell only**, buy leg nil | **0.025pp overstate** |
+
+At ₹1L notional:
+
+| mode | FIX-57 said | correct | direction |
+|---|---|---|---|
+| intraday | 0.2310% | **0.1832%** | **overstated** |
+| delivery | 0.2810% | **0.3702%** | **understated** |
+
+Wrong in **both** directions depending on mode. And a hypothesis of mine that the
+measurement rejected: I assumed the ₹20 brokerage cap was the biggest gap. It
+wasn't — worth ≤0.01pp, and it only binds above ₹66,667 notional. STT/stamp was
+the real gap.
+
+Even after delegating, there was a consistent **0.0008pp** mismatch: I'd set
+`exch_pct = 0.00297%` in `app.py` while `research/costs.py` used `0.00325%`. Two
+defaults in two places — exactly the drift I was trying to remove. Now `.env`
+overrides only when actually set. (Sources cite 0.00297 / 0.00307 / 0.00325 for
+the NSE equity transaction charge, so it stays configurable.)
+
+**Cost is now notional-aware** — the ₹20 cap means small positions cost more in
+percentage terms:
+
+| capital | round-trip | break-even (TCS ₹2,075) |
+|---|---|---|
+| ₹25,000 | 0.2070% | **₹4.29** |
+| ₹1,00,000 | 0.1830% | ₹3.80 |
+| ₹10,00,000 | 0.1410% | **₹2.92** |
+
+And I removed the `STOCKAI_COST_STT` override — **overriding a mode-dependent tax
+with one number is exactly what caused the bug.**
+
+Verified: app matches `research/costs.py` on **10/10** mode×notional combinations;
+`round_trip_pct()` still returns 0.3276% (backwards compatible); `buy_intraday` STT
+is ₹0.00; `research/backtest.py` still runs (17 trades, ₹5,742.91 costs, 5.74% drag).
+
+`verify_live_quote.py` 246 → **260 checks**; regression **901 passed, 0 failed**.
+
+---
+
 ### FIX-58 · The header said "NSE / BSE" for every stock, always
 
 ```js

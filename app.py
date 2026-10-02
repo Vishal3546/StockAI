@@ -3352,45 +3352,112 @@ def regime_exposure(regime, direction, *, required=False):
     return policy[direction], f'{name}: {direction} exposure cap {policy[direction]:.0%} (risk policy, NOT backtested edge)'
 
 
-# ── FIX-57: transaction-cost model ────────────────────────────────────────
-# Pehle app T1/T2/SL/R-multiple/Kelly sab calculate karta tha bina ye jaane ki
-# trade kitne ki padti hai. `tools/study_new_signals.py` ne measure kiya ki
-# +0.169% gross signal 0.230% round-trip cost me NEGATIVE ho jaata hai — matlab
-# cost ignore karke plan banana ek real risk hai, sirf ek missing detail nahi.
-# Rates NSE ke published charges se (equity, intraday, per side unless noted):
-#   brokerage 0.03%  ·  STT 0.025%  ·  exchange txn 0.00297%  ·  SEBI 0.0001%
-#   stamp duty 0.003% (BUY side only)  ·  GST 18% brokerage+txn par
-#   slippage 0.05% (1-2 ticks) — env se override, kyunki ye stock par depend karta hai
-def _cost_side(pct, env_key, lo=0.0, hi=5.0):
+# ── FIX-57/59: transaction-cost model ─────────────────────────────────────
+# FIX-57 ne yahan ek ALAG cost model banaya tha (flat % dict). FIX-59 me pata
+# chala ki `research/costs.py` me pehle se poora model maujood tha — notional-
+# aware, brokerage-cap ke saath, aur sahi STT/stamp rules ke saath. Do models
+# the jo aapas me DISAGREE karte the. Ab ek hi source of truth.
+#
+# ⚠️ FIX-57 ke do errors (measured, 2026 rates se verify karke):
+#   1. Delivery STT: maine 0.1% SIRF SELL par lagaya. Sahi: delivery par 0.1%
+#      DONO taraf (buy + sell). -> 0.10pp understate
+#   2. Delivery stamp: maine 0.003% lagaya, jo INTRADAY rate hai. Sahi:
+#      delivery buy par 0.015%. -> 0.012pp understate
+#   3. Intraday STT: maine 0.025% x2 lagaya. Sahi: SIRF sell par (buy leg nil).
+#      -> 0.025pp overstate
+#   Net effect: intraday 0.2310% batata tha, sahi 0.1406% (Rs1L par) — OVERSTATE;
+#               delivery 0.2810% batata tha, sahi 0.3276% (Rs1L par) — UNDERSTATE.
+#   Yaani mode ke hisaab se dono directions me galat tha.
+#
+# Aur brokerage ₹20 par CAPPED hai — isliye flat % chhote positions par galat
+# hota hai. research/costs.py ye pehle se sahi karta tha.
+def _cost_side(default, env_key, lo=0.0, hi=50.0):
     """`.env` override, sane range me clamp. Galat value chup-chaap 0 na ho."""
     raw = (os.environ.get(env_key) or '').strip()
     if not raw:
-        return float(pct)
+        return float(default)
     try:
         v = float(raw)
     except ValueError:
-        return float(pct)
+        return float(default)
     return float(min(max(v, lo), hi))
 
 
+def _env_or_none(env_key):
+    """Set ho to float, warna None — "default use karo" ka signal."""
+    raw = (os.environ.get(env_key) or '').strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _cost_config():
+    """`research/costs.CostConfig` — DEFAULTS WAHI REHTE HAIN jo research me hain.
+
+    FIX-59: pehle maine yahan apne defaults daale the (exch_pct 0.00297) jabki
+    research/costs.py me 0.00325 tha — yaani do jagah do default, 0.0008pp ka
+    drift. Ab `.env` me set ho TABHI override hota hai, warna research ka default.
+    Ek source of truth.
+
+    Statutory rates (STT/stamp) override karne ka raasta jaan-boojh kar nahi diya
+    — FIX-57 ka `STOCKAI_COST_STT` isi wajah se bug bana tha (ek number se
+    mode-dependent tax override karna).
+    """
+    from research.costs import CostConfig
+    kw = {}
+    # STOCKAI_COST_BROKERAGE percent-per-side me hai (0.03 = 0.03%)
+    _b = _env_or_none('STOCKAI_COST_BROKERAGE')
+    if _b is not None:
+        kw['brokerage_pct'] = min(max(_b, 0.0), 5.0) / 100.0
+    _bc = _env_or_none('STOCKAI_COST_BROKERAGE_CAP')
+    if _bc is not None:
+        kw['brokerage_cap'] = min(max(_bc, 0.0), 5000.0)
+    # STOCKAI_COST_SLIPPAGE percent-per-side me hai (0.05 = 5 bps)
+    _sl = _env_or_none('STOCKAI_COST_SLIPPAGE')
+    if _sl is not None:
+        kw['slippage_bps'] = min(max(_sl, 0.0), 5.0) * 100.0
+    # NSE equity transaction charge — sources me 0.00297 / 0.00307 / 0.00325
+    # teeno milte hain, isliye configurable. Default research/costs.py ka.
+    _ex = _env_or_none('STOCKAI_COST_EXCH_PCT')
+    if _ex is not None:
+        kw['exch_pct'] = min(max(_ex, 0.0), 1.0) / 100.0
+    return CostConfig(**kw)
+
+
+def trade_cost_pct(mode='intraday', notional=100000.0):
+    """Round-trip cost, % of notional. Ab research/costs.py se — notional-aware.
+
+    `notional` matter karta hai kyunki brokerage ₹20 par capped hai:
+    ₹1L position par 0.02%/side, ₹25k par 0.03%/side.
+    """
+    return float(_cost_config().round_trip_pct(
+        intraday=(str(mode).lower() != 'delivery'), notional=float(notional or 0) or 100000.0))
+
+
+def cost_breakdown(mode='intraday', notional=100000.0):
+    """Component-wise breakdown (₹ + %) — display/debug ke liye."""
+    cfg = _cost_config()
+    n = float(notional or 0) or 100000.0
+    intraday = (str(mode).lower() != 'delivery')
+    b = cfg.breakdown(n, 'buy_intraday' if intraday else 'buy')
+    s = cfg.breakdown(n, 'sell_intraday' if intraday else 'sell')
+    return {'notional': n, 'mode': 'intraday' if intraday else 'delivery',
+            'buy': b, 'sell': s, 'round_trip_pct': round(b['total_pct'] + s['total_pct'], 4)}
+
+
+# Display ke liye derived view — ab ye hardcoded NAHI hai, config se banta hai,
+# isliye drift nahi kar sakta. (FIX-57 me ye hardcoded dict tha.)
+_CFG = _cost_config()
 TRADE_COST = {
-    'brokerage_pct':    _cost_side(0.03 * 2,   'STOCKAI_COST_BROKERAGE'),
-    'stt_pct':          _cost_side(0.025 * 2,  'STOCKAI_COST_STT'),
-    'exchange_txn_pct': 0.00297 * 2,
-    'sebi_pct':         0.0001 * 2,
-    'stamp_pct':        0.003,                  # buy side only
-    'gst_pct':          0.18 * (0.03 + 0.00297) * 2,
-    'slippage_pct':     _cost_side(0.05 * 2,   'STOCKAI_COST_SLIPPAGE'),
+    'brokerage_pct':    round(_CFG.brokerage_pct * 200, 5),      # x2 sides, % me
+    'brokerage_cap_rs': _CFG.brokerage_cap,
+    'exchange_txn_pct': round(_CFG.exch_pct * 200, 6),
+    'slippage_pct':     round(_CFG.slippage_bps / 100.0 * 2, 5),
+    'stt_stamp_gst':    'statutory — research/costs.py me mode ke hisaab se lagta hai',
 }
-
-
-def trade_cost_pct(mode='intraday'):
-    """Round-trip cost, % of notional. 'delivery' par STT 0.1% (sell only)."""
-    base = sum(TRADE_COST.values())
-    if str(mode).lower() == 'delivery':
-        # intraday STT 0.025%x2 hatao, delivery STT 0.1% sell-only lagao
-        base = base - TRADE_COST['stt_pct'] + 0.1
-    return round(base, 4)
 
 
 def cost_plan(cost_pct, price, sl_pct, targets):
@@ -3608,10 +3675,15 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     if direction != 'NONE':
         _risk_note += f' | Market regime: {regime_basis}.'
 
-    # FIX-57: cost-aware plan. Ye naya prediction NAHI hai — sirf wo arithmetic
+    # FIX-57/59: cost-aware plan. Ye naya prediction NAHI hai — sirf wo arithmetic
     # jo pehle missing thi. Targets/SL gross the; ab net (cost ke baad) bhi.
+    # FIX-59: cost ab NOTIONAL-AWARE hai, kyunki brokerage Rs20 par capped hai —
+    # Rs25k position par 0.03%/side, Rs1L par 0.02%/side. Position hai to uska
+    # notional; warna capital ko reference maante hain aur BATATE hain ki reference hai.
     _sl_pct = round(risk_per_share / price * 100, 2) if price > 0 else 0.0
-    _cost = cost_plan(trade_cost_pct(_cost_mode), price, _sl_pct, {
+    _cost_notional = notional if notional and notional > 0 else float(capital or 0)
+    _cost_basis = 'position' if (notional and notional > 0) else 'capital (reference — qty 0 hai)'
+    _cost = cost_plan(trade_cost_pct(_cost_mode, _cost_notional), price, _sl_pct, {
         't1': (abs(t1 - price) / price * 100 if price > 0 else None),
         't2': (abs(t2 - price) / price * 100 if price > 0 else None),
         't3': (abs(t3 - price) / price * 100 if price > 0 else None),
@@ -3619,6 +3691,8 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     if _cost:
         _cost['mode'] = _cost_mode
         _cost['qty'] = qty
+        _cost['notional'] = round(_cost_notional, 2)
+        _cost['notional_basis'] = _cost_basis
         _cost['round_trip_on_notional'] = (round(notional * _cost['round_trip_pct'] / 100.0, 2)
                                           if notional else 0.0)
         if _cost['warning']:

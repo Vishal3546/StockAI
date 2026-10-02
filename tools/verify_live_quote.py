@@ -951,16 +951,47 @@ check('03:45 UTC -> 09:15 IST (session open)',
 # missing detail nahi, ek real risk hai.
 
 print('\n-- FIX-57: cost model arithmetic')
+# FIX-59: 0.231% wala number FIX-57 ka tha aur GALAT tha (delivery STT sirf sell
+# par lagaya tha, intraday STT x2). Ab cost research/costs.py se aata hai, isliye
+# assertion "exact match with research" hai — koi duplicate number nahi.
+from research.costs import CostConfig as _CC
+_REF = _CC()
 _c = A.trade_cost_pct('intraday')
-check('intraday round-trip ≈ 0.231% (study ne 0.230 measure kiya)',
-      abs(_c - 0.231) < 0.005, f'got {_c}')
-check('delivery > intraday (STT 0.1% sell-only vs 0.025% x2)',
+check('app ka cost model research/costs.py se EXACT match karta hai (intraday)',
+      all(abs(A.trade_cost_pct('intraday', n)
+              - _REF.round_trip_pct(intraday=True, notional=n)) < 1e-12
+          for n in (10000, 25000, 100000, 1000000)))
+check('app ka cost model research/costs.py se EXACT match karta hai (delivery)',
+      all(abs(A.trade_cost_pct('delivery', n)
+              - _REF.round_trip_pct(intraday=False, notional=n)) < 1e-12
+          for n in (10000, 25000, 100000, 1000000)))
+check('delivery > intraday (delivery STT 0.1% DONO taraf, intraday 0.025% SIRF sell)',
       A.trade_cost_pct('delivery') > _c,
       f"intraday={_c} delivery={A.trade_cost_pct('delivery')}")
-check('saare components positive hain (koi negative rate nahi)',
-      all(v > 0 for v in A.TRADE_COST.values()))
-check('components ka sum == trade_cost_pct (drift nahi)',
-      abs(sum(A.TRADE_COST.values()) - _c) < 0.0001)
+check('NOTIONAL-AWARE: chhoti position par % cost zyada (brokerage Rs20 cap)',
+      A.trade_cost_pct('intraday', 25000) > A.trade_cost_pct('intraday', 1000000),
+      f"25k={A.trade_cost_pct('intraday',25000)} 10L={A.trade_cost_pct('intraday',1000000)}")
+check('TRADE_COST ab hardcoded nahi, config se DERIVED hai',
+      '_CFG.brokerage_pct' in app_src and '_CFG.exch_pct' in app_src)
+# app_src me FIX-59 ka docstring `STOCKAI_COST_STT` ka ZIKR karta hai (kyun
+# hataya). Naive string-grep apne hi documentation par fail hota hai — wahi
+# lesson jo FIX-50 me mila tha. Isliye ASLI claim test karo: koi env lookup nahi.
+# Do patterns hain: direct `os.environ.get('X')` aur helper `_env_or_none('X')`.
+# Sirf ek grep karne se aadhe keys miss hote hain (pehli baar yahi hua).
+_ENV_LOOKUPS = set(re.findall(
+    r"(?:os\.environ\.get|os\.environ\[|_env_or_none|_cost_side)\(?\s*'(STOCKAI_[A-Z_]+)'",
+    app_src))
+check('statutory rates (STT/stamp) env se override NAHI hote',
+      'STOCKAI_COST_STT' not in _ENV_LOOKUPS and 'STOCKAI_COST_STAMP' not in _ENV_LOOKUPS,
+      f'cost-related env lookups: {sorted(k for k in _ENV_LOOKUPS if "COST" in k)}')
+check("deprecated key .env.example se bhi hat gayi",
+      'STOCKAI_COST_STT' not in (ROOT / '.env.example').read_text(encoding='utf-8'))
+check('app.py me ab duplicate STT rate literals nahi (research/costs.py owns them)',
+      "'stt_pct'" not in app_src and "'stt_buy'" not in app_src
+      and "'stt_sell'" not in app_src)
+check('naye configurable keys env se padhe jaate hain',
+      {'STOCKAI_COST_BROKERAGE', 'STOCKAI_COST_BROKERAGE_CAP',
+       'STOCKAI_COST_SLIPPAGE', 'STOCKAI_COST_EXCH_PCT'}.issubset(_ENV_LOOKUPS))
 
 print('\n-- FIX-57: cost_plan output')
 _cp = A.cost_plan(_c, 2000.0, 5.0, {'t1': 5.0, 't2': 8.0, 't3': 12.0})
@@ -1003,7 +1034,8 @@ check('Dashboard cost warning render karta hai', 'cost.warning' in dash_src)
 check('.env.example me cost keys documented hain',
       all(k in (ROOT / '.env.example').read_text(encoding='utf-8')
           for k in ('STOCKAI_COST_MODE', 'STOCKAI_COST_SLIPPAGE',
-                    'STOCKAI_COST_BROKERAGE', 'STOCKAI_COST_STT')))
+                    'STOCKAI_COST_BROKERAGE', 'STOCKAI_COST_BROKERAGE_CAP',
+                    'STOCKAI_COST_EXCH_PCT')))
 check('cost model ka claim study se referenced hai (hawa me nahi)',
       'study_new_signals' in app_src or 'study_new_signals' in (ROOT / 'README.md').read_text(encoding='utf-8'))
 
@@ -1101,6 +1133,43 @@ check('research/data NSE-hardcoded hai (calibration NSE universe par fitted)',
       "exchange='NSE'" in _rdata)
 check('app.py ka fetch_tradingview exchange-aware hai (ye teen nahi, wo hona chahiye)',
       "prefer_exch" in app_src and "def fetch_tradingview" in app_src)
+
+# ── FIX-59: ek cost model, do nahi ────────────────────────────────────────
+# FIX-57 ne app.py me apna cost dict banaya tha. research/costs.py me pehle se
+# poora model tha. Do models DISAGREE karte the. Aur FIX-57 ke rates galat the:
+#   delivery STT  0.1% sirf sell  -> sahi 0.1% DONO taraf   (0.10pp understate)
+#   delivery stamp 0.003%         -> sahi 0.015% (delivery) (0.012pp understate)
+#   intraday STT  0.025% x2       -> sahi SIRF sell (buy nil)(0.025pp overstate)
+# Net: intraday 0.2310% batata tha, sahi 0.1832% (Rs1L) — OVERSTATE;
+#      delivery 0.2810% batata tha, sahi 0.3702% (Rs1L) — UNDERSTATE.
+
+print('\n-- FIX-59: research/costs.py intraday sides support karta hai')
+check("buy_intraday par STT NIL hai (verified 2026: intraday buy STT-free)",
+      _REF.breakdown(100000, 'buy_intraday')['stt'] == 0.0)
+check("sell_intraday par STT 0.025% hai",
+      abs(_REF.breakdown(100000, 'sell_intraday')['stt'] - 25.0) < 0.01,
+      f"got {_REF.breakdown(100000,'sell_intraday')['stt']}")
+check("delivery buy par STT 0.1% + stamp 0.015%",
+      abs(_REF.breakdown(100000, 'buy')['stt'] - 100.0) < 0.01
+      and abs(_REF.breakdown(100000, 'buy')['stamp'] - 15.0) < 0.01)
+check("delivery sell par STT 0.1% (dono taraf lagta hai)",
+      abs(_REF.breakdown(100000, 'sell')['stt'] - 100.0) < 0.01)
+check("purane sides ('buy'/'sell'/'sell_short') backward-compatible hain",
+      _REF.round_trip_pct() == 0.3276, f"got {_REF.round_trip_pct()}")
+
+print('\n-- FIX-59: cost_plan + calculate_risk notional-aware hain')
+_r59 = A.calculate_risk(2075.0, 57.54, 33, capital=25000, action='WATCHLIST',
+                        regime='NEUTRAL')
+_r59b = A.calculate_risk(2075.0, 57.54, 33, capital=1000000, action='WATCHLIST',
+                         regime='NEUTRAL')
+check('cost block me notional + notional_basis hai',
+      'notional' in _r59['cost'] and 'notional_basis' in _r59['cost'])
+check('chhote capital par break-even Rs zyada (cap bind karta hai)',
+      _r59['cost']['break_even_rs'] > _r59b['cost']['break_even_rs'],
+      f"25k={_r59['cost']['break_even_rs']} 10L={_r59b['cost']['break_even_rs']}")
+check("qty 0 par basis honestly 'reference' bolta hai (jhooth position nahi)",
+      'reference' in str(_r59['cost']['notional_basis']))
+check('Dashboard notional basis dikhata hai', 'notional_basis' in dash_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

@@ -2,6 +2,79 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-59 addendum — 2026-10-02 (do cost model the jo aapas me ladte the)
+
+`research/` module project ka sabse kam-audited hissa tha. Wahan dekha to
+**`research/costs.py` me pehle se poora cost model maujood tha** — notional-aware,
+brokerage-cap ke saath, self-test ke saath. **FIX-57 ne use duplicate kiya tha**, aur
+mere numbers galat the.
+
+### ⚠️ FIX-57 ke teen errors (2026 rates se verify karke)
+
+| item | FIX-57 ne kiya | 2026 me sahi | error |
+|---|---|---|---|
+| Delivery STT | 0.1% **sirf sell** | 0.1% **dono taraf** (buy + sell) | **0.10pp understate** |
+| Delivery stamp | 0.003% (ye **intraday** rate hai) | **0.015%** delivery buy | **0.012pp understate** |
+| Intraday STT | 0.025% **×2** | **sirf sell** par (buy leg nil) | **0.025pp overstate** |
+
+Net effect, ₹1L notional par:
+
+| mode | FIX-57 batata tha | sahi | direction |
+|---|---|---|---|
+| intraday | 0.2310% | **0.1832%** | **OVERSTATE** |
+| delivery | 0.2810% | **0.3702%** | **UNDERSTATE** |
+
+Yaani **mode ke hisaab se dono directions me galat tha.** Aur ek cheez jo maine
+*hypothesize* ki thi par measurement ne reject kar di: maine socha tha brokerage ka
+₹20 cap sabse bada gap hoga — **nahi tha**, uska asar sirf ≤0.01pp hai aur sirf
+₹66,667 se upar ke notional par bind karta hai. Asli gap STT/stamp tha.
+
+### Do model, do default — aur 0.0008pp ka drift
+
+Delegate karne ke baad bhi exact match nahi aaya: consistent **0.0008pp** ka gap.
+Wajah — maine `app.py` me `exch_pct = 0.00297%` default daala tha jabki
+`research/costs.py` me `0.00325%` tha. **Do jagah do default = wahi drift jo main
+hata raha tha.** Ab `.env` me set ho TABHI override hota hai, warna research ka
+default. Ek source of truth.
+
+Note: NSE equity transaction charge par sources me **0.00297 / 0.00307 / 0.00325**
+teeno milte hain — isliye ye configurable rakha, aur `.env.example` me likha ki
+apne broker ke statement se confirm karein.
+
+### Ab cost NOTIONAL-AWARE hai
+
+Brokerage ₹20 par capped hai, isliye chhoti position par % cost zyada hota hai:
+
+| capital (reference notional) | round-trip | break-even (TCS ₹2,075) |
+|---|---|---|
+| ₹25,000 | 0.2070% | **₹4.29** |
+| ₹1,00,000 | 0.1830% | ₹3.80 |
+| ₹10,00,000 | 0.1410% | **₹2.92** |
+
+Payload me `notional` + `notional_basis` jaata hai. qty 0 ho to basis honestly
+bolta hai `"capital (reference — qty 0 hai)"` — jhooth position nahi dikhata.
+
+### Statutory rates ka override jaan-boojh kar hataya
+
+`STOCKAI_COST_STT` hata diya. **Ek number se mode-dependent tax override karna hi
+FIX-57 ka bug tha.** Ab sirf genuinely broker-specific/uncertain cheezein
+configurable hain: `STOCKAI_COST_BROKERAGE`, `STOCKAI_COST_BROKERAGE_CAP`,
+`STOCKAI_COST_SLIPPAGE`, `STOCKAI_COST_EXCH_PCT`.
+
+### Verify
+
+- app vs `research/costs.py`: **10/10 combinations exact match** (2 modes × 5 notionals)
+- `research/costs.py` backward compat: `round_trip_pct()` = **0.3276%** (unchanged)
+- Naye sides verified: `buy_intraday` STT = **₹0.00** (nil), `sell_intraday` = ₹25.00,
+  delivery buy STT ₹100 + stamp ₹15, delivery sell STT ₹100
+- `research/backtest.py` intact: 17 trades, costs ₹5,742.91, drag 5.74%; zero-cost run ₹0.00
+- Live `/api/stock/TCS`: break-even **₹3.80** (pehle ₹4.80), basis labelled
+- `node --check` OK
+
+`verify_live_quote.py` 246 → **260 checks** · regression **901 passed, 0 failed**
+
+---
+
 ## FIX-58 addendum — 2026-10-02 (header exchange batata hai; teen NSE-hardcode intentional hain)
 
 Teen cheezein maine pichhle turns me "unknown" chhodi thi. Guess nahi kiya — check kiya.
@@ -2163,6 +2236,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Do cost model the jo aapas me DISAGREE karte the (FIX-57 ka apna dict vs `research/costs.py`) | ✅ **Solved (FIX-59)** — `research/` audit karte waqt mila: `research/costs.py` me pehle se notional-aware model tha, aur FIX-57 ke rates galat the. Delivery STT maine sirf sell par lagaya (sahi: **dono taraf** 0.1%) → 0.10pp understate; delivery stamp 0.003% (wo **intraday** rate hai, sahi **0.015%**) → 0.012pp understate; intraday STT ×2 (sahi: **sirf sell**, buy nil) → 0.025pp overstate. Net: intraday 0.2310% vs sahi **0.1832%** (OVERSTATE), delivery 0.2810% vs sahi **0.3702%** (UNDERSTATE) — dono directions me galat. **Aur mera brokerage-cap hypothesis measurement ne reject kiya** (≤0.01pp, sirf ₹66,667+ par bind karta hai). Delegate karne ke baad bhi 0.0008pp gap tha — do jagah do `exch_pct` default; ab `.env` set ho tabhi override. Cost ab **notional-aware** (₹25k capital → break-even ₹4.29, ₹10L → ₹2.92) aur statutory rates ka override hataya (wahi FIX-57 ka bug tha). app vs research **10/10 exact match**. `verify_live_quote.py` 246 → **260**, regression **901/0**. |
 | — | Header har stock ke liye "NSE / BSE" bolta tha — actual exchange kabhi nahi batata tha | ✅ **Solved (FIX-58)** — live `/api/stock` se measured: TCS `?ex=NSE` (frame NSE), TCS `?ex=BSE` (frame **BSE**), DHOOTIN `?ex=NSE` (frame **BSE**, `on_nse_master` **false**) — chaaron me header identical `SYM — NSE / BSE` tha. DHOOTIN NSE par listed hi nahi. Ab `frame_exchange`/`requested_exchange`/`on_nse_master` (FIX-53/54/55 se payload me already the) use hote hain: `TCS — BSE`, `TCS — BSE — aapne NSE maanga tha`, `DHOOTIN — BSE only — NSE par listed nahi`, `XYZ — exchange unknown`. **Aur mera flagged concern galat nikla:** `deep_analyzer.py`/`nifty_scanner.py`/`research/data.py` me silent BSE fallback NAHI hai — `exchange='NSE'` hardcoded hai, aur teeno jagah sahi (Nifty NSE-only, calibration NSE-fitted, deep_analyzer app.py se reachable nahi). Us reasoning ko 4 guard tests me pin kiya. `verify_live_quote.py` 230 → **246**, regression **887/0**. |
 | — | T1/T2/SL/Kelly sab GROSS the — transaction cost ka koi model nahi | ✅ **Solved (FIX-57)** — `brokerage`/`STT`/`transaction cost` teenon ke 0 hits the, aur app khud maanta tha *"costs/slippage included nahi"*. Ab `TRADE_COST` (NSE published rates + env-overridable slippage) = **0.231% round-trip**, aur `cost_plan()` break-even move (TCS ₹2,075 par ₹4.79), cost-to-risk ratio, aur har target ka NET deta hai. Do warnings: T1 break-even se chhota ho, ya cost SL ka >20% ho. **Ye koi naya prediction nahi — sirf missing arithmetic.** Basis: `tools/study_new_signals.py` ne measure kiya ki +0.169% gross signal 0.231% cost me negative ho jaata hai; aur futures-spot basis ka "t=+6.21, 52.78% accuracy" wala result **basis convergence** nikla — tradable leg par −0.053% gross, 49.13% accuracy (coin flip se kam). `verify_live_quote.py` 210 → **230**, regression **871/0**. |
 | — | `is_market_open` exchange nahi jaanta tha, aur `quote_time` UTC me dikh raha tha | ✅ **Solved (FIX-56)** — BSE ka closing/post-close 16:00 tak chalta hai (measured `Ason` = `01 Oct 26 | 16:00`, Yahoo BO `quote_time` 15:50:08), par `is_market_open` dono exchange ke liye 15:35 use karta tha. Ab `BSE_SESSION_CLOSE_HM = 16:00` + `is_market_open(now, exchange=)`; boundaries verified (NSE 15:36 BAND, BSE 15:45 KHULA, 16:01 dono BAND). Saath me BSE par Yahoo ka snapshot skip — market band ho to TradingView ka daily close use hota hai, kyunki Yahoo ka BSE data 21 din me 7 mismatch deta hai (NSE par 22 me 0) aur uska `regularMarketPrice` snapshot hai (DHOOTIN 251.0 @ 15:27:03 jabki close 244.60). **Fix test karte waqt naya bug mila:** `quote_time` `03:45:00` dikha raha tha — tvDatafeed naive-**UTC** index deta hai aur code sirf tz-aware convert karta tha. 03:45 UTC = 09:15 IST = session ka OPEN, close nahi. Ab UTC→IST convert hota hai aur daily bar par `quote_time = "2026-10-01 (daily close)"` — fake intraday time nahi. `verify_live_quote.py` 194 → **210 checks**, regression **851 passed, 0 failed**. |
