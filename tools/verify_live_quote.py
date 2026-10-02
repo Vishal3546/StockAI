@@ -201,7 +201,8 @@ try:
     orig_tv = A.DATA_MANAGER.fetch_tradingview
     orig_nse = A.DATA_MANAGER.fetch_nse_direct
     orig_yf = A.DATA_MANAGER.fetch_yahoo
-    A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: mk(now_open - _dt.timedelta(days=9))
+    # FIX-53: fetch_tradingview ab (df, exchange) return karta hai
+    A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: (mk(now_open - _dt.timedelta(days=9)), 'NSE')
     A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: mk(now_open)
     A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: None
     df_out, src_out = A.DATA_MANAGER.smart_fetch('TESTY', interval='1d', _now=now_open)
@@ -209,7 +210,7 @@ try:
     check('stale tier-1 → fresh tier-2 par fallback', src_out == 'NSE Direct', f'source={src_out}')
 
     # sab stale → honest STALE label
-    A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: mk(now_open - _dt.timedelta(days=9))
+    A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: (mk(now_open - _dt.timedelta(days=9)), 'NSE')
     A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: None
     A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: mk(now_open - _dt.timedelta(days=30))
     _, src2 = A.DATA_MANAGER.smart_fetch('TESTZ', interval='1d', _now=now_open)
@@ -723,6 +724,62 @@ check('search dropdown `ex` render karta hai (pehle sirf sym/name/sec dikhte the
       "exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE'" in _HTML)
 check('dropdown item me exchange badge append hota hai',
       'item.append(symEl, exEl, nameEl, secEl)' in _HTML)
+
+# ── FIX-53: TradingView ka silent BSE fallback ab label me dikhta hai ──────
+# Measured (tvDatafeed, 2026-10-01 close):
+#     NSE:TCS 2075.00        BSE:TCS 2079.30
+#     NSE:RELIANCE 1167.70   BSE:RELIANCE 1166.00
+# User ke dashboard par price 2079.30, ATR 57.54, 52W 3336.7/1976 tha — chaaron
+# TV-BSE se EXACT match. Yaani uska poora analysis BSE data se bana tha jabki
+# label 'TradingView Direct' tha aur app NSE universe par calibrated hai.
+# Aur Yahoo = TV-NSE: 11 sessions x 2 stocks = 22 din, 0 mismatch.
+
+print('\n-- FIX-53: TradingView exchange tracking')
+
+
+class _FakeTV:
+    """NSE khaali, BSE me data — bilkul wahi jo user ki machine par hua."""
+    def __init__(self, nse_bars=0, bse_bars=60):
+        self.nse_bars, self.bse_bars = nse_bars, bse_bars
+        self.calls = []
+
+    def get_hist(self, symbol=None, exchange=None, interval=None, n_bars=None):
+        self.calls.append(exchange)
+        n = self.nse_bars if exchange == 'NSE' else self.bse_bars
+        if n <= 0:
+            return None
+        import pandas as _pd
+        idx = _pd.date_range('2026-07-01', periods=n, freq='D')
+        return _pd.DataFrame({'open': [100.0] * n, 'high': [101.0] * n,
+                              'low': [99.0] * n, 'close': [100.0] * n,
+                              'volume': [1000] * n}, index=idx)
+
+
+_orig_tv_obj = A.DATA_MANAGER.tv
+try:
+    _fake = _FakeTV(nse_bars=0, bse_bars=60)
+    A.DATA_MANAGER.tv = _fake
+    _df, _ex = A.DATA_MANAGER.fetch_tradingview('TCS', n_bars=60, interval_str='1d')
+    check('NSE khaali → BSE par girta hai aur exchange batata hai', _ex == 'BSE', f'got {_ex!r}')
+    check('dono exchanges try hue', _fake.calls == ['NSE', 'BSE'], f'calls={_fake.calls}')
+
+    _fake2 = _FakeTV(nse_bars=60, bse_bars=60)
+    A.DATA_MANAGER.tv = _fake2
+    _df2, _ex2 = A.DATA_MANAGER.fetch_tradingview('TCS', n_bars=60, interval_str='1d')
+    check('NSE me data ho to BSE try hi nahi hota', _ex2 == 'NSE' and _fake2.calls == ['NSE'],
+          f'ex={_ex2!r} calls={_fake2.calls}')
+    check('fetch_tradingview tuple return karta hai (pehle sirf df)',
+          isinstance(_df2, tuple) is False and _df2 is not None)
+finally:
+    A.DATA_MANAGER.tv = _orig_tv_obj
+
+check('smart_fetch source label me exchange likhta hai',
+      "f'TradingView Direct ({tv_exch})'" in app_src)
+check('/api/stock frame_exchange bhejta hai', "'frame_exchange':" in app_src)
+check('Dashboard BSE frame par warn karta hai',
+      "d.frame_exchange === 'BSE'" in _HTML and 'exchWarn' in _HTML)
+check('purana bare "TradingView Direct" return gaya',
+      "return df_tv, 'TradingView Direct'" not in app_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

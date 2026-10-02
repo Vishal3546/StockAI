@@ -2,7 +2,104 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-53 addendum — 2026-10-02 (asli wajah: TradingView ka silent BSE fallback)
+
+### ⚠️ Pehle: FIX-52 me maine teen galat cheezein likhi thi
+
+User ne teeno par sawaal kiya ("ye q verify nhi kiya he"). Verify kiya — **teeno galat nikli.**
+
+**Galat 1: "Yahoo ka price exchange se match nahi karta, official close 2079.30 hai."**
+
+Galat. `2079.30` **BSE** ka close hai, NSE ka nahi. `tvDatafeed` se directly measure kiya:
+
+```
+NSE:TCS        close = 2075.00      BSE:TCS        close = 2079.30
+NSE:RELIANCE   close = 1167.70      BSE:RELIANCE   close = 1166.00
+```
+
+Yahoo (2075.00 / 1167.70) **NSE se match karta hai**. Do alag exchanges, do alag closing
+auctions, do alag closes — ye legitimate difference hai, koi data error nahi.
+
+**Galat 2: "Yahoo ka timestamp 15:15 hai kyunki wo CAS close miss karta hai."**
+
+Galat inference. 11 sessions × 2 stocks compare kiye (Yahoo vs TradingView-NSE closes):
+
+```
+TCS       09-17..10-01  11 din   0 mismatch
+RELIANCE  09-17..10-01  11 din   0 mismatch
+```
+
+**22 din, 0 mismatch.** Yahoo ke daily bars NSE ke bars hain aur sahi hain. 15:15 timestamp
+ka close se koi lena-dena nahi tha.
+
+**Galat 3: "ML study par asar hai, har close me CAS move missing ho sakta hai."**
+
+Nahi hai. Yahoo = NSE, to study ka data theek hai. Ye concern poora khatam.
+
+### Asli wajah — `fetch_tradingview` silently BSE par gir jaata tha
+
+```python
+df = self.tv.get_hist(symbol=clean_sym, exchange='NSE', ...)     # Primary
+if df is None or df.empty:
+    df = self.tv.get_hist(symbol=clean_sym, exchange='BSE', ...) # Silent fallback
+```
+
+Aur caller dono ko `'TradingView Direct'` keh deta tha.
+
+**Proof — user ke dashboard ke chaaron numbers TV-BSE se exact match hain:**
+
+| | price | ATR(14) | 52W high | 52W low |
+|---|---|---|---|---|
+| User ka dashboard | 2079.30 | 57.54 | 3336.7 | 1976 |
+| **TV-BSE (300 bars)** | **2079.30** | **57.54** | **3336.7** | **1976.0** |
+| TV-NSE (300 bars) | 2075.00 | 58.79 | 3350.0 | 1976.8 |
+
+Yaani user ki machine par TradingView ka NSE fetch khaali aaya, BSE fallback chala, aur
+**poora analysis — indicators, SL, targets, percentile rank — BSE data se bana**, jabki app ka
+score calibration NSE universe (30 naam, 250 sessions) par fitted hai. Label se pata hi nahi
+chalta tha.
+
+Aur wahi `priceGapWarn` (FIX-52) jo maine banaya tha — wo actually sahi kaam kar raha tha:
+header `/api/quote` se NSE price (2075.00) laata tha, analysis BSE frame (2079.30) se bani thi.
+Maine us gap ki wajah galat samjhi thi.
+
+### Fix
+
+`fetch_tradingview` ab `(df, exchange)` return karta hai, aur source label exchange carry
+karta hai: `'TradingView Direct (NSE)'` / `'TradingView Direct (BSE)'`. BSE par girne par
+terminal par warning bhi aati hai.
+
+`/api/stock` ab `frame_exchange` bhejta hai, aur Dashboard orange warning dikhata hai jab
+frame BSE se aaya ho — kyuki percentile ranks NSE distribution se compare ho rahe hote hain.
+
+Live verified:
+```
+data_source    = 'TradingView Direct (NSE)'
+frame_exchange = 'NSE'
+frame_close    = 2075.0
+week52         = {high: 3350.0, low: 1976.8}
+```
+
+### Jo ab confirm ho gaya
+
+- **NSE close (01-Oct)**: TCS **2075.00**, RELIANCE **1167.70** — Yahoo + TradingView-NSE, do
+  independent sources
+- **BSE close (01-Oct)**: TCS **2079.30**, RELIANCE **1166.00** — BSE ka apna API + TradingView-BSE
+- NSE ka bhavcopy CSV maine nahi khol paya (`archives.nseindia.com/content/historical/...`
+  404 deta hai; `EQUITY_L.csv` master 200 deta hai) — par do independent sources agree kar
+  rahe hain, isliye attribution solid hai
+
+`verify_live_quote.py` 160 → **168 checks** (naya `_FakeTV` behavioral test: NSE khaali →
+BSE, aur NSE me data ho to BSE try hi na ho) · regression **809 passed, 0 failed**
+
+---
+
 ## FIX-52 addendum — 2026-10-02 (external cross-check: price exchange se match nahi karta tha)
+
+> ⚠️ **Is section ka central claim — "Yahoo ka price exchange se match nahi karta" — GALAT
+> tha.** Neeche FIX-53 me correction hai. Jo theek hai: ROE 100x bug, `is_market_open` ka
+> duplicate constant, `SESSION_CLOSE_HM` 15:35, search bar ka exchange suffix, aur market
+> cap/fundamentals ka Yahoo se exact match.
 
 ### User ne poocha: "Moneycontrol/NSE/BSE se compare karo — 100% match ho raha hai ya nahi"
 
@@ -1650,6 +1747,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | TradingView ka fetch silently NSE se BSE par gir jaata tha, aur label batata hi nahi tha | ✅ **Solved (FIX-53)** — user ne FIX-52 ke teen "verify nahi kiya" items par sawaal kiya; verify karne par **teeno meri galtiyan nikli**. `tvDatafeed` se direct measure: `NSE:TCS 2075.00` vs `BSE:TCS 2079.30`, `NSE:RELIANCE 1167.70` vs `BSE:RELIANCE 1166.00`. Yaani **"Yahoo 4.30 off tha" galat tha** — 2079.30 BSE ka close hai, NSE ka nahi. **"Yahoo CAS close miss karta hai" bhi galat** — 11 sessions × 2 stocks = **22 din, 0 mismatch** (Yahoo = TradingView-NSE). **"ML study par asar" bhi nahi.** Asli wajah: `fetch_tradingview` me silent `exchange='BSE'` fallback tha aur caller dono ko `'TradingView Direct'` kehta tha. **Proof:** user ke dashboard ke chaaron numbers (2079.30 / ATR 57.54 / 52W 3336.7 / 1976) TV-BSE se **exact match** — poora analysis BSE data se bana tha jabki calibration NSE universe par fitted hai. Ab `fetch_tradingview` `(df, exchange)` return karta hai, label `'TradingView Direct (NSE|BSE)'`, `/api/stock` me `frame_exchange`, aur Dashboard BSE frame par warn karta hai. `verify_live_quote.py` 160 → **168 checks**, regression **809 passed, 0 failed**. |
 | — | Price exchange se match nahi karta tha — aur `is_market_open` me duplicate constant | ✅ **Solved (FIX-52)** — user ne "Moneycontrol/NSE/BSE se compare karo, 100% match ho raha hai" poocha. Yahoo crumb + BSE API se cross-check kiya: **BSE official TCS ₹2079.30 vs app ₹2075.00 (−4.30)**, RELIANCE ₹1166.00 vs ₹1167.70. Karan: Aug-2026 se NSE ka Closing Auction 15:15–15:35 chalta hai aur Yahoo ka `regularMarketTime` dono stocks par exactly **15:15:00** tha — continuous session ka last trade, official close nahi. Saath me **ROE 100x galat** tha (TCS "0.48%" jabki Yahoo raw 0.47743 = **47.74%**) — FIX-09 ka comment maanta tha `dividendYield` aur `returnOnEquity` dono percent me aate hain, par ROE fraction me aata hai, aur heuristic dono branches me galat tha. Aur `is_market_open` me apna literal `15*60+40` tha jo `SESSION_CLOSE_HM` padhta hi nahi tha — naya test pakda. Baaki fundamentals (P/E, P/B, D/E, market cap ÷ shares) Yahoo se **exact match** nikle. **Correction:** maine pehle kaha tha "TradingView BSE se match karta hai" — ek hi data point se nikala tha, aur sandbox me live run ne ulta dikhaya (usi label ke neeche 2075.00). **BSE ko live tier nahi banaya** — ~40 requests ke baad Akamai 403, aur 2s polling me minutes me block ho jaata. `verify_live_quote.py` 141 → **160 checks**, regression **801 passed, 0 failed**. |
 | — | Do badges ek hi screen par contradict karte the + browser ki ghadi quote ke waqt ki jagah | ✅ **Solved (FIX-51)** — user ke pasted dashboard me ek hi screen par `DELAYED (15-20 min)` (upar) aur `LIVE` (price ke baju) tha. Karan: **FIX-50 adhoora tha** — maine `app.py` L3585 ka source-name bug theek kiya, par `Dashboard.html` L1111 me uska apna copy (`/NSE/i.test(data_source)`) dekha hi nahi. Saath me `"DELAYED (15-20 min)"` hardcoded jhooth tha (asli staleness 1175 min / 19.6h, aur market hi band tha), aur `setLiveChip` me `new Date().toLocaleTimeString()` tha — yaani **browser ki ghadi** quote ke waqt ki jagah (`yahoo.ns · 10:31:31` jabki quote `2026-10-01 15:15` ka tha). Ab server ek hi `feed_state` ∈ {LIVE, DELAYED, **CLOSED**} + `feed_label` + `quote_age_min` + `quote_time` bhejta hai; UI guess nahi karta. `CLOSED` teesra state isliye zaroori tha kyunki FIX-50 ke baad holiday par quote "fresh" kehlata hai — data ke liye sahi, par "LIVE" jhooth. Saath me 4 label bug: `kpi.master.score` (42) aur `ensemble.score` (37) dono "Master Score" kehlate the; OBV ki koi bhi negative value "0" dikhti thi (measured `obv = -381723268`) aur UI label `obv > 0` se banta tha jabki scoring `obv > obv_ema` use karta hai; Bollinger %B 0.04 par "MID" kehlata tha; aur `debtToEquity` (percentage) bina `%` ke dikhaya jaata tha + falsy-check se asli 0.0 bhi 'N/A' ban jaata tha. **Arithmetic verify kiya — sab sahi nikla** (change%, 52W position, SL=2.5×ATR, T1=1R, breakeven, win-rate LCB, Kelly, master average, model edges, OOS). `verify_live_quote.py` 114 → **141 checks**. |
 | — | Holiday ka koi concept hi nahi tha — market band hone par bhi app "market khula" maanti thi | ✅ **Solved (FIX-50)** — **user ne pakda**, maine nahi. Maine FIX-49 me likha tha "market 16 min se khula" (02-Oct-2026 09:31); wo **Mahatma Gandhi Jayanti** tha, NSE/BSE poora din band. `is_market_open()` sirf weekday+time dekhta tha, isliye `True` bola aur FIX-49 ka gate perfectly-sahi data ko `STALE: quote 1096m purana` keh gaya — **false positive**. Wahi bug FIX-47 ko bhi chhuta tha: `last_completed_session()` holiday ko normal weekday maan kar expected session galat batata tha. Ab NSE equity ke **2026 ke 16 weekday holidays** `NSE_HOLIDAYS` me, plus do patch-free update raaste (`STOCKAI_EXTRA_HOLIDAYS` env, optional `nse_holidays.txt`) — zaroori isliye kyunki 15-Jan-2026 original calendar me tha hi nahi, NSE ne circular se baad me add kiya. Calendar purana/khaali ho to crash nahi, weekday-rule par degrade + startup warning. Saath me `/api/stock` ka `is_realtime` bhi theek hua — pehle `'NSE' in str(active_source)` substring match se aata tha, jisme `'NSE Official Direct (STALE)'` bhi True ban jaata tha; ab FIX-49 ke gate verdict se + `realtime_reason`. Measured: holiday 09:31 → `is_market_open=False`, quote **FRESH** (`market closed, quote 2026-10-01 (latest 2026-10-01) — fine`); normal Mon 09:31 → gate utna hi strict. `verify_live_quote.py` 86 → **114 checks**. |

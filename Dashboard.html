@@ -570,6 +570,11 @@ body::after {
              line-height:1.45;padding:6px 9px;border-radius:6px;
              background:rgba(255,196,0,0.10);border:1px solid rgba(255,196,0,0.32);
              color:var(--color-yellow)"></div>
+        <!-- FIX-53: frame BSE se aaya to batao — score calibration NSE par fitted hai -->
+        <div id="exchWarn" style="display:none;margin-top:5px;font-size:0.74rem;
+             line-height:1.45;padding:6px 9px;border-radius:6px;
+             background:rgba(247,147,26,0.10);border:1px solid rgba(247,147,26,0.32);
+             color:#f7931a"></div>
       </div>
       <div class="d-flex gap-2 align-items-center">
         <div id="regimeBadge" class="badge-tag" style="background:var(--color-green-dim);color:var(--color-green);font-size:0.85rem;padding:6px 14px">—</div>
@@ -1219,6 +1224,22 @@ function render(d) {
   // FIX-52: analysis kis price se bani — gap check ke liye pehle record karo.
   analysisPrice = d.frame_close ?? d.price;
   analysisBasis = d.price_basis || 'daily frame close';
+
+  // FIX-53: frame kis exchange se aaya. TradingView ka fetch silently NSE se BSE
+  // par gir jaata tha aur label 'TradingView Direct' hi rehta tha — user ke
+  // dashboard par price/ATR/52W chaaron BSE ke values the (2079.30 / 57.54 /
+  // 3336.7 / 1976) jabki app NSE universe par calibrated hai.
+  const exchEl = document.getElementById('exchWarn');
+  if (exchEl) {
+    if (d.frame_exchange === 'BSE') {
+      exchEl.style.display = 'block';
+      exchEl.textContent = '⚠️ Ye frame BSE se aaya hai (NSE feed khaali tha). BSE aur NSE ke '
+        + 'closing prices alag hote hain — TCS par 01-Oct ko BSE ₹2,079.30 vs NSE ₹2,075.00. '
+        + 'Score percentile NSE universe par fitted hai, isliye BSE frame par rank indicative hai.';
+    } else {
+      exchEl.style.display = 'none';
+    }
+  }
 
   // Initialize Live Price Ticker
   updatePriceDOM(d.price, d.change, d.pChange);

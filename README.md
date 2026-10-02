@@ -499,7 +499,82 @@ duplicate-logging guards.
 
 ---
 
+### FIX-53 · the real cause: TradingView was silently falling back to BSE
+
+**Three things I wrote in FIX-52 were wrong.** The user asked why I hadn't verified them.
+Verifying proved all three false.
+
+**Wrong 1 — "Yahoo's price doesn't match the exchange; the official close is 2079.30."**
+2079.30 is **BSE's** close, not NSE's. Measured directly through `tvDatafeed`:
+
+```
+NSE:TCS        close = 2075.00      BSE:TCS        close = 2079.30
+NSE:RELIANCE   close = 1167.70      BSE:RELIANCE   close = 1166.00
+```
+
+Yahoo matches **NSE**. Two exchanges, two separate closing auctions, two legitimately
+different closes — not a data error.
+
+**Wrong 2 — "Yahoo timestamps at 15:15 because it misses the CAS close."** Compared 11
+sessions × 2 stocks, Yahoo vs TradingView-NSE closes: **22 days, 0 mismatches.** Yahoo's
+daily bars *are* NSE's bars.
+
+**Wrong 3 — "the ML study may be affected."** It isn't. That concern is gone entirely.
+
+**The real cause:**
+
+```python
+df = self.tv.get_hist(symbol=clean_sym, exchange='NSE', ...)     # primary
+if df is None or df.empty:
+    df = self.tv.get_hist(symbol=clean_sym, exchange='BSE', ...) # silent fallback
+```
+
+…and the caller labelled both `'TradingView Direct'`.
+
+**Proof — all four of the user's numbers match TV-BSE exactly:**
+
+| | price | ATR(14) | 52W high | 52W low |
+|---|---|---|---|---|
+| user's dashboard | 2079.30 | 57.54 | 3336.7 | 1976 |
+| **TV-BSE (300 bars)** | **2079.30** | **57.54** | **3336.7** | **1976.0** |
+| TV-NSE (300 bars) | 2075.00 | 58.79 | 3350.0 | 1976.8 |
+
+So on the user's machine the NSE fetch came back empty, the BSE fallback ran, and the **entire
+analysis — indicators, stop loss, targets, percentile rank — was computed from BSE data**
+while the app's score calibration is fitted on the NSE universe. Nothing in the label showed it.
+
+The `priceGapWarn` added in FIX-52 was doing its job correctly all along: the header pulled
+the NSE price from `/api/quote` while the analysis ran on a BSE frame. I just diagnosed the
+gap wrongly.
+
+**Fixed:** `fetch_tradingview` returns `(df, exchange)`; the source label now reads
+`TradingView Direct (NSE)` or `TradingView Direct (BSE)`; falling back prints a terminal
+warning; `/api/stock` exposes `frame_exchange`; the dashboard shows an orange warning on a
+BSE frame because percentile ranks are compared against an NSE distribution.
+
+```
+data_source    = 'TradingView Direct (NSE)'
+frame_exchange = 'NSE'
+frame_close    = 2075.0
+week52         = {high: 3350.0, low: 1976.8}
+```
+
+Now confirmed: **NSE close 01-Oct** = TCS 2075.00, RELIANCE 1167.70 (Yahoo + TradingView-NSE,
+two independent sources). **BSE close** = TCS 2079.30, RELIANCE 1166.00 (BSE's own API +
+TradingView-BSE). I could not open NSE's bhavcopy CSV (`content/historical/...` returns 404),
+but two independent sources agreeing makes the attribution solid.
+
+`verify_live_quote.py` 160 → **168 checks** (new `_FakeTV` behavioural test: NSE empty → BSE,
+and NSE present → BSE never tried); regression **809 passed, 0 failed**.
+
+---
+
 ### FIX-52 · the price did not match the exchange
+
+> ⚠️ **The central claim of this section — "Yahoo's price doesn't match the exchange" — was
+> wrong.** See FIX-53 for the correction. What still holds: the ROE 100× bug, the duplicated
+> `is_market_open` constant, `SESSION_CLOSE_HM` 15:35, the search-bar exchange suffix, and
+> market cap / fundamentals matching Yahoo exactly.
 
 The user asked the right question: *"Moneycontrol, NSE, BSE — do these match 100%?"* I had
 earlier written off two things as "couldn't verify". Both verified, and the answer was **no**.

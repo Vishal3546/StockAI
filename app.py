@@ -1160,8 +1160,8 @@ class MultiTechDataSourceManager:
     def fetch_tradingview(self, symbol, n_bars=500, interval_str='1d'):
         """Tier 1 Fetch: Direct TradingView Feed"""
         if self.tv is None:
-            return None
-            
+            return None, None
+
         try:
             from tvDatafeed import Interval
             clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
@@ -1176,22 +1176,31 @@ class MultiTechDataSourceManager:
             elif interval_str == '1w':
                 tv_interval = Interval.in_weekly
 
-            # Primary Attempt: NSE Exchange
-            df = self.tv.get_hist(
-                symbol=clean_sym,
-                exchange='NSE',
-                interval=tv_interval,
-                n_bars=n_bars
-            )
-            
-            # Secondary Attempt: BSE Exchange Fallback
-            if df is None or df.empty:
-                df = self.tv.get_hist(
+            # FIX-53: pehle ye silently NSE se BSE par gir jaata tha aur caller
+            # dono ko 'TradingView Direct' keh deta tha. Measured (tvDatafeed,
+            # 2026-10-01) — dono exchanges ke close ALAG hain:
+            #     NSE:TCS 2075.00   BSE:TCS 2079.30
+            #     NSE:RELIANCE 1167.70   BSE:RELIANCE 1166.00
+            # User ke dashboard par price 2079.30, ATR 57.54, 52W 3336.7/1976
+            # tha — chaaron TV-BSE se EXACT match. Yaani uska poora analysis
+            # (indicators, SL, targets, percentile rank) BSE data se bana tha
+            # jabki app NSE universe par calibrated hai, aur label 'TradingView
+            # Direct' se pata hi nahi chalta tha. Ab exchange track hota hai.
+            df = None
+            used_exch = None
+            for exch in ('NSE', 'BSE'):
+                _d = self.tv.get_hist(
                     symbol=clean_sym,
-                    exchange='BSE',
+                    exchange=exch,
                     interval=tv_interval,
                     n_bars=n_bars
                 )
+                if _d is not None and not _d.empty:
+                    df, used_exch = _d, exch
+                    if exch == 'BSE':
+                        print(f"⚠️  [TradingView] {clean_sym}: NSE feed khaali tha, BSE par gir "
+                              f"gaya. BSE ka close NSE se alag hota hai — label me dikhega.")
+                    break
 
             if df is not None and not df.empty:
                 df = df.rename(columns={
@@ -1209,12 +1218,12 @@ class MultiTechDataSourceManager:
                 df = df.dropna(subset=['Close'])
                 
                 if len(df) >= 20:
-                    return df
-                    
+                    return df, used_exch
+
         except Exception:
             pass
-            
-        return None
+
+        return None, None
 
     def fetch_nse_direct(self, symbol, days=500):
         """
@@ -1347,14 +1356,17 @@ class MultiTechDataSourceManager:
 
         # ── TIER 1: TradingView Direct (0-Second Delay Live Stream) ──
         if not symbol.startswith('^'):
-            df_tv = self.fetch_tradingview(clean_sym, n_bars=n_bars, interval_str=interval)
+            df_tv, tv_exch = self.fetch_tradingview(clean_sym, n_bars=n_bars, interval_str=interval)
             if df_tv is not None:
+                # FIX-53: exchange label me — 'TradingView Direct' akela ye nahi
+                # batata tha ki data NSE se aaya ya BSE fallback se.
+                _tv_src = f'TradingView Direct ({tv_exch})' if tv_exch else 'TradingView Direct'
                 fresh, why = frame_is_fresh(df_tv, interval, now=_now)
                 if fresh:
-                    print(f"🔥 [TradingView] {clean_sym} ({interval}) · {len(df_tv)} bars · {why}")
-                    return df_tv, 'TradingView Direct'
+                    print(f"🔥 [{_tv_src}] {clean_sym} ({interval}) · {len(df_tv)} bars · {why}")
+                    return df_tv, _tv_src
                 a = frame_age_minutes(df_tv, _now)
-                stale_candidates.append((a if a is not None else 1e9, df_tv, 'TradingView Direct'))
+                stale_candidates.append((a if a is not None else 1e9, df_tv, _tv_src))
                 print(f"⚠️  [TradingView REJECTED] {clean_sym} ({interval}) — {why}, agla tier try kar rahe hain")
 
         # ── TIER 2: NSE Official Direct Scraper ──
@@ -3811,6 +3823,12 @@ def stock_api(symbol):
             'frame_close': sfx(L.get('Close'), 2),
             'price_basis': ('live NSE LTP' if live_nse
                             else 'daily frame close (koi live NSE quote nahi)'),
+            # FIX-53: frame kis exchange se aaya. App ka score calibration NSE
+            # universe par fitted hai (30 NSE naam, 250 NSE sessions), isliye BSE
+            # frame par percentile ranks technically NSE distribution se compare
+            # ho rahe hote hain. Chhupana nahi, batana.
+            'frame_exchange': ('BSE' if '(BSE)' in str(daily_source)
+                               else 'NSE' if '(NSE)' in str(daily_source) else None),
             'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
                            'ml.* accuracy is in-sample/diagnostic; the OOS verdict comes from '
                            'ml_study (tools/build_ml_edge_study.py) — see ml_study.verdict.'),
