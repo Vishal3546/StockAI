@@ -2,6 +2,134 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-52 addendum — 2026-10-02 (external cross-check: price exchange se match nahi karta tha)
+
+### User ne poocha: "Moneycontrol/NSE/BSE se compare karo — 100% match ho raha hai ya nahi"
+
+Pehle maine do cheezein "verify nahi kar paya" bol kar chhod di thi (NSE timestamp field,
+market cap). User ne sahi pakda — dono verify ho gayi, aur jawab **na** hai.
+
+**Yahoo crumb mil gaya** (`fc.yahoo.com` cookie → `/v1/test/getcrumb`), isliye `quoteSummary`
+khul gaya. **BSE ka `getScripHeaderData` bhi is sandbox se chal gaya** (NSE 403 deta hai).
+
+### Finding 1 — price exchange se match nahi karta
+
+| | App header | Yahoo | **BSE official** |
+|---|---|---|---|
+| TCS close 01-Oct | ₹2,075.00 | 2075.00 | **₹2,079.30** (−4.30) |
+| TCS prevClose | 2050.60 | 2050.6 | **2050.00** |
+| TCS change | +24.40 (+1.19%) | same | **+29.30 (+1.43%)** |
+| RELIANCE close | ₹1,167.70 | 1167.70 | **₹1,166.00** (+1.70) |
+| RELIANCE prevClose | 1187.00 | 1187.0 | **1187.50** |
+
+BSE ka `Ason` = `01 Oct 26 | 16:00` — official close.
+
+**Karan: NSE ka Closing Auction Session.** Aug 3, 2026 se F&O wale stocks ke liye
+continuous trading 15:15 par rukta hai aur CAS 15:15–15:35 official close banata hai.
+Yahoo ka `regularMarketTime` **dono stocks par exactly 15:15:00** tha (measured) — yaani
+continuous session ka last trade, official close nahi.
+
+*(Ye inference hai — Yahoo ka upstream source maine directly measure nahi kiya. Par timestamp
+dono stocks par exactly 15:15 aana isi taraf point karta hai.)*
+
+Iska ML study par bhi asar hai: saari daily bars Yahoo se aati hain, to har close me CAS ka
+move missing ho sakta hai. Magnitude TCS par 0.207%, jabki ATR 2.83% — yaani **ek ATR ka ~7%**.
+Chhota hai, par zero nahi.
+
+### ⚠️ Meri ek galti — correction
+
+Maine pehle likha tha: *"app ke analysis block ne 2079.30 use kiya jo BSE se exact match
+hai — yaani TradingView BSE se match karta hai, Yahoo nahi."* **Ye galat tha.** Ek hi data
+point (user ka dashboard) se pattern nikal liya tha.
+
+Is sandbox me live run kiya: `data_source = 'TradingView Direct'`, `tvDatafeed` installed,
+300 bars — aur TCS ka close **2075.00** aaya, 52W **3350.0 / 1976.8**, ATR **58.79**. Ye sab
+Yahoo ke values se **exact match** hain, BSE se nahi.
+
+Yaani: **user ki machine par 'TradingView Direct' label ke neeche 2079.30 aaya, is sandbox me
+usi label ke neeche 2075.00.** Source label data ki provenance ka bharosemand indicator nahi
+hai — wahi class ka problem jo FIX-50/51 me backend/frontend me thi.
+
+Jo solid hai (measured):
+- BSE official: TCS 2079.30, RELIANCE 1166.00
+- Yahoo: TCS 2075.00, RELIANCE 1167.70
+- Sandbox TradingView: TCS 2075.00, RELIANCE 1167.70 (Yahoo jaisa)
+- User ki machine, 'TradingView Direct' label: TCS 2079.30, ATR 57.54, 52W 3336.7/1976
+
+### Finding 2 — ROE 100x galat tha
+
+Yahoo `financialData.returnOnEquity` raw = **0.47743**, `fmt` = **"47.74%"**. Dashboard
+dikha raha tha **"0.48%"**.
+
+```python
+_roe = info.get('returnOnEquity')                        # 0.47743 (FRACTION)
+_roe = (_roe / 100.0) if (_roe and _roe > 5) else _roe   # 0.47743 (5 se chhota)
+'roe': f"{_roe:.2f}%"                                    # "0.48%"  ← 100x off
+```
+
+FIX-09 ka comment kehta tha "yfinance `dividendYield` / `returnOnEquity` dono PERCENT me
+deta hai". **`dividendYield` ke liye sahi (3.17), `returnOnEquity` ke liye galat (0.47743).**
+Do fields ke opposite units hain. Aur heuristic **dono branches me galat** tha — 47.743 aata
+to `/100` kar ke phir "0.48%" banta.
+
+**Fundamentals ka poora cross-check (Yahoo raw se):**
+
+| | Dashboard | Yahoo raw | |
+|---|---|---|---|
+| TCS P/E | 14.9 | 14.903398 | ✓ |
+| TCS P/B | 6.85 | 6.8478684 | ✓ |
+| TCS D/E | 10.2% D/E | 10.211 | ✓ |
+| TCS ROE | **0.48%** | **0.47743 = 47.74%** | ❌ |
+| TCS mcap | ₹750,753Cr | 7,507,531,530,240 | ✓ |
+| RELIANCE P/E | 21.5 | 21.504604 | ✓ |
+| RELIANCE P/B | 1.75 | 1.7479361 | ✓ |
+| RELIANCE D/E | 36.7% D/E | 36.653 | ✓ |
+| RELIANCE ROE | N/A | None | ✓ |
+| RELIANCE mcap | ₹1,580,187Cr | 15,801,867,304,960 | ✓ |
+
+`sharesOutstanding`: TCS 3,618,087,518 · RELIANCE 13,532,472,634 — market cap ÷ price se
+dono exact match. (Pehle maine 13.53bn ka andaza lagaya tha; exact nikla.)
+
+### Finding 3 — `is_market_open` me duplicate constant
+
+`SESSION_CLOSE_HM` badalne par **kuch nahi badla**, kyunki `is_market_open` ke andar apna
+literal tha:
+
+```python
+return (9 * 60 + 15) <= hm <= (15 * 60 + 40)   # SESSION_CLOSE_HM use hi nahi karta tha
+```
+
+Comment likhta tha "is_market_open ke upper bound ke saath match" — par dono alag literals
+the, isliye chup-chaap drift ho gaye. **Test ne pakda** (15:36 False expected, True mila).
+Ab `SESSION_OPEN_HM` / `SESSION_CLOSE_HM` ek hi source hain.
+
+### Fix
+
+1. `SESSION_CLOSE_HM` 15:40 → **15:35** (CAS close), aur `is_market_open` ab constant padhta hai
+2. ROE × 100 with `|x| <= 2.0` guard → TCS **47.74%** (live verified)
+3. `/api/stock` ab `frame_close` + `price_basis` bhejta hai
+4. Dashboard `checkPriceGap()` — header price aur analysis price me **0.25% se zyada** gap ho
+   to dono numbers + reason dikhata hai, chup-chaap koi ek nahi chunta. User ke dashboard par
+   ye **+₹4.30 (0.21%)** fire karega.
+5. Search bar me **(NSE)/(BSE)** suffix — `/api/search` pehle se `ex` bhejta tha, UI render hi
+   nahi karta tha
+
+### Jo drop kiya, aur kyun
+
+**BSE ko live quote tier nahi banaya.** `getScripHeaderData` pehle kaam karta tha, phir ~40
+requests ke baad **Akamai ne 403 "Access Denied"** de diya. Dashboard 2s par poll karta hai —
+BSE minutes me block ho jaata. Scrip master (`getScripList`, `scripmasterdata`) aur search API
+(`Msource/90D/getQuoteSearch.aspx`) bhi 403 dete hain, aur bhavcopy URLs SPA shell return karte
+hain. Isliye symbol → scripcode dynamically resolve karna bhi possible nahi.
+
+BSE ka data valuable hai (wahi batata hai ki Yahoo 4.30 off hai) par **on-demand check ke liye,
+2s polling ke liye nahi**.
+
+`verify_live_quote.py` 141 → **160 checks** · full regression **801 passed, 0 failed**
+(`verify_dependency_pins` 45→47, environment-dependent)
+
+---
+
 ## FIX-51 addendum — 2026-10-02 (ek hi feed state, asli quote time, label collisions)
 
 ### Shuruaat user ke pasted dashboard se
@@ -1522,6 +1650,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Price exchange se match nahi karta tha — aur `is_market_open` me duplicate constant | ✅ **Solved (FIX-52)** — user ne "Moneycontrol/NSE/BSE se compare karo, 100% match ho raha hai" poocha. Yahoo crumb + BSE API se cross-check kiya: **BSE official TCS ₹2079.30 vs app ₹2075.00 (−4.30)**, RELIANCE ₹1166.00 vs ₹1167.70. Karan: Aug-2026 se NSE ka Closing Auction 15:15–15:35 chalta hai aur Yahoo ka `regularMarketTime` dono stocks par exactly **15:15:00** tha — continuous session ka last trade, official close nahi. Saath me **ROE 100x galat** tha (TCS "0.48%" jabki Yahoo raw 0.47743 = **47.74%**) — FIX-09 ka comment maanta tha `dividendYield` aur `returnOnEquity` dono percent me aate hain, par ROE fraction me aata hai, aur heuristic dono branches me galat tha. Aur `is_market_open` me apna literal `15*60+40` tha jo `SESSION_CLOSE_HM` padhta hi nahi tha — naya test pakda. Baaki fundamentals (P/E, P/B, D/E, market cap ÷ shares) Yahoo se **exact match** nikle. **Correction:** maine pehle kaha tha "TradingView BSE se match karta hai" — ek hi data point se nikala tha, aur sandbox me live run ne ulta dikhaya (usi label ke neeche 2075.00). **BSE ko live tier nahi banaya** — ~40 requests ke baad Akamai 403, aur 2s polling me minutes me block ho jaata. `verify_live_quote.py` 141 → **160 checks**, regression **801 passed, 0 failed**. |
 | — | Do badges ek hi screen par contradict karte the + browser ki ghadi quote ke waqt ki jagah | ✅ **Solved (FIX-51)** — user ke pasted dashboard me ek hi screen par `DELAYED (15-20 min)` (upar) aur `LIVE` (price ke baju) tha. Karan: **FIX-50 adhoora tha** — maine `app.py` L3585 ka source-name bug theek kiya, par `Dashboard.html` L1111 me uska apna copy (`/NSE/i.test(data_source)`) dekha hi nahi. Saath me `"DELAYED (15-20 min)"` hardcoded jhooth tha (asli staleness 1175 min / 19.6h, aur market hi band tha), aur `setLiveChip` me `new Date().toLocaleTimeString()` tha — yaani **browser ki ghadi** quote ke waqt ki jagah (`yahoo.ns · 10:31:31` jabki quote `2026-10-01 15:15` ka tha). Ab server ek hi `feed_state` ∈ {LIVE, DELAYED, **CLOSED**} + `feed_label` + `quote_age_min` + `quote_time` bhejta hai; UI guess nahi karta. `CLOSED` teesra state isliye zaroori tha kyunki FIX-50 ke baad holiday par quote "fresh" kehlata hai — data ke liye sahi, par "LIVE" jhooth. Saath me 4 label bug: `kpi.master.score` (42) aur `ensemble.score` (37) dono "Master Score" kehlate the; OBV ki koi bhi negative value "0" dikhti thi (measured `obv = -381723268`) aur UI label `obv > 0` se banta tha jabki scoring `obv > obv_ema` use karta hai; Bollinger %B 0.04 par "MID" kehlata tha; aur `debtToEquity` (percentage) bina `%` ke dikhaya jaata tha + falsy-check se asli 0.0 bhi 'N/A' ban jaata tha. **Arithmetic verify kiya — sab sahi nikla** (change%, 52W position, SL=2.5×ATR, T1=1R, breakeven, win-rate LCB, Kelly, master average, model edges, OOS). `verify_live_quote.py` 114 → **141 checks**. |
 | — | Holiday ka koi concept hi nahi tha — market band hone par bhi app "market khula" maanti thi | ✅ **Solved (FIX-50)** — **user ne pakda**, maine nahi. Maine FIX-49 me likha tha "market 16 min se khula" (02-Oct-2026 09:31); wo **Mahatma Gandhi Jayanti** tha, NSE/BSE poora din band. `is_market_open()` sirf weekday+time dekhta tha, isliye `True` bola aur FIX-49 ka gate perfectly-sahi data ko `STALE: quote 1096m purana` keh gaya — **false positive**. Wahi bug FIX-47 ko bhi chhuta tha: `last_completed_session()` holiday ko normal weekday maan kar expected session galat batata tha. Ab NSE equity ke **2026 ke 16 weekday holidays** `NSE_HOLIDAYS` me, plus do patch-free update raaste (`STOCKAI_EXTRA_HOLIDAYS` env, optional `nse_holidays.txt`) — zaroori isliye kyunki 15-Jan-2026 original calendar me tha hi nahi, NSE ne circular se baad me add kiya. Calendar purana/khaali ho to crash nahi, weekday-rule par degrade + startup warning. Saath me `/api/stock` ka `is_realtime` bhi theek hua — pehle `'NSE' in str(active_source)` substring match se aata tha, jisme `'NSE Official Direct (STALE)'` bhi True ban jaata tha; ab FIX-49 ke gate verdict se + `realtime_reason`. Measured: holiday 09:31 → `is_market_open=False`, quote **FRESH** (`market closed, quote 2026-10-01 (latest 2026-10-01) — fine`); normal Mon 09:31 → gate utna hi strict. `verify_live_quote.py` 86 → **114 checks**. |
 | — | Live-quote freshness verify hi nahi hoti thi — 18 ghante purana price "LIVE" label ke saath jaata tha | ✅ **Solved (FIX-49)** — `fetch_yahoo_live_ltp()` Yahoo ke `regularMarketTime` ko **sirf display string** banane ke liye padhta tha (poore file me ek hi reference), aur `is_realtime: True` **hardcoded** tha; timestamp missing ho to `datetime.now()` quote ka waqt maan leta tha. Measured 2026-10-02 09:31 IST (market 16 min se khula): `regularMarketPrice=1167.7` ke saath `regularMarketTime=2026-10-01 15:15` — **18.3h purana**. Nateeja: chart "DELAYED" aur header price "LIVE", ek hi screen par. `fetch_nse_live_ltp()` me bhi wahi pattern (NSE ka apna `timestamp` ignore, `datetime.now()` likha). Ab `frame_is_fresh()` ka scalar twin `quote_is_fresh()` + `_parse_quote_ts()` (Yahoo epoch + NSE `'02-Oct-2026 09:31:00'`), missing timestamp **fail-CLOSED**, `STOCKAI_LIVE_MAX_AGE_MIN` limit + `STOCKAI_LIVE_GATE=off` kill-switch, aur console warning 5 min/symbol throttle. Price phir bhi serve hota hai — gate sirf label badalta hai. Side-fix: NSE ab `source: 'nse'` bhejta hai, `'unknown'` nahi. `change%` ka prevClose **pehle se sahi tha** (verify kiya) — chheda nahi. `verify_live_quote.py` 50 → **86 checks**. ⚠️ **Correction (FIX-50 me):** is fix me jo "measured 09:31, market 16 min se khula" likha hai wo **galat premise** tha — 02-Oct-2026 Gandhi Jayanti tha, market poora din band. Hardcoded `is_realtime: True` aur fake `datetime.now()` timestamp asli bugs the (holiday par bhi kuch "live" nahi hota), par wo `1126m purana` STALE verdict **false positive** tha. FIX-50 ne holiday calendar add karke use theek kiya. |

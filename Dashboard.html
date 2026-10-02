@@ -563,6 +563,13 @@ body::after {
           </button>
         </div>
         <div style="font-size:0.72rem;color:var(--text-muted)" id="stockMeta"></div>
+        <!-- FIX-52: header ka price /api/quote se aata hai, poora plan /api/stock
+             ke price se banta hai. 2026-10-02 par ye do alag the (2075.00 vs
+             2079.30). Chup-chaap koi ek chunne ke bajaye dono dikhate hain. -->
+        <div id="priceGapWarn" style="display:none;margin-top:5px;font-size:0.74rem;
+             line-height:1.45;padding:6px 9px;border-radius:6px;
+             background:rgba(255,196,0,0.10);border:1px solid rgba(255,196,0,0.32);
+             color:var(--color-yellow)"></div>
       </div>
       <div class="d-flex gap-2 align-items-center">
         <div id="regimeBadge" class="badge-tag" style="background:var(--color-green-dim);color:var(--color-green);font-size:0.85rem;padding:6px 14px">—</div>
@@ -723,6 +730,29 @@ async function apiFetch(path, opts) {
 }
 let activeSymbol = "RELIANCE";
 let lastKnownPrice = 0;
+// FIX-52: /api/stock ka price (jis se poora plan banta hai) vs /api/quote ka
+// price (jo bada number dikhata hai). Dono alag sources se aate hain.
+let analysisPrice = null;
+let analysisBasis = '';
+
+// Header price aur analysis price me gap ho to warn karo. 0.25% threshold:
+// measured TCS par fark 4.30/2079.30 = 0.207% tha — Yahoo ka 15:15 continuous
+// price vs official CAS close. Usse bada gap matlab data-quality issue.
+function checkPriceGap(tickerPrice) {
+  const el = document.getElementById('priceGapWarn');
+  if (!el) return;
+  const a = Number(analysisPrice), t = Number(tickerPrice);
+  if (!a || !t || !isFinite(a) || !isFinite(t)) { el.style.display = 'none'; return; }
+  const diff = t - a, pct = Math.abs(diff / a) * 100;
+  if (pct < 0.25) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.textContent = `⚠️ Header ₹${t.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`
+    + ` (live quote) aur analysis ₹${a.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`
+    + ` (${analysisBasis || 'daily frame close'}) me ${diff > 0 ? '+' : '−'}`
+    + `₹${Math.abs(diff).toFixed(2)} (${pct.toFixed(2)}%) ka fark. SL/Target/indicators`
+    + ` analysis price se bane hain. NSE ka Closing Auction 15:15–15:35 chalta hai;`
+    + ` Yahoo ka quote 15:15 ka continuous-session price ho sakta hai, official close nahi.`;
+}
 let liveTickerInterval = null;
 
 function initChart() {
@@ -906,13 +936,27 @@ symInput.addEventListener('input', function() {
         const symEl = document.createElement('span');
         symEl.className = 'search-sym';
         symEl.textContent = String(s.sym ?? '');
+        // FIX-52: exchange suffix. /api/search pehle se `ex: 'NSE'|'BSE'` bhejta
+        // tha, par UI use render hi nahi karta tha — yaani user ko pata hi nahi
+        // chalta tha ki wo NSE listing chun raha hai ya BSE. NSE aur BSE alag
+        // order books hain aur closing prices thoda differ karte hain (NSE ka
+        // Closing Auction 15:15-15:35, BSE ka 15:30-16:00), isliye ye dikhna
+        // zaroori hai.
+        const exEl = document.createElement('span');
+        exEl.className = 'search-ex';
+        exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE';
+        exEl.style.cssText = ('font-size:0.68rem;font-weight:700;padding:1px 6px;border-radius:4px;'
+          + 'margin-left:7px;letter-spacing:0.4px;'
+          + (String(s.ex ?? '').toUpperCase() === 'BSE'
+              ? 'background:rgba(247,147,26,0.16);color:#f7931a;'
+              : 'background:rgba(0,212,255,0.14);color:var(--accent-cyan);'));
         const nameEl = document.createElement('span');
         nameEl.className = 'search-name';
         nameEl.textContent = String(s.name ?? '');
         const secEl = document.createElement('span');
         secEl.className = 'search-sec';
         secEl.textContent = String(s.sec ?? '');
-        item.append(symEl, nameEl, secEl);
+        item.append(symEl, exEl, nameEl, secEl);
         dropdown.appendChild(item);
       });
       dropdown.classList.add('show');
@@ -1067,6 +1111,7 @@ function updatePriceDOM(newPrice, change, pChange, opts) {
   }
 
   if (opts) setLiveChip(opts);
+  checkPriceGap(p);                             // FIX-52: header vs analysis gap
 }
 
 // Manual refresh — round icon par click (ya keyboard "R")
@@ -1171,6 +1216,10 @@ function render(d) {
   // Ab server `feed_state` + `feed_label` bhejta hai (LIVE / DELAYED / CLOSED).
   setLiveBadge(d.feed_state, d.feed_label, src);
   
+  // FIX-52: analysis kis price se bani — gap check ke liye pehle record karo.
+  analysisPrice = d.frame_close ?? d.price;
+  analysisBasis = d.price_basis || 'daily frame close';
+
   // Initialize Live Price Ticker
   updatePriceDOM(d.price, d.change, d.pChange);
     

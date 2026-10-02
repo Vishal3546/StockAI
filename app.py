@@ -833,7 +833,7 @@ def is_market_holiday(d=None):
 
 
 def is_market_open(now=None):
-    """NSE cash session: Mon-Fri 09:15–15:40 IST, **aur holiday na ho**.
+    """NSE cash session: Mon-Fri 09:15–15:35 IST, **aur holiday na ho**.
 
     FIX-47: `now` pehle IST me normalize hota hai. Pehle ye caller ke `.hour`/`.minute`
     ko as-is padhta tha — ek aware UTC datetime (10:36Z = 16:06 IST, market BAND) ko
@@ -849,7 +849,10 @@ def is_market_open(now=None):
     if now.date() in NSE_HOLIDAYS:   # FIX-50
         return False
     hm = now.hour * 60 + now.minute
-    return (9 * 60 + 15) <= hm <= (15 * 60 + 40)
+    # FIX-52: pehle yahan literal `15 * 60 + 40` tha — `SESSION_CLOSE_HM` se
+    # alag. Matlab SESSION_CLOSE_HM badalne par is_market_open change hi nahi
+    # hota tha; dono constants chup-chaap drift kar gaye the. Ab ek hi source.
+    return SESSION_OPEN_HM <= hm <= SESSION_CLOSE_HM
 
 
 def _naive_ist(now=None):
@@ -890,7 +893,16 @@ def frame_age_minutes(df, now=None):
 #
 # Grace 1 din isliye: ek akel market holiday (bar pichhle weekday ka) false-positive na
 # ban jaaye. Weekend ka gap `last_completed_session()` khud skip kar deta hai.
-SESSION_CLOSE_HM = 15 * 60 + 40        # is_market_open ke upper bound ke saath match
+# FIX-52 — 15:40 → 15:35. Aug 3, 2026 se NSE ne F&O wale stocks (TCS, RELIANCE,
+# aur universe ke zyada-tar naam) ke liye Closing Auction Session lagaya:
+#   continuous trading  09:15 – 15:15
+#   Closing Auction     15:15 – 15:35  ← official closing price yahin banta hai
+#   post-close          15:50 – 16:00
+# Non-CAS securities 15:30 par band, aur BSE apna closing/post-close 15:30–16:00
+# chalata hai. 15:35 teeno cover karta hai; 15:40 NSE ke liye 5 min zyada tha
+# (us waqt tak official close already publish ho chuka hota hai).
+SESSION_OPEN_HM = 9 * 60 + 15          # regular cash session ka pehla minute
+SESSION_CLOSE_HM = 15 * 60 + 35        # official CAS close; is_market_open isi ko padhta hai
 CLOSED_GRACE_DAYS = 1
 
 
@@ -3643,13 +3655,28 @@ def stock_api(symbol):
         patterns = detect_all_candle_patterns(df)
 
         # Assemble Chart Array
-        # FIX-09: modern yfinance already returns dividendYield / returnOnEquity
-        # in PERCENT (0.5 == 0.50%). The old code multiplied by 100 and the
-        # dashboard showed a 50.00% dividend yield for RELIANCE.
+        # FIX-09: modern yfinance `dividendYield` ko PERCENT me deta hai
+        # (3.17 == 3.17%). Purana code *100 karta tha aur RELIANCE ke liye
+        # 50.00% dividend yield dikhata tha.
+        #
+        # FIX-52: par `returnOnEquity` ke liye ye assumption GALAT hai — wo
+        # FRACTION me aata hai. Measured (Yahoo quoteSummary, TCS.NS):
+        #     financialData.returnOnEquity raw = 0.47743, fmt = "47.74%"
+        #     financialData.debtToEquity   raw = 10.211,  fmt = "10.21%"
+        # Yaani do fields ke OPPOSITE units hain, aur purana code dono ko ek
+        # jaisa treat karta tha:
+        #     _roe = (_roe/100.0) if (_roe and _roe > 5) else _roe
+        #     f"{_roe:.2f}%"
+        # → 0.47743 aaye to "0.48%", aur 47.743 aaye to /100 karke phir "0.48%".
+        #   DONO branches galat. TCS ka ROE 47.74% hai, dashboard "0.48%" dikha
+        #   raha tha — 100x off.
         _dy = info.get('dividendYield')
         _dy = (_dy / 100.0) if (_dy and _dy > 25) else _dy
-        _roe = info.get('returnOnEquity')
-        _roe = (_roe / 100.0) if (_roe and _roe > 5) else _roe
+        _r_raw = info.get('returnOnEquity')
+        # |x| <= 2.0 → fraction maano (200% tak ka ROE cover hota hai); usse
+        # bada → pehle se percent. yfinance abhi hamesha fraction deta hai, ye
+        # guard sirf future-proofing hai.
+        _roe = (_r_raw * 100.0) if (_r_raw is not None and abs(_r_raw) <= 2.0) else _r_raw
 
         chart_data = []
         for idx, row in df.tail(CONFIG['CHART_CANDLES']).iterrows():
@@ -3771,6 +3798,19 @@ def stock_api(symbol):
                                      (live_nse or {}).get('quote_age_min')),
             'market_open': is_market_open(),
             'market_holiday': is_market_holiday(),
+            # FIX-52: analysis kis price se bani aur frame ka close kya tha — ye
+            # dono disclose karte hain. Karan: header ka bada number /api/quote se
+            # aata hai (Yahoo ka `regularMarketPrice`) jabki poora plan yahan wale
+            # `price` se banta hai. 2026-10-02 (holiday) par ye do alag the:
+            #     header  ₹2,075.00  (Yahoo, regularMarketTime 15:15:00)
+            #     plan    ₹2,079.30  (frame close = BSE ka official CAS close)
+            # Aug-2026 se NSE ka Closing Auction 15:15–15:35 chalta hai, aur
+            # Yahoo ka timestamp 15:15 tha — yaani continuous session ka last
+            # trade, official close nahi. Dashboard ab dono compare karke warn
+            # karta hai bajaye chup-chaap koi ek chunne ke.
+            'frame_close': sfx(L.get('Close'), 2),
+            'price_basis': ('live NSE LTP' if live_nse
+                            else 'daily frame close (koi live NSE quote nahi)'),
             'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
                            'ml.* accuracy is in-sample/diagnostic; the OOS verdict comes from '
                            'ml_study (tools/build_ml_edge_study.py) — see ml_study.verdict.'),

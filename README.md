@@ -499,6 +499,63 @@ duplicate-logging guards.
 
 ---
 
+### FIX-52 · the price did not match the exchange
+
+The user asked the right question: *"Moneycontrol, NSE, BSE — do these match 100%?"* I had
+earlier written off two things as "couldn't verify". Both verified, and the answer was **no**.
+
+Two things unblocked: a **Yahoo crumb** (`fc.yahoo.com` cookie → `/v1/test/getcrumb`) opened
+`quoteSummary`, and **BSE's `getScripHeaderData` worked from this sandbox** (NSE returns 403).
+
+**The price was wrong.**
+
+| | app header | Yahoo | **BSE official** |
+|---|---|---|---|
+| TCS close 01-Oct | ₹2,075.00 | 2075.00 | **₹2,079.30** (−4.30) |
+| TCS change | +24.40 (+1.19%) | same | **+29.30 (+1.43%)** |
+| RELIANCE close | ₹1,167.70 | 1167.70 | **₹1,166.00** (+1.70) |
+
+**Cause: NSE's Closing Auction Session.** From Aug 3 2026, F&O stocks stop continuous trading
+at 15:15 and the CAS runs 15:15–15:35 to set the official close. Yahoo's `regularMarketTime`
+was **exactly 15:15:00 on both stocks** — the last continuous trade, not the official close.
+*(Inference, not measured — I didn't inspect Yahoo's upstream. But both stocks landing on
+15:15 exactly points there.)*
+
+**ROE was off by 100×.** Yahoo's `returnOnEquity` raw is `0.47743`, `fmt` "47.74%". The
+dashboard showed **"0.48%"**. FIX-09's comment assumed `dividendYield` and `returnOnEquity`
+both arrive as percentages — true for the first (3.17), false for the second. The heuristic
+was wrong in **both** branches. Everything else matched Yahoo exactly: P/E, P/B, D/E, market
+cap, and market cap ÷ price = `sharesOutstanding` (TCS 3,618,087,518 · RELIANCE 13,532,472,634).
+
+**A duplicated constant.** Changing `SESSION_CLOSE_HM` did nothing, because `is_market_open`
+had its own literal `15 * 60 + 40` and never read it. The comment even claimed they matched.
+A new test caught it (15:36 expected closed, got open). One source now.
+
+**Fixed:** close 15:40 → 15:35 (CAS) with `is_market_open` reading the constant · ROE ×100
+(TCS now **47.74%**, live-verified) · `/api/stock` exposes `frame_close` + `price_basis` ·
+`checkPriceGap()` warns when the header price and the analysis price differ by >0.25%, showing
+both instead of silently picking one (it will fire **+₹4.30** on the user's dashboard) · search
+bar renders the `(NSE)`/`(BSE)` suffix that `/api/search` was already sending.
+
+**⚠️ A correction to something I claimed earlier.** I wrote that the analysis block used
+₹2,079.30 "which matches BSE exactly — so TradingView matches BSE and Yahoo doesn't". That was
+an inference from a single data point and it was **wrong**. A live run in this sandbox, with
+`tvDatafeed` installed and 300 bars, returned close **2075.00**, 52W **3350.0/1976.8**, ATR
+**58.79** under the same `'TradingView Direct'` label — identical to Yahoo, not to BSE. The
+user's machine produced 2079.30 under that same label. **The source label is not a reliable
+indicator of where data came from** — the same class of problem FIX-50/51 fixed elsewhere.
+
+**Why BSE was not made a live tier.** `getScripHeaderData` worked, then returned **403 "Access
+Denied"** from Akamai after ~40 requests. The dashboard polls every 2 s, so BSE would block
+within minutes. The scrip master (`getScripList`, `scripmasterdata`), the search API, and the
+bhavcopy URLs are all blocked or return an SPA shell, so symbol → scripcode can't be resolved
+dynamically either. BSE data is genuinely valuable — it's what revealed Yahoo is 4.30 off —
+but as an on-demand check, not a polling tier.
+
+`verify_live_quote.py` 141 → **160 checks**; regression **801 passed, 0 failed**.
+
+---
+
 ### FIX-51 · one feed state instead of two arguing badges
 
 The user pasted their whole dashboard — 02-Oct-2026 10:31, a market holiday — and it showed

@@ -667,6 +667,63 @@ check('"Master Score" label collision khatam (ab "Ensemble rank")',
 check('purana 2-arg setLiveChip call nahi bacha',
       'setLiveChip(!!opts.stale, opts.source)' not in _HTML)
 
+# ── FIX-52: CAS timing, ROE unit, aur do-price disclosure ─────────────────
+# 1. Aug 3 2026 se NSE ka Closing Auction Session 15:15–15:35 hai (F&O stocks).
+#    Official close 15:35 par publish hota hai. SESSION_CLOSE_HM 15:40 tha —
+#    NSE ke liye 5 min zyada.
+# 2. yfinance `returnOnEquity` FRACTION deta hai (0.47743 = 47.74%) par
+#    `dividendYield` PERCENT (3.17). Purana code dono ko ek jaisa treat karta
+#    tha aur TCS ka ROE 100x galat ("0.48%") dikhata tha.
+# 3. Header price /api/quote se aata hai, poora plan /api/stock ke price se.
+#    User ke dashboard par ye 2075.00 vs 2079.30 the. Chup-chaap koi ek chunne
+#    ke bajaye dono disclose hote hain.
+
+print('\n-- FIX-52: session close 15:35 (NSE Closing Auction)')
+check('SESSION_CLOSE_HM = 15:35', A.SESSION_CLOSE_HM == 15 * 60 + 35,
+      f'actual={A.SESSION_CLOSE_HM}')
+check('15:34 par market KHULA', A.is_market_open(_dt.datetime(2026, 10, 1, 15, 34)) is True)
+check('15:35 par market KHULA (CAS close ka minute)',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 15, 35)) is True)
+check('15:36 par market BAND (official close publish ho chuka)',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 15, 36)) is False)
+check('09:15 par market KHULA (lower bound intact)',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 9, 15)) is True)
+
+print('\n-- FIX-52: ROE unit (Yahoo raw 0.47743 = 47.74%)')
+check("returnOnEquity ko *100 kiya jaata hai (purana /100 wala galat tha)",
+      "_roe = (_r_raw * 100.0) if (_r_raw is not None and abs(_r_raw) <= 2.0) else _r_raw"
+      in app_src)
+check('purana broken ROE heuristic gaya',
+      "_roe = (_roe / 100.0) if (_roe and _roe > 5) else _roe" not in app_src)
+check("dividendYield abhi bhi percent-treated hai (FIX-09 regression guard)",
+      "_dy = (_dy / 100.0) if (_dy and _dy > 25) else _dy" in app_src)
+# ROE normalisation ko asli numbers par test karo
+_r = 0.47743
+_norm = (_r * 100.0) if (_r is not None and abs(_r) <= 2.0) else _r
+check('0.47743 → 47.74% (TCS ka measured ROE)',
+      f'{_norm:.2f}%' == '47.74%', f'got {_norm:.2f}%')
+_norm0 = (0.0 * 100.0) if (0.0 is not None and abs(0.0) <= 2.0) else 0.0
+check('ROE 0.0 crash nahi karta', _norm0 == 0.0)
+
+print('\n-- FIX-52: do-price disclosure')
+check('/api/stock frame_close bhejta hai', "'frame_close': sfx(L.get('Close'), 2)" in app_src)
+check('/api/stock price_basis bhejta hai (kis price se plan bani)',
+      "'price_basis':" in app_src)
+check('Dashboard header-vs-analysis gap check karta hai',
+      'function checkPriceGap(' in _HTML and 'priceGapWarn' in _HTML)
+check('gap threshold 0.25% hai (measured TCS gap 0.207% tha)',
+      'pct < 0.25' in _HTML)
+check('analysis price /api/stock se record hota hai',
+      'analysisPrice = d.frame_close ?? d.price' in _HTML)
+check('updatePriceDOM gap check call karta hai', 'checkPriceGap(p);' in _HTML)
+
+print('\n-- FIX-52: search bar me exchange suffix')
+check('/api/search `ex` field bhejta hai', "'ex': 'NSE' if '.NS' in sym" in app_src)
+check('search dropdown `ex` render karta hai (pehle sirf sym/name/sec dikhte the)',
+      "exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE'" in _HTML)
+check('dropdown item me exchange badge append hota hai',
+      'item.append(symEl, exEl, nameEl, secEl)' in _HTML)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)
