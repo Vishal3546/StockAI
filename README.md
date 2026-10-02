@@ -499,6 +499,42 @@ duplicate-logging guards.
 
 ---
 
+### FIX-58 · The header said "NSE / BSE" for every stock, always
+
+```js
+document.getElementById('stockName').textContent = `${d.symbol} — NSE / BSE`;
+```
+
+Measured live from `/api/stock` — the header was **identical in all four cases**:
+
+| | requested | frame | on_nse_master | header said |
+|---|---|---|---|---|
+| TCS `?ex=NSE` | NSE | NSE | true | `TCS — NSE / BSE` |
+| TCS `?ex=BSE` | BSE | **BSE** | true | `TCS — NSE / BSE` |
+| DHOOTIN `?ex=NSE` | NSE | **BSE** | **false** | `DHOOTIN — NSE / BSE` |
+| DHOOTIN `?ex=BSE` | BSE | BSE | false | `DHOOTIN — NSE / BSE` |
+
+DHOOTIN isn't listed on NSE at all, yet the header said "NSE / BSE". All three fields were
+already in the payload from FIX-53/54/55 — the header just never used them. Now:
+
+| case | header |
+|---|---|
+| frame == requested | `TCS — BSE` |
+| frame != requested | `TCS — BSE — aapne NSE maanga tha` |
+| BSE-only stock | `DHOOTIN — BSE only — NSE par listed nahi` |
+| frame null / keys absent | `XYZ — exchange unknown` |
+
+**Also: a flagged concern of mine was wrong.** I had noted that `deep_analyzer.py` and
+`nifty_scanner.py` might carry a silent BSE fallback. They don't — they hardcode
+`exchange='NSE'`, and in all three places that's **correct** (Nifty's universe is NSE-only, the
+calibration is NSE-fitted, and `deep_analyzer.py` isn't reachable from `app.py`). "Fixing" them
+would introduce a bug, so the reasoning is pinned in 4 guard tests.
+
+Verified by evaluating the label logic **in node** against 5 payload shapes — not just
+source-grepping. `verify_live_quote.py` 230 → **246 checks**; regression **887 passed, 0 failed**.
+
+---
+
 ### FIX-57 · Cost-aware plan — and why "higher accuracy" is the wrong target
 
 The user asked how to raise accuracy. I measured first (`tools/study_new_signals.py`), then built.

@@ -14,6 +14,7 @@ Kya check karta hai:
 
 Chalao:  python3 tools/verify_live_quote.py
 """
+import json
 import pathlib
 import re
 import subprocess
@@ -1005,6 +1006,101 @@ check('.env.example me cost keys documented hain',
                     'STOCKAI_COST_BROKERAGE', 'STOCKAI_COST_STT')))
 check('cost model ka claim study se referenced hai (hawa me nahi)',
       'study_new_signals' in app_src or 'study_new_signals' in (ROOT / 'README.md').read_text(encoding='utf-8'))
+
+# ── FIX-58: header exchange batata hai (pehle hamesha "NSE / BSE") ────────
+# Live measured /api/stock se — chaaron cases me header IDENTICAL tha:
+#   TCS ?ex=NSE   frame=NSE on_nse_master=true   -> "TCS — NSE / BSE"
+#   TCS ?ex=BSE   frame=BSE on_nse_master=true   -> "TCS — NSE / BSE"
+#   DHOOTIN ?ex=* frame=BSE on_nse_master=false  -> "DHOOTIN — NSE / BSE"
+# DHOOTIN NSE par listed hi nahi, phir bhi "NSE / BSE" — yaani header kabhi nahi
+# batata tha ki actually kaun sa exchange dikh raha hai. Payload me teeno fields
+# (frame_exchange / requested_exchange / on_nse_master) FIX-53/54/55 se already the.
+
+print('\n-- FIX-58: header exchange-aware')
+check('executable Dashboard code me hardcoded "NSE / BSE" nahi bacha',
+      'NSE / BSE' not in dash_src)
+check('static placeholder bhi vague nahi (loading state)',
+      'RELIANCE — NSE / BSE' not in _HTML)
+check('header frame_exchange use karta hai', 'd.frame_exchange' in dash_src
+      and 'stockName' in dash_src)
+check('header requested vs frame mismatch batata hai',
+      '_fx !== _rx' in dash_src or '_rx !== _fx' in dash_src)
+check('BSE-only stock alag label deta hai (on_nse_master === false)',
+      "on_nse_master === false" in dash_src and 'BSE only' in dash_src)
+check('frame null/absent par "exchange unknown" — jhooth exchange nahi',
+      'exchange unknown' in dash_src)
+
+# Label logic ko actually evaluate karo (sirf source-grep nahi)
+_label_js = """
+const _fx = String(d.frame_exchange || '').toUpperCase();
+const _rx = String(d.requested_exchange || '').toUpperCase();
+let _exTxt;
+if (_fx === 'BSE' && d.on_nse_master === false) { _exTxt = 'BSE only — NSE par listed nahi'; }
+else if (_fx && _rx && _fx !== _rx) { _exTxt = _fx + ' — aapne ' + _rx + ' maanga tha'; }
+else if (_fx) { _exTxt = _fx; }
+else { _exTxt = 'exchange unknown'; }
+return d.symbol + ' — ' + _exTxt;
+"""
+check('Dashboard me wahi branching order hai jo test evaluate karta hai',
+      all(frag in dash_src for frag in
+          ("_fx === 'BSE' && d.on_nse_master === false", "_fx !== _rx",
+           "_exTxt = 'exchange unknown'")))
+
+# Source-grep se aage: label logic ko node me ACTUALLY evaluate karo, un chaaron
+# payloads par jo is turn me live /api/stock se measure kiye the.
+import shutil as _sh, subprocess as _sp, tempfile as _tf
+if _sh.which('node'):
+    _cases = [
+        ({'symbol': 'TCS', 'requested_exchange': 'NSE', 'frame_exchange': 'NSE',
+          'on_nse_master': True}, 'TCS \u2014 NSE'),
+        ({'symbol': 'TCS', 'requested_exchange': 'BSE', 'frame_exchange': 'BSE',
+          'on_nse_master': True}, 'TCS \u2014 BSE'),
+        ({'symbol': 'DHOOTIN', 'requested_exchange': 'NSE', 'frame_exchange': 'BSE',
+          'on_nse_master': False}, 'DHOOTIN \u2014 BSE only \u2014 NSE par listed nahi'),
+        ({'symbol': 'XYZ', 'requested_exchange': 'NSE', 'frame_exchange': None,
+          'on_nse_master': True}, 'XYZ \u2014 exchange unknown'),
+        ({'symbol': 'OLD'}, 'OLD \u2014 exchange unknown'),
+    ]
+    _script = ('const label=(d)=>{const _fx=String(d.frame_exchange||"").toUpperCase();'
+               'const _rx=String(d.requested_exchange||"").toUpperCase();let _exTxt;'
+               'if(_fx==="BSE"&&d.on_nse_master===false){_exTxt="BSE only \u2014 NSE par listed nahi";}'
+               'else if(_fx&&_rx&&_fx!==_rx){_exTxt=_fx+" \u2014 aapne "+_rx+" maanga tha";}'
+               'else if(_fx){_exTxt=_fx;}else{_exTxt="exchange unknown";}'
+               'return d.symbol+" \u2014 "+_exTxt;};'
+               'console.log(label(JSON.parse(process.argv[2])));')
+    with _tf.TemporaryDirectory() as _td:
+        _f = pathlib.Path(_td) / 'lbl.js'
+        _f.write_text(_script, encoding='utf-8')
+        for _payload, _want in _cases:
+            _r = _sp.run(['node', str(_f), json.dumps(_payload)],
+                         capture_output=True, text=True, timeout=30)
+            _got = _r.stdout.strip()
+            check(f'label({_payload.get("symbol")}, frame={_payload.get("frame_exchange")}, '
+                  f'on_nse={_payload.get("on_nse_master")}) == {_want!r}',
+                  _got == _want, f'got {_got!r}')
+else:
+    check('node available (label logic evaluate karne ke liye)', False, 'node nahi mila')
+
+print('\n-- FIX-58: teen NSE-hardcoded fetch JAAN-BOOJH kar hain (guard)')
+# deep_analyzer.py / nifty_scanner.py / research/data.py me exchange='NSE' hardcoded
+# hai. Ye BUG NAHI hai:
+#   • nifty_scanner  -> Nifty universe NSE-only hai
+#   • research/data  -> score calibration NSE universe par fitted hai
+#   • deep_analyzer  -> standalone script, app.py se reachable nahi
+# Isliye "fix" karne se pehle sochna chahiye — ye test wahi reasoning pin karta hai.
+_deep = (ROOT / 'deep_analyzer.py').read_text(encoding='utf-8')
+_scan = (ROOT / 'nifty_scanner.py').read_text(encoding='utf-8')
+_rdata = (ROOT / 'research' / 'data.py').read_text(encoding='utf-8')
+check('deep_analyzer NSE-hardcoded hai (app.py se import NAHI hota)',
+      "exchange='NSE'" in _deep and 'import deep_analyzer' not in app_src
+      and 'from deep_analyzer' not in app_src)
+check('nifty_scanner NSE-hardcoded hai (app.py se import NAHI hota)',
+      "exchange='NSE'" in _scan and 'import nifty_scanner' not in app_src
+      and 'from nifty_scanner' not in app_src)
+check('research/data NSE-hardcoded hai (calibration NSE universe par fitted)',
+      "exchange='NSE'" in _rdata)
+check('app.py ka fetch_tradingview exchange-aware hai (ye teen nahi, wo hona chahiye)',
+      "prefer_exch" in app_src and "def fetch_tradingview" in app_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

@@ -2,6 +2,65 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-58 addendum — 2026-10-02 (header exchange batata hai; teen NSE-hardcode intentional hain)
+
+Teen cheezein maine pichhle turns me "unknown" chhodi thi. Guess nahi kiya — check kiya.
+
+### 1. ⚠️ Mera flagged concern detail me galat tha
+
+Maine likha tha ki `deep_analyzer.py` / `nifty_scanner.py` me `fetch_tradingview` ki copy hai
+jis me **silent BSE fallback** ho sakta hai. **Galat.** Asli situation:
+
+| file | line | kya hai | app.py se reachable? | bug? |
+|---|---|---|---|---|
+| `deep_analyzer.py` | L63 | `exchange='NSE'` hardcoded | ❌ sirf `tools/verify_fixes.py` subprocess se (`RELIANCE`) | nahi |
+| `nifty_scanner.py` | L194 | `exchange='NSE'` hardcoded | ❌ `import nifty_scanner` app.py me nahi | nahi — Nifty universe NSE-only hai |
+| `research/data.py` | L61 | `exchange='NSE'` hardcoded | `research/run_study.py` se | nahi — calibration NSE universe par fitted |
+
+Yaani **silent fallback nahi, exchange-blindness hai** — aur teeno jagah **jaan-boojh kar sahi**,
+kyunki teeno ka scope NSE hai. "Fix" karne se bug introduce hota. Is reasoning ko **test me pin
+kiya** (4 guard checks) taaki koi baad me galat "fix" na kar de.
+
+### 2. Real bug mila: header hamesha "NSE / BSE" bolta tha
+
+```js
+document.getElementById('stockName').textContent = `${d.symbol} — NSE / BSE`;
+```
+
+Live `/api/stock` se measure kiya — **chaaron cases me header identical tha**:
+
+| | `requested_exchange` | `frame_exchange` | `on_nse_master` | header bolta tha |
+|---|---|---|---|---|
+| TCS `?ex=NSE` | NSE | NSE | true | `TCS — NSE / BSE` |
+| TCS `?ex=BSE` | BSE | **BSE** | true | `TCS — NSE / BSE` |
+| DHOOTIN `?ex=NSE` | NSE | **BSE** | **false** | `DHOOTIN — NSE / BSE` |
+| DHOOTIN `?ex=BSE` | BSE | BSE | false | `DHOOTIN — NSE / BSE` |
+
+DHOOTIN NSE par **listed hi nahi**, phir bhi header "NSE / BSE" bolta tha. Payload me teeno
+fields FIX‑53/54/55 se already the — bas header use nahi kar raha tha. **Ye wahi class ka bug hai
+jis par FIX‑50 me correction mili thi: "frontend bhi grep karo."**
+
+Ab:
+
+| case | header |
+|---|---|
+| frame == requested | `TCS — BSE` |
+| frame != requested | `TCS — BSE — aapne NSE maanga tha` |
+| BSE-only stock | `DHOOTIN — BSE only — NSE par listed nahi` |
+| frame null / keys absent | `XYZ — exchange unknown` (jhooth exchange nahi) |
+
+Static placeholder `RELIANCE — NSE / BSE` → `RELIANCE — …`.
+
+### Verify
+
+Label logic ko **node me actually evaluate** kiya (sirf source-grep nahi) — 5 payload shapes
+(dono TCS, DHOOTIN, `frame_exchange: null`, keys hi absent). Sab exact match, koi
+`undefined`/`NaN` leak nahi. `node --check` OK.
+
+`verify_live_quote.py` 230 → **246 checks** · regression **887 passed, 0 failed**
+
+---
+
 ## FIX-57 addendum — 2026-10-02 (cost-aware plan — "accuracy high kaise kare" ka measured jawaab)
 
 User ne poochha: accuracy badhane ke liye naya timeframe/signal add kare? Maine pehle
@@ -2104,6 +2163,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Header har stock ke liye "NSE / BSE" bolta tha — actual exchange kabhi nahi batata tha | ✅ **Solved (FIX-58)** — live `/api/stock` se measured: TCS `?ex=NSE` (frame NSE), TCS `?ex=BSE` (frame **BSE**), DHOOTIN `?ex=NSE` (frame **BSE**, `on_nse_master` **false**) — chaaron me header identical `SYM — NSE / BSE` tha. DHOOTIN NSE par listed hi nahi. Ab `frame_exchange`/`requested_exchange`/`on_nse_master` (FIX-53/54/55 se payload me already the) use hote hain: `TCS — BSE`, `TCS — BSE — aapne NSE maanga tha`, `DHOOTIN — BSE only — NSE par listed nahi`, `XYZ — exchange unknown`. **Aur mera flagged concern galat nikla:** `deep_analyzer.py`/`nifty_scanner.py`/`research/data.py` me silent BSE fallback NAHI hai — `exchange='NSE'` hardcoded hai, aur teeno jagah sahi (Nifty NSE-only, calibration NSE-fitted, deep_analyzer app.py se reachable nahi). Us reasoning ko 4 guard tests me pin kiya. `verify_live_quote.py` 230 → **246**, regression **887/0**. |
 | — | T1/T2/SL/Kelly sab GROSS the — transaction cost ka koi model nahi | ✅ **Solved (FIX-57)** — `brokerage`/`STT`/`transaction cost` teenon ke 0 hits the, aur app khud maanta tha *"costs/slippage included nahi"*. Ab `TRADE_COST` (NSE published rates + env-overridable slippage) = **0.231% round-trip**, aur `cost_plan()` break-even move (TCS ₹2,075 par ₹4.79), cost-to-risk ratio, aur har target ka NET deta hai. Do warnings: T1 break-even se chhota ho, ya cost SL ka >20% ho. **Ye koi naya prediction nahi — sirf missing arithmetic.** Basis: `tools/study_new_signals.py` ne measure kiya ki +0.169% gross signal 0.231% cost me negative ho jaata hai; aur futures-spot basis ka "t=+6.21, 52.78% accuracy" wala result **basis convergence** nikla — tradable leg par −0.053% gross, 49.13% accuracy (coin flip se kam). `verify_live_quote.py` 210 → **230**, regression **871/0**. |
 | — | `is_market_open` exchange nahi jaanta tha, aur `quote_time` UTC me dikh raha tha | ✅ **Solved (FIX-56)** — BSE ka closing/post-close 16:00 tak chalta hai (measured `Ason` = `01 Oct 26 | 16:00`, Yahoo BO `quote_time` 15:50:08), par `is_market_open` dono exchange ke liye 15:35 use karta tha. Ab `BSE_SESSION_CLOSE_HM = 16:00` + `is_market_open(now, exchange=)`; boundaries verified (NSE 15:36 BAND, BSE 15:45 KHULA, 16:01 dono BAND). Saath me BSE par Yahoo ka snapshot skip — market band ho to TradingView ka daily close use hota hai, kyunki Yahoo ka BSE data 21 din me 7 mismatch deta hai (NSE par 22 me 0) aur uska `regularMarketPrice` snapshot hai (DHOOTIN 251.0 @ 15:27:03 jabki close 244.60). **Fix test karte waqt naya bug mila:** `quote_time` `03:45:00` dikha raha tha — tvDatafeed naive-**UTC** index deta hai aur code sirf tz-aware convert karta tha. 03:45 UTC = 09:15 IST = session ka OPEN, close nahi. Ab UTC→IST convert hota hai aur daily bar par `quote_time = "2026-10-01 (daily close)"` — fake intraday time nahi. `verify_live_quote.py` 194 → **210 checks**, regression **851 passed, 0 failed**. |
 | — | NSE/BSE toggle possible hi nahi tha — poori pipeline NSE-first hardcoded thi | ✅ **Solved (FIX-55)** — user ka original request. Pehle maine kaha tha "BSE ka multi-year historical nahi milta, Phase 2 ka alag project" — **wo galat tha**: measured `TV-BSE` **1200 bars (2021-12 se)** deta hai DHOOTIN/TCS/RELIANCE teeno ke liye, jo 300-bar frame aur 250-bar calibration lookback dono ke liye kaafi hai. Doosri galti bhi sudhari: "Yahoo DHOOTIN.BO internally inconsistent" — galat, `range=1mo` par wahi session 244.60 deta hai (TV-BSE se exact match); short range par last bar lag karta hai. Aur measure kiya ki **Yahoo ka BSE data NSE jitna bharosemand nahi** (DHOOTIN 21 din me 7 mismatch, jabki NSE par 22 din me 0). Ab `prefer_exch` poore pipeline me: `fetch_tradingview` / `smart_fetch` / MTF / `/api/stock?ex=` / `/api/quote?ex=` / `/api/stream?ex=`, BSE par NSE official endpoint skip, exchange-aware cache key, aur search dedupe `(symbol, exchange)` par. Live verified TCS: NSE 2075.0 / 52W 3350.0 / pos 7.2 vs BSE **2079.3 / 3336.7 / 7.6**, quote_time 15:15:00 vs **15:50:08**. `verify_live_quote.py` 174 → **194 checks**, regression **835 passed, 0 failed**. **Abhi bhi khula:** score calibration NSE universe par fitted hai — per-exchange refit ab possible hai par maine nahi kiya. |
