@@ -596,6 +596,77 @@ check('banner par holiday coverage print hoti hai',
 check('calendar purana ho to startup warning hai',
       'holiday calendar me' in app_src and 'STOCKAI_EXTRA_HOLIDAYS' in app_src)
 
+# ── FIX-51: ek hi feed state, asli quote time, aur label collisions ─────────
+# User ke paste kiye dashboard me EK HI SCREEN PAR "DELAYED (15-20 min)" (upar) aur
+# "LIVE" (price ke baju) tha. Karan: top badge `/NSE/i.test(data_source)` se liveness
+# nikalta tha (source ka NAAM), chip `is_realtime` se. Aur `liveSrc` me
+# `new Date().toLocaleTimeString()` tha — yaani BROWSER ki ghadi quote ke waqt ki
+# jagah ("yahoo.ns · 10:31:31" jabki quote kal 15:15 ka tha).
+_HTML = (ROOT / 'Dashboard.html').read_text(encoding='utf-8')
+
+print('\n-- FIX-51: feed_state (teen states)')
+check('market band + fresh → CLOSED (LIVE nahi)',
+      A.feed_state(True, _HOL) == 'CLOSED')
+check('market khula + fresh → LIVE', A.feed_state(True, _OPEN) == 'LIVE')
+check('market khula + stale → DELAYED', A.feed_state(False, _OPEN) == 'DELAYED')
+check('market band + stale → CLOSED (holiday par "delayed" galat word hai)',
+      A.feed_state(False, _HOL) == 'CLOSED')
+
+print('\n-- FIX-51: feed_label me asli number, hardcoded nahi')
+check('CLOSED + holiday → "MARKET CLOSED (holiday)"',
+      A.feed_label('CLOSED', None, _HOL) == 'MARKET CLOSED (holiday)')
+check('CLOSED + normal weekend → "MARKET CLOSED"',
+      A.feed_label('CLOSED', None, _SAT) == 'MARKET CLOSED')
+check('DELAYED 25 min → "DELAYED (25 min)"',
+      A.feed_label('DELAYED', 25, _OPEN) == 'DELAYED (25 min)')
+check('DELAYED 1175 min → ghante me, "15-20 min" nahi',
+      A.feed_label('DELAYED', 1175.5, _OPEN) == 'DELAYED (19.6 h)',
+      A.feed_label('DELAYED', 1175.5, _OPEN))
+check('DELAYED age unknown → jhootha number nahi',
+      A.feed_label('DELAYED', None, _OPEN) == 'DELAYED (age unknown)')
+check('LIVE → "LIVE"', A.feed_label('LIVE', 0.5, _OPEN) == 'LIVE')
+
+print('\n-- FIX-51: app.py side guarantees')
+check('dono fetcher feed_state/feed_label/quote_age_min bhejte hain',
+      app_src.count("'feed_state': ") >= 3, f"count={app_src.count(chr(39)+'feed_state'+chr(39)+': ')}")
+check('tier-3 fallback ka fake datetime.now() timestamp gaya',
+      "'timestamp': datetime.now().strftime('%H:%M:%S'),\n                        'is_realtime': False"
+      not in app_src)
+check('obv_ema indicators payload me hai', "'obv_ema': sfx(L.get('OBV_EMA')" in app_src)
+check("debt_equity ab '%' ke saath hai (yfinance percentage deta hai)",
+      'D/E' in app_src and "f\"{fund_data['debt_val']:.1f}% D/E\"" in app_src)
+check('debt_equity ka falsy-check `is not None` hua (0.0 D/E ab N/A nahi)',
+      "if fund_data['debt_val'] is not None else 'N/A'" in app_src)
+check('/api/stock feed_state + market_holiday bhejta hai',
+      "'market_holiday': is_market_holiday()" in app_src)
+
+print('\n-- FIX-51: Dashboard.html side guarantees')
+check('source-name se liveness nikalna band (/NSE/i.test live code me nahi)',
+      'const isLive = /NSE/i.test(src)' not in _HTML)
+# Comment-aware check: fix document karne wale comments me purani string likhi hai,
+# isliye `//` ke baad ka hissa hata kar dekhte hain — warna test khud fail hota.
+_CODE_ONLY = '\n'.join(_l.split('//')[0] for _l in _HTML.splitlines())
+check('hardcoded "DELAYED (15-20 min)" executable code me nahi (sirf comments me)',
+      'DELAYED (15-20 min)' not in _CODE_ONLY)
+check('setLiveChip me browser ki ghadi (new Date().toLocaleTimeString) nahi',
+      'new Date().toLocaleTimeString' not in _HTML)
+check('setLiveChip teen states handle karta hai',
+      "'CLOSED'" in _HTML and '.live-chip.closed' in _HTML)
+check('top badge setLiveBadge(feed_state) se chalta hai',
+      'setLiveBadge(d.feed_state, d.feed_label, src)' in _HTML)
+check('quote ka asli waqt (quote_time) dikhaya jaata hai',
+      'quoteTime: t.quote_time' in _HTML and 'quoteTime: tick.quote_time' in _HTML)
+check('OBV label ab obv vs obv_ema se banta hai (obv > 0 se nahi)',
+      'ind.obv > ind.obv_ema' in _HTML and 'ind.obv > 0 ?' not in _HTML)
+check('OBV negative value ab dikhti hai (pehle "0" ban jaati thi)',
+      'fmtSigned(ind.obv)' in _HTML)
+check("Bollinger %B ke band-pass labels hain ('MID' hi sab nahi)",
+      'NEAR LOWER' in _HTML and 'NEAR UPPER' in _HTML and 'BELOW LOWER' in _HTML)
+check('"Master Score" label collision khatam (ab "Ensemble rank")',
+      'Master Score:' not in _HTML and 'Ensemble rank:' in _HTML)
+check('purana 2-arg setLiveChip call nahi bacha',
+      'setLiveChip(!!opts.stale, opts.source)' not in _HTML)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

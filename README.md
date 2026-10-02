@@ -499,6 +499,80 @@ duplicate-logging guards.
 
 ---
 
+### FIX-51 · one feed state instead of two arguing badges
+
+The user pasted their whole dashboard — 02-Oct-2026 10:31, a market holiday — and it showed
+**two contradictory badges on one screen**:
+
+```
+DELAYED (15-20 min)                          ← top badge
+₹1,167.70   LIVE   yahoo.ns · 10:31:31       ← next to the price
+```
+
+**FIX-50 was incomplete.** I had fixed the source-name bug at `app.py` L3585 and called it
+done, but `Dashboard.html` L1111 had its own copy that I never looked at:
+
+```js
+const isLive = /NSE/i.test(src) && !/TradingView/i.test(src);   // src = 'Yahoo Finance'
+liveBadgeText.textContent = isLive ? 'NSE LIVE' : 'DELAYED (15-20 min)';
+```
+
+Three separate problems:
+
+1. Liveness came from the source **name**, so `'Yahoo Finance'` always meant DELAYED
+2. `"DELAYED (15-20 min)"` was a **hardcoded lie** — the real staleness was 1175 min (19.6 h),
+   and the market was closed anyway
+3. `setLiveChip` did `const t = new Date().toLocaleTimeString(...)` — the **browser's clock**
+   standing in for the quote's time. `10:31:31` was when the JS ran; the quote was from
+   `2026-10-01 15:15`. Same `datetime.now()` lie FIX-49 removed server-side, still alive
+   client-side.
+
+**The server now sends one state.** `feed_state` ∈ `{LIVE, DELAYED, CLOSED}`, plus
+`feed_label`, `market_open`, `quote_age_min` and `quote_time`. The UI no longer guesses.
+`CLOSED` had to be a third state because after FIX-50 a holiday quote counts as *fresh* (it
+matches the last completed session) — correct for the data, but "LIVE" would be a lie when
+nothing is trading. The label carries the **real** number; no hardcoded band.
+
+Measured, real `/api/quote/RELIANCE` on the holiday:
+
+```
+feed_state    = 'CLOSED'
+feed_label    = 'MARKET CLOSED (holiday)'
+quote_age_min = 1175.5
+quote_time    = '2026-10-01 15:15:00'
+```
+
+**Four label bugs found on the same pass.** The user asked whether the numbers were right, so
+every figure was recomputed — the **arithmetic was all correct** (change%, 52-week position,
+SL = 2.5×ATR, T1 = exactly 1R, breakeven, win-rate lower bound, Kelly clamp, master average,
+model edges, OOS deltas). The labels were not:
+
+- **"Master" meant two different things.** The card's `kpi.master.score` was 42 (the average of
+  intraday/swing/long-term); the verdict's "Master Score: 37/100" was `ensemble.score`
+  (confirmed 37 from the API). Now the verdict says "Ensemble rank".
+- **OBV's "0" was never zero.** `(ind.obv > 0 ? … : '0')` turned *any negative value* into "0"
+  — measured `obv = -381723268`. The ACCUMULATE/DISTRIBUTE label also used `obv > 0` while the
+  backend scores `obv > obv_ema` (`-343805114`). UI and scoring disagreed. Both now use
+  `obv_ema`, and negatives display properly.
+- **Bollinger %B = 0.04 said "MID"** — only `< 0` and `> 1` were flagged, so a price sitting on
+  the lower band read as middle while RSI, CCI, Williams %R and StochRSI all said OVERSOLD.
+  Now: BELOW LOWER / NEAR LOWER / MID / NEAR UPPER / ABOVE UPPER.
+- **Debt/Equity 36.7** is yfinance's `debtToEquity`, which is a **percentage**. Shown without
+  `%` it reads as 36.7×. Now `36.7% D/E`. The falsy check also meant a genuine `0.0` D/E
+  displayed as `N/A`; it's now `is not None`.
+
+The tier-3 daily-close fallback's `datetime.now()` timestamp went too — it now reports the
+frame's actual last bar.
+
+**Calendar and timings, both verified correct** (the user asked): 16 holidays, all weekdays,
+matching NSE's 2026 list exactly; `09:14 → False`, `09:15 → True`, `15:40 → True`,
+`15:41 → False`. NSE's regular session ends 15:30 and the code runs to 15:40 **deliberately**,
+to cover the closing auction — conservative in the right direction.
+
+`verify_live_quote.py` grew 114 → **141 checks**; `verify_dashboard_display` still 28/28.
+
+---
+
 ### FIX-50 · the app now knows what a market holiday is
 
 **The user caught this one, not me.** Shipping FIX-49, I wrote "market open for 16 minutes"

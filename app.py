@@ -545,6 +545,8 @@ def fetch_nse_live_ltp(symbol):
                 fresh, reason = quote_is_fresh(nse_ts)
                 if not fresh:
                     _warn_stale_quote(clean_sym, 'NSE', reason)
+                _age = quote_age_minutes(nse_ts)
+                _state = feed_state(fresh)
                 return {
                     'symbol': clean_sym,
                     'price': round(float(ltp), 2),
@@ -558,6 +560,11 @@ def fetch_nse_live_ltp(symbol):
                     'stale': not fresh,
                     'stale_reason': reason,
                     'quote_time': q_dt.strftime('%Y-%m-%d %H:%M:%S') if q_dt else None,
+                    # FIX-51: same fields as Yahoo tier — UI ek hi shape padhta hai
+                    'feed_state': _state,
+                    'feed_label': feed_label(_state, _age),
+                    'market_open': is_market_open(),
+                    'quote_age_min': round(_age, 1) if _age is not None else None,
                     'source': 'nse'
                 }
     except Exception as e:
@@ -608,6 +615,8 @@ def fetch_yahoo_live_ltp(symbol):
             fresh, reason = quote_is_fresh(mkt_time)
             if not fresh:
                 _warn_stale_quote(clean_sym, 'Yahoo', reason)
+            _age = quote_age_minutes(mkt_time)
+            _state = feed_state(fresh)
             return {
                 'symbol': clean_sym,
                 'price': round(float(ltp), 2),
@@ -621,6 +630,11 @@ def fetch_yahoo_live_ltp(symbol):
                 'stale': not fresh,
                 'stale_reason': reason,
                 'quote_time': q_dt.strftime('%Y-%m-%d %H:%M:%S') if q_dt else None,
+                # FIX-51: UI ko guess karne na do — state + asli age server se
+                'feed_state': _state,
+                'feed_label': feed_label(_state, _age),
+                'market_open': is_market_open(),
+                'quote_age_min': round(_age, 1) if _age is not None else None,
                 'source': f'yahoo{suffix.lower()}',
             }
         except Exception as e:
@@ -660,6 +674,13 @@ def get_live_quote(symbol, force=False):
                 prev = sf(df['Close'].iloc[-2]) if len(df) > 1 else None
                 if price is not None and price > 0:
                     change = round(price - prev, 2) if prev is not None and prev > 0 else None
+                    _lb = None
+                    try:
+                        _lb = pd.Timestamp(df.index[-1])
+                        if _lb.tzinfo is not None:
+                            _lb = _lb.tz_convert(IST).tz_localize(None)
+                    except Exception:
+                        _lb = None            # parse na ho to '--:--:--', fake now() nahi
                     quote = {
                         'symbol': clean_sym, 'price': price,
                         'change': change,
@@ -667,8 +688,18 @@ def get_live_quote(symbol, force=False):
                         'close_price': prev,
                         'dayHigh': sfx(df['High'].iloc[-1], 2),
                         'dayLow': sfx(df['Low'].iloc[-1], 2),
-                        'timestamp': datetime.now().strftime('%H:%M:%S'),
-                        'is_realtime': False, 'stale': True, 'source': src or 'daily-close',
+                        # FIX-51: pehle yahan bhi `datetime.now()` tha — yaani daily
+                        # close ko "abhi ka waqt" bata kar. Ab frame ke last bar ka
+                        # asli timestamp, aur feed_state CLOSED/DELAYED server se.
+                        'timestamp': (_lb.strftime('%H:%M:%S') if _lb else '--:--:--'),
+                        'quote_time': (_lb.strftime('%Y-%m-%d %H:%M:%S') if _lb else None),
+                        'is_realtime': False, 'stale': True,
+                        'stale_reason': 'daily-close fallback — koi live feed nahi',
+                        'feed_state': feed_state(False),
+                        'feed_label': feed_label(feed_state(False)),
+                        'market_open': is_market_open(),
+                        'quote_age_min': None,
+                        'source': src or 'daily-close',
                     }
         except Exception as e:
             print(f"⚠️ Live quote tier-3 error for {clean_sym}: {e}")
@@ -1053,6 +1084,40 @@ def _warn_stale_quote(symbol, source, reason):
         _LIVE_STALE_WARNED.clear()
     _LIVE_STALE_WARNED[symbol] = now
     print(f"⚠️  [LIVE {source}] {symbol} — {reason} → is_realtime=False")
+
+
+def feed_state(is_realtime, now=None):
+    """UI ke liye EK, unambiguous state: 'LIVE' | 'DELAYED' | 'CLOSED'.
+
+    FIX-51: pehle Dashboard do alag badges dikhata tha jo aapas me ladte the —
+    upar wala `data_source` ke NAAM se (`/NSE/i.test(src)`) aur price ke baju wala
+    `is_realtime` se. Nateeja: ek hi screen par "DELAYED (15-20 min)" aur "LIVE"
+    saath me. Aur "(15-20 min)" hardcoded tha jabki asli staleness 19 ghante thi
+    (ya market hi band tha). Ab state server se aati hai, UI guess nahi karta.
+
+    CLOSED alag state isliye zaroori hai kyunki FIX-50 ke baad holiday par quote
+    "fresh" kehlata hai (last completed session se match karta hai) — jo data ke
+    liye sahi hai, par "LIVE" jhooth hoga kyunki trade ho hi nahi raha.
+    """
+    if not is_market_open(now):
+        return 'CLOSED'
+    return 'LIVE' if is_realtime else 'DELAYED'
+
+
+def feed_label(state, age_min=None, now=None):
+    """State → insaani label. Asli number, koi hardcoded "15-20 min" nahi."""
+    if state == 'CLOSED':
+        return 'MARKET CLOSED (holiday)' if is_market_holiday(_naive_ist(now).date()) \
+            else 'MARKET CLOSED'
+    if state == 'LIVE':
+        return 'LIVE'
+    if age_min is None:
+        return 'DELAYED (age unknown)'
+    if age_min < 60:
+        return f'DELAYED ({age_min:.0f} min)'
+    if age_min < 24 * 60:
+        return f'DELAYED ({age_min / 60:.1f} h)'
+    return f'DELAYED ({age_min / 1440:.1f} d)'
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3652,6 +3717,10 @@ def stock_api(symbol):
                 'atr': round(atr, 2),
                 'atr_basis': atr_basis,
                 'obv': sfx(L.get('OBV'), 0),
+                # FIX-51: UI ka ACCUMULATE/DISTRIBUTE label pehle `obv > 0` se banta tha,
+                # jabki backend scoring `obv > obv_ema` use karta hai (calculate_ensemble).
+                # Dono same comparison par lao — isliye obv_ema bhi bhejo.
+                'obv_ema': sfx(L.get('OBV_EMA'), 0),
                 'cci': sfx(L.get('CCI'), 1),
                 'williams_r': sfx(L.get('WilliamsR'), 1),
                 'ichi_tenkan': sfx(L.get('Ichi_Tenkan'), 2),
@@ -3666,7 +3735,11 @@ def stock_api(symbol):
                 'pe': f"{fund_data['pe_val']:.1f}" if fund_data['pe_val'] else 'N/A',
                 'pb': f"{info.get('priceToBook', 0):.2f}" if info.get('priceToBook') else 'N/A',
                 'roe': f"{_roe:.2f}%" if _roe else 'N/A',
-                'debt_equity': f"{fund_data['debt_val']:.1f}" if fund_data['debt_val'] else 'N/A',
+                # FIX-51: yfinance ka `debtToEquity` PERCENTAGE hota hai (36.7 = 36.7%),
+                # ratio nahi. Bina '%' ke 36.7x lagta tha. Aur `if debt_val` falsy-check
+                # tha, isliye asli 0.0 D/E (zero-debt company) bhi 'N/A' ban jaata tha.
+                'debt_equity': (f"{fund_data['debt_val']:.1f}% D/E"
+                                if fund_data['debt_val'] is not None else 'N/A'),
                 'div_yield': f"{_dy:.2f}%" if _dy else 'N/A',
                 'mcap': f"₹{info.get('marketCap', 0) / 1e7:,.0f}Cr" if info.get('marketCap') else 'N/A',
                 'sector': info.get('sector') or None,        # FIX-32: 'NSE Equity' invented nahi
@@ -3690,6 +3763,14 @@ def stock_api(symbol):
             'is_realtime': bool(live_nse and live_nse.get('is_realtime')),
             'realtime_reason': ((live_nse.get('stale_reason') or 'live NSE quote, gate passed')
                                 if live_nse else 'koi live quote nahi — price daily close se'),
+            # FIX-51: top badge pehle `/NSE/i.test(data_source)` se liveness nikalta tha
+            # — yaani source ke NAAM se, bilkul wahi bug jo FIX-50 ne backend me theek
+            # kiya tha. Ab server state bhejta hai; UI guess nahi karta.
+            'feed_state': feed_state(bool(live_nse and live_nse.get('is_realtime'))),
+            'feed_label': feed_label(feed_state(bool(live_nse and live_nse.get('is_realtime'))),
+                                     (live_nse or {}).get('quote_age_min')),
+            'market_open': is_market_open(),
+            'market_holiday': is_market_holiday(),
             'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
                            'ml.* accuracy is in-sample/diagnostic; the OOS verdict comes from '
                            'ml_study (tools/build_ml_edge_study.py) — see ml_study.verdict.'),

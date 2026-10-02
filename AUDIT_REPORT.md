@@ -2,6 +2,126 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-51 addendum — 2026-10-02 (ek hi feed state, asli quote time, label collisions)
+
+### Shuruaat user ke pasted dashboard se
+
+User ne poora dashboard paste kiya — 02-Oct-2026 10:31, **holiday**. Usme ek hi screen par do
+contradictory badges the:
+
+```
+DELAYED (15-20 min)          ← upar, top badge
+...
+₹1,167.70  LIVE  yahoo.ns · 10:31:31     ← price ke baju
+```
+
+Aur sawaal: *"DELAYED (15-20 min) q dikha rha he"*.
+
+### Karan — FIX-50 adhoora tha
+
+`Dashboard.html` L1111:
+
+```js
+const isLive = /NSE/i.test(src) && !/TradingView/i.test(src);   // src = 'Yahoo Finance'
+document.getElementById('liveBadgeText').textContent = isLive ? 'NSE LIVE' : 'DELAYED (15-20 min)';
+```
+
+**Ye bilkul wahi source-name bug tha jo maine FIX-50 me `app.py` L3585 me theek kiya —
+frontend me uska apna copy tha jo maine dekha hi nahi.** Maine backend theek kar ke keh diya
+tha ki bug gaya; wo adhoora tha.
+
+Teen alag problems:
+
+1. Top badge source ke **naam** se liveness nikalta tha → `'Yahoo Finance'` par hamesha DELAYED
+2. `"DELAYED (15-20 min)"` **hardcoded jhooth** tha — asli staleness 1175 min (19.6h) thi, aur
+   aaj to market hi band tha
+3. `setLiveChip` me `const t = new Date().toLocaleTimeString(...)` — yaani **browser ki ghadi**
+   quote ke waqt ki jagah. `10:31:31` wo waqt tha jab JS chali, quote ka waqt nahi. Quote
+   `2026-10-01 15:15` ka tha. Ye wahi `datetime.now()` wala jhooth tha jo FIX-49 ne server par
+   theek kiya — client par zinda tha.
+
+### Aur jo mila (user ne "sab data sahi aata hai na" poocha tha)
+
+**Arithmetic ✅ sahi nikla.** Har number dobara compute kiya:
+
+| check | dashboard | dobara calc |
+|---|---|---|
+| change% | −19.30 (−1.63%) | −19.30/1187.00 = −1.626% ✓ |
+| 52W Position | 1.5% | (1167.70−1160.8)/(1611.8−1160.8) = 1.53% ✓ |
+| Stop Loss | ₹1219.38 (4.43%) | 2.5 × ATR 20.67 = 51.68 ✓ |
+| Target 1 | ₹1116.02 | 1167.70 − 51.68 = exactly 1R ✓ |
+| Breakeven | 50.0% | 1/(1+2.5/2.5) ✓ |
+| Win-rate LCB | 48.2% | 0.516 − √(0.516·0.484/217) = 0.482 ✓ |
+| Kelly / qty | 0% / 0 | p 0.482 < breakeven 0.50 → negative → clamp ✓ |
+| Master card | 42 | int((36+53+39)/3) = int(42.67) ✓ |
+| Model edges | −1.6/0/+6.7/+5.0 | 51.7−53.3, 53.3−53.3, 60−53.3, 58.3−53.3 ✓ |
+| OOS | +0.96pp / −6.99pp | 51.03−50.07, 55.03−62.02 ✓ |
+
+**Par labels me chaar bug mile:**
+
+**1. "Master" ka matlab do jagah do cheez.** Card wala `kpi.master.score` = 42
+(intraday/swing/longterm ka average). Verdict wala `"Master Score: 37/100"` = `ensemble.score`
+(API se confirm: `ensemble.score = 37`). Do alag quantities, ek hi naam.
+
+**2. OBV "0" asli zero nahi tha.** `(ind.obv > 0 ? (obv/1e6).toFixed(1)+'M' : '0')` — matlab
+**koi bhi negative value "0" dikhti thi**. Measure kiya: `obv = -381723268.0`. Aur label
+`obv > 0` se banta tha jabki backend scoring `obv > obv_ema` use karta hai — **UI aur scoring
+alag comparison kar rahe the** (`obv_ema = -343805114.0`).
+
+**3. Bollinger %B = 0.04 par "MID".** Thresholds sirf `< 0` aur `> 1` flag karte the. %B 0.04
+matlab price lower band ke bilkul paas — jabki RSI 28.2, CCI −160, Williams %R −93.5,
+StochRSI 5.3 sab OVERSOLD bol rahe the.
+
+**4. Debt/Equity 36.7** — yfinance ka `debtToEquity` **percentage** hota hai (36.7 = 36.7%),
+ratio nahi. Bina `%` ke 36.7× lagta tha. Aur `if fund_data['debt_val']` falsy-check tha, isliye
+asli `0.0` D/E (zero-debt company) bhi `'N/A'` ban jaata tha.
+
+### Fix
+
+**Server ab ek hi state bhejta hai** — `feed_state` ∈ `{LIVE, DELAYED, CLOSED}` + `feed_label`
++ `market_open` + `quote_age_min` + `quote_time`. UI guess nahi karta.
+
+`CLOSED` teesra state isliye zaroori tha kyunki FIX-50 ke baad holiday par quote "fresh"
+kehlata hai (last completed session se match karta hai) — data ke liye sahi, par "LIVE" jhooth
+hoga kyunki trade ho hi nahi raha.
+
+Label me **asli number** jaata hai, koi hardcoded band nahi.
+
+Measured, real `/api/quote/RELIANCE` (02-Oct, holiday):
+
+```
+feed_state    = 'CLOSED'
+feed_label    = 'MARKET CLOSED (holiday)'
+market_open   = False
+quote_age_min = 1175.5
+quote_time    = '2026-10-01 15:15:00'
+timestamp     = '15:15:00'
+```
+
+`/api/stock/RELIANCE`:
+```
+feed_state = 'CLOSED'   market_holiday = True
+obv = -381723268.0      obv_ema = -343805114.0
+debt_equity = '36.7% D/E'
+```
+
+Tier-3 daily-close fallback ka `datetime.now()` timestamp bhi gaya — ab frame ke last bar ka
+asli timestamp.
+
+### Calendar aur timing (user ne poocha tha)
+
+Dono verify kiye, **dono sahi**:
+
+- 16 holidays, sab weekday, NSE 2026 list se exact match
+- `09:14 → False`, `09:15 → True`, `15:40 → True`, `15:41 → False`
+- NSE regular session 15:30 par band hota hai; code 15:40 tak jaata hai — **jaan-boojh kar**
+  (closing auction cover karne ke liye), aur direction conservative hai
+
+`verify_live_quote.py` 114 → **141 checks** · full regression **780 passed, 0 failed**
+(`verify_dashboard_display` 28/28 — Dashboard changes ne use nahi toda).
+
+---
+
 ## FIX-50 addendum — 2026-10-02 (NSE holiday calendar + ek aur source-name fail-open)
 
 ### Ye user ne pakda, maine nahi
@@ -1402,6 +1522,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Do badges ek hi screen par contradict karte the + browser ki ghadi quote ke waqt ki jagah | ✅ **Solved (FIX-51)** — user ke pasted dashboard me ek hi screen par `DELAYED (15-20 min)` (upar) aur `LIVE` (price ke baju) tha. Karan: **FIX-50 adhoora tha** — maine `app.py` L3585 ka source-name bug theek kiya, par `Dashboard.html` L1111 me uska apna copy (`/NSE/i.test(data_source)`) dekha hi nahi. Saath me `"DELAYED (15-20 min)"` hardcoded jhooth tha (asli staleness 1175 min / 19.6h, aur market hi band tha), aur `setLiveChip` me `new Date().toLocaleTimeString()` tha — yaani **browser ki ghadi** quote ke waqt ki jagah (`yahoo.ns · 10:31:31` jabki quote `2026-10-01 15:15` ka tha). Ab server ek hi `feed_state` ∈ {LIVE, DELAYED, **CLOSED**} + `feed_label` + `quote_age_min` + `quote_time` bhejta hai; UI guess nahi karta. `CLOSED` teesra state isliye zaroori tha kyunki FIX-50 ke baad holiday par quote "fresh" kehlata hai — data ke liye sahi, par "LIVE" jhooth. Saath me 4 label bug: `kpi.master.score` (42) aur `ensemble.score` (37) dono "Master Score" kehlate the; OBV ki koi bhi negative value "0" dikhti thi (measured `obv = -381723268`) aur UI label `obv > 0` se banta tha jabki scoring `obv > obv_ema` use karta hai; Bollinger %B 0.04 par "MID" kehlata tha; aur `debtToEquity` (percentage) bina `%` ke dikhaya jaata tha + falsy-check se asli 0.0 bhi 'N/A' ban jaata tha. **Arithmetic verify kiya — sab sahi nikla** (change%, 52W position, SL=2.5×ATR, T1=1R, breakeven, win-rate LCB, Kelly, master average, model edges, OOS). `verify_live_quote.py` 114 → **141 checks**. |
 | — | Holiday ka koi concept hi nahi tha — market band hone par bhi app "market khula" maanti thi | ✅ **Solved (FIX-50)** — **user ne pakda**, maine nahi. Maine FIX-49 me likha tha "market 16 min se khula" (02-Oct-2026 09:31); wo **Mahatma Gandhi Jayanti** tha, NSE/BSE poora din band. `is_market_open()` sirf weekday+time dekhta tha, isliye `True` bola aur FIX-49 ka gate perfectly-sahi data ko `STALE: quote 1096m purana` keh gaya — **false positive**. Wahi bug FIX-47 ko bhi chhuta tha: `last_completed_session()` holiday ko normal weekday maan kar expected session galat batata tha. Ab NSE equity ke **2026 ke 16 weekday holidays** `NSE_HOLIDAYS` me, plus do patch-free update raaste (`STOCKAI_EXTRA_HOLIDAYS` env, optional `nse_holidays.txt`) — zaroori isliye kyunki 15-Jan-2026 original calendar me tha hi nahi, NSE ne circular se baad me add kiya. Calendar purana/khaali ho to crash nahi, weekday-rule par degrade + startup warning. Saath me `/api/stock` ka `is_realtime` bhi theek hua — pehle `'NSE' in str(active_source)` substring match se aata tha, jisme `'NSE Official Direct (STALE)'` bhi True ban jaata tha; ab FIX-49 ke gate verdict se + `realtime_reason`. Measured: holiday 09:31 → `is_market_open=False`, quote **FRESH** (`market closed, quote 2026-10-01 (latest 2026-10-01) — fine`); normal Mon 09:31 → gate utna hi strict. `verify_live_quote.py` 86 → **114 checks**. |
 | — | Live-quote freshness verify hi nahi hoti thi — 18 ghante purana price "LIVE" label ke saath jaata tha | ✅ **Solved (FIX-49)** — `fetch_yahoo_live_ltp()` Yahoo ke `regularMarketTime` ko **sirf display string** banane ke liye padhta tha (poore file me ek hi reference), aur `is_realtime: True` **hardcoded** tha; timestamp missing ho to `datetime.now()` quote ka waqt maan leta tha. Measured 2026-10-02 09:31 IST (market 16 min se khula): `regularMarketPrice=1167.7` ke saath `regularMarketTime=2026-10-01 15:15` — **18.3h purana**. Nateeja: chart "DELAYED" aur header price "LIVE", ek hi screen par. `fetch_nse_live_ltp()` me bhi wahi pattern (NSE ka apna `timestamp` ignore, `datetime.now()` likha). Ab `frame_is_fresh()` ka scalar twin `quote_is_fresh()` + `_parse_quote_ts()` (Yahoo epoch + NSE `'02-Oct-2026 09:31:00'`), missing timestamp **fail-CLOSED**, `STOCKAI_LIVE_MAX_AGE_MIN` limit + `STOCKAI_LIVE_GATE=off` kill-switch, aur console warning 5 min/symbol throttle. Price phir bhi serve hota hai — gate sirf label badalta hai. Side-fix: NSE ab `source: 'nse'` bhejta hai, `'unknown'` nahi. `change%` ka prevClose **pehle se sahi tha** (verify kiya) — chheda nahi. `verify_live_quote.py` 50 → **86 checks**. ⚠️ **Correction (FIX-50 me):** is fix me jo "measured 09:31, market 16 min se khula" likha hai wo **galat premise** tha — 02-Oct-2026 Gandhi Jayanti tha, market poora din band. Hardcoded `is_realtime: True` aur fake `datetime.now()` timestamp asli bugs the (holiday par bhi kuch "live" nahi hota), par wo `1126m purana` STALE verdict **false positive** tha. FIX-50 ne holiday calendar add karke use theek kiya. |
 | — | Config provenance chhupi thi — token `.env` se aaya ya Windows env se, pata nahi chalta tha | ✅ **Solved (FIX-48)** — shuruaat **meri galat salah** se hui: maine do baar kaha "`.env` me token badal do", jabki wo token **Windows User-scope env var** me tha (verify: working tree + poori git history dono me absent). Do design gap the: `load_dotenv_file()` ka `override=False` default matlab pehle se set key par `.env` ka value **chup-chaap ignore** hota tha, aur banner sirf `Token auth ON` kehta tha — source nahi. Ab `config_source()` (`.env` load se **pehle** ka `PRE_DOTENV_KEYS` snapshot) banner par `↳ source: …` dikhata hai, aur override case me exact removal command bhi. `verify_security.py` 118 → **126 checks**. |

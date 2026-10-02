@@ -93,8 +93,12 @@ body::after {
 }
 .live-chip.live{color:#04140d;background:linear-gradient(135deg,#00e676,#00c853);box-shadow:0 0 14px rgba(0,230,118,.25)}
 .live-chip.stale{color:#2b1a02;background:linear-gradient(135deg,#ffd54f,#ffb300);box-shadow:0 0 14px rgba(255,179,0,.2)}
+/* FIX-51: teesra state. Holiday/weekend/after-hours par "DELAYED" galat word hai —
+   data purana nahi hai, trade hi nahi ho raha. Grey = kuch aane wala nahi. */
+.live-chip.closed{color:#1a1d24;background:linear-gradient(135deg,#b0bec5,#90a4ae);box-shadow:0 0 10px rgba(144,164,174,.18)}
 .live-chip .lc-dot{width:5px;height:5px;border-radius:50%;background:#04331f;animation:lcPulse 1.6s ease-in-out infinite}
 .live-chip.stale .lc-dot{background:#4a2c02;animation:none}
+.live-chip.closed .lc-dot{background:#37474f;animation:none}
 @keyframes lcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
 .live-src{font-size:0.65rem;color:var(--text-muted);font-variant-numeric:tabular-nums}
 
@@ -809,6 +813,19 @@ function svd(v)          { return isMissing(v) ? '—' : v; }                   
 function pctd(v)         { return isMissing(v) ? '—' : v + '%'; }              // display %
 function money(v)        { return isMissing(v) ? '—' : Number(v).toLocaleString('en-IN'); }
 function verdict(v, fn)  { return isMissing(v) ? '—' : fn(v); }                // missing → '—', fake verdict nahi
+// FIX-51: OBV pehle `obv > 0 ? (obv/1e6)+'M' : '0'` se dikhta tha — matlab KOI BHI
+// negative value "0" ban jaati thi. Aur ACCUMULATE/DISTRIBUTE label `obv > 0` se
+// banta tha jabki backend scoring `obv > obv_ema` use karta hai. Dono theek kiye.
+function fmtSigned(v, digits) {
+  const n = numOrNull(v);
+  if (n === null) return '—';
+  const a = Math.abs(n);
+  const body = a >= 1e9 ? (a / 1e9).toFixed(2) + 'B'
+             : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M'
+             : a >= 1e3 ? (a / 1e3).toFixed(0) + 'K'
+             : a.toFixed(digits === undefined ? 0 : digits);
+  return (n < 0 ? '-' : '') + body;
+}
 
 // ── FIX-35 (M-12): HTML-injection sinks band ──────────────────────────────
 // API se aayi strings (Yahoo search ka longname, engine signals, notes, verdict)
@@ -938,7 +955,8 @@ function startLiveTicker(symbol) {
       try {
         const t = JSON.parse(ev.data);
         if (t && t.price) updatePriceDOM(t.price, t.change, t.pChange,
-                                         { stale: t.stale || !t.is_realtime, source: t.source });
+                                         { stale: t.stale || !t.is_realtime, source: t.source,
+                                           feedState: t.feed_state, quoteTime: t.quote_time });
       } catch (e) {}
     };
     liveSource.onerror = () => {
@@ -954,7 +972,8 @@ function startPolling(symbol) {
       const tick = await res.json();
       if (tick && tick.price) {
         updatePriceDOM(tick.price, tick.change, tick.pChange,
-                       { stale: tick.stale || !tick.is_realtime, source: tick.source });
+                       { stale: tick.stale || !tick.is_realtime, source: tick.source,
+                         feedState: tick.feed_state, quoteTime: tick.quote_time });
       }
     } catch (e) {
       console.log('Live tick polling error:', e);
@@ -968,15 +987,52 @@ function numOrNull(v) {
   const n = Number(v);
   return isFinite(n) ? n : null;
 }
-function setLiveChip(stale, source) {
+// FIX-51: teen states (LIVE / DELAYED / CLOSED) aur quote ka ASLI waqt.
+// Pehle teen problems thi:
+//   (a) sirf 2 states — holiday par "DELAYED" bolta tha jabki market band tha
+//   (b) `new Date()` — yaani BROWSER ki ghadi quote ke waqt ki jagah. User ko
+//       "yahoo.ns · 10:31:31" dikhta tha jabki quote kal 15:15 ka tha.
+//   (c) state `t.stale || !t.is_realtime` se UI khud nikalta tha, jabki server
+//       ab feed_state bhejta hai — do jagah do logic = do contradictory badges.
+function setLiveChip(opts) {
   const chip = document.getElementById('liveChip');
   const txt = document.getElementById('liveChipTxt');
   const src = document.getElementById('liveSrc');
-  if (chip) chip.className = 'live-chip ' + (stale ? 'stale' : 'live');
-  if (txt) txt.textContent = stale ? 'DELAYED' : 'LIVE';
+  const o = opts || {};
+  // Purane callers (sirf stale/source) bhi chalein — isliye fallback.
+  const state = o.feedState || (o.stale ? 'DELAYED' : 'LIVE');
+  if (chip) chip.className = 'live-chip ' + (state === 'LIVE' ? 'live' : state.toLowerCase());
+  if (txt) txt.textContent = state === 'LIVE' ? 'LIVE' : state === 'CLOSED' ? 'CLOSED' : 'DELAYED';
   if (src) {
-    const t = new Date().toLocaleTimeString('en-IN', { hour12: false });
-    src.textContent = source ? `${source} · ${t}` : t;
+    // Quote ka asli waqt server se aata hai (`quote_time`). Na mile to browser ki
+    // ghadi NAHI dikhayenge — warna "abhi ka" lagta hai jabki data kal ka ho.
+    const parts = [];
+    if (o.source) parts.push(o.source);
+    if (o.quoteTime) parts.push(String(o.quoteTime));
+    else parts.push('quote time nahi mila');
+    src.textContent = parts.join(' · ');
+  }
+}
+// Top badge bhi ISI state se chalega — pehle `/NSE/i.test(data_source)` se chalta
+// tha (source ka NAAM), aur hardcoded "DELAYED (15-20 min)" dikhata tha.
+function setLiveBadge(feedState, feedLabel, source) {
+  const badge = document.getElementById('liveBadge');
+  const txt = document.getElementById('liveBadgeText');
+  const tag = document.getElementById('activeEngineTag');
+  const state = feedState || 'DELAYED';
+  const isLive = state === 'LIVE';
+  const color = isLive ? 'green' : state === 'CLOSED' ? 'muted' : 'yellow';
+  const bg = isLive ? 'var(--color-green-dim)'
+           : state === 'CLOSED' ? 'var(--bg-tertiary, rgba(255,255,255,.08))'
+           : 'var(--color-yellow-dim)';
+  const fg = isLive ? 'var(--color-green)'
+           : state === 'CLOSED' ? 'var(--text-muted)'
+           : 'var(--color-yellow)';
+  if (txt) txt.textContent = feedLabel || (isLive ? 'LIVE' : state === 'CLOSED' ? 'MARKET CLOSED' : 'DELAYED');
+  if (badge) { badge.style.background = bg; badge.style.color = fg; }
+  if (tag) {
+    if (source) tag.textContent = source;
+    tag.style.background = bg; tag.style.color = fg;
   }
 }
 function updatePriceDOM(newPrice, change, pChange, opts) {
@@ -1010,7 +1066,7 @@ function updatePriceDOM(newPrice, change, pChange, opts) {
     changeEl.innerHTML = '<span style="color:var(--text-muted)">— change unavailable</span>';
   }
 
-  if (opts) setLiveChip(!!opts.stale, opts.source);
+  if (opts) setLiveChip(opts);
 }
 
 // Manual refresh — round icon par click (ya keyboard "R")
@@ -1024,7 +1080,8 @@ async function manualRefresh() {
     const t = await res.json();
     if (!t || t.error || t.price === undefined) throw new Error((t && t.error) || 'no data');
     updatePriceDOM(t.price, t.change, t.pChange,
-                   { stale: t.stale || !t.is_realtime, source: t.source });
+                   { stale: t.stale || !t.is_realtime, source: t.source,
+                     feedState: t.feed_state, quoteTime: t.quote_time });
     const wait = 700 - (Date.now() - t0);       // 360° spin poora dikhe
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
     b.classList.remove('busy');
@@ -1108,12 +1165,11 @@ function render(d) {
   const src = sv(d.data_source, 'UNKNOWN');
   const srcBadge = document.getElementById('activeEngineTag');
   srcBadge.textContent = src;
-  const isLive = /NSE/i.test(src) && !/TradingView/i.test(src);
-  srcBadge.style.background = isLive ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)';
-  srcBadge.style.color = isLive ? 'var(--color-green)' : 'var(--color-yellow)';
-  document.getElementById('liveBadgeText').textContent = isLive ? 'NSE LIVE' : 'DELAYED (15-20 min)';
-  document.getElementById('liveBadge').style.background = isLive ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)';
-  document.getElementById('liveBadge').style.color = isLive ? 'var(--color-green)' : 'var(--color-yellow)';
+  // FIX-51: pehle ye `/NSE/i.test(src)` se liveness nikalta tha — yaani source ke
+  // NAAM se. 'Yahoo Finance' par hamesha "DELAYED (15-20 min)" dikhta tha, chahe
+  // data fresh ho ya market hi band ho. Aur "(15-20 min)" hardcoded jhooth tha.
+  // Ab server `feed_state` + `feed_label` bhejta hai (LIVE / DELAYED / CLOSED).
+  setLiveBadge(d.feed_state, d.feed_label, src);
   
   // Initialize Live Price Ticker
   updatePriceDOM(d.price, d.change, d.pChange);
@@ -1299,14 +1355,21 @@ function render(d) {
     ['MACD', svd(ind.macd), (isMissing(ind.macd) || isMissing(ind.macd_signal)) ? '—' : (ind.macd > ind.macd_signal ? 'BUY' : 'SELL')],
     ['MACD Hist', svd(ind.macd_hist), verdict(ind.macd_hist, v => v > 0 ? 'POSITIVE' : 'NEGATIVE')],
     ['Supertrend', svd(ind.supertrend), verdict(ind.st_direction, v => v === 1 ? 'BUY' : 'SELL')],
-    ['Bollinger %B', svd(ind.bb_pctb), verdict(ind.bb_pctb, v => v < 0 ? 'OVERSOLD' : v > 1 ? 'OVERBOUGHT' : 'MID')],
+    // FIX-51: pehle sirf `< 0` aur `> 1` flag hote the, isliye %B = 0.05 (price
+    // lower band ke bilkul paas) "MID" kehlata tha — jabki RSI/CCI/Williams/%R sab
+    // OVERSOLD bol rahe the. Ab band ke paas hona alag dikhta hai.
+    ['Bollinger %B', svd(ind.bb_pctb), verdict(ind.bb_pctb, v =>
+        v < 0 ? 'BELOW LOWER' : v < 0.2 ? 'NEAR LOWER'
+        : v > 1 ? 'ABOVE UPPER' : v > 0.8 ? 'NEAR UPPER' : 'MID')],
     ['ADX', svd(ind.adx), verdict(ind.adx, v => v > 25 ? 'STRONG' : 'WEAK')],
     ['+DI / -DI', `${svd(ind.plus_di)} / ${svd(ind.minus_di)}`, (isMissing(ind.plus_di) || isMissing(ind.minus_di)) ? '—' : (ind.plus_di > ind.minus_di ? 'BULLISH' : 'BEARISH')],
     ['VWAP', isMissing(ind.vwap) ? '—' : `₹${ind.vwap}`, (isMissing(d.price) || isMissing(ind.vwap)) ? '—' : (d.price > ind.vwap ? 'ABOVE' : 'BELOW')],
     ['StochRSI K/D', `${svd(ind.stochrsi_k)}/${svd(ind.stochrsi_d)}`, verdict(ind.stochrsi_k, v => v < 20 ? 'OVERSOLD' : v > 80 ? 'OVERBOUGHT' : 'MID')],
     ['CCI', svd(ind.cci), verdict(ind.cci, v => v < -100 ? 'OVERSOLD' : v > 100 ? 'OVERBOUGHT' : 'NEUTRAL')],
     ['Williams %R', svd(ind.williams_r), verdict(ind.williams_r, v => v < -80 ? 'OVERSOLD' : v > -20 ? 'OVERBOUGHT' : 'MID')],
-    ['OBV', isMissing(ind.obv) ? '—' : (ind.obv > 0 ? (ind.obv / 1e6).toFixed(1) + 'M' : '0'), isMissing(ind.obv) ? '—' : (ind.obv > 0 ? 'ACCUMULATE' : 'DISTRIBUTE')],
+    ['OBV', fmtSigned(ind.obv),
+     (isMissing(ind.obv) || isMissing(ind.obv_ema)) ? '—'
+       : (ind.obv > ind.obv_ema ? 'ACCUMULATE' : 'DISTRIBUTE')],
     ['Ichimoku Tenkan', svd(ind.ichi_tenkan), (isMissing(d.price) || isMissing(ind.ichi_kijun)) ? '—' : (d.price > ind.ichi_kijun ? 'ABOVE KIJUN' : 'BELOW KIJUN')],
     ['EMA 9/21', `${svd(ind.ema9)} / ${svd(ind.ema21)}`, (isMissing(ind.ema9) || isMissing(ind.ema21)) ? '—' : (ind.ema9 > ind.ema21 ? 'BULL CROSS' : 'BEAR CROSS')],
     ['SMA 50/200', `${svd(ind.sma50)} / ${svd(ind.sma200)}`, (isMissing(ind.sma50) || isMissing(ind.sma200)) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? 'GOLDEN' : 'DEATH')],
@@ -1455,9 +1518,9 @@ function render(d) {
   // Deep AI Verdict Synthesis Output
   let finalVerdictHtml = '';
   if (ens.tradeable) {
-    finalVerdictHtml = safeHtml`<strong style="color:var(--color-green)">🧪 ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (rule checks pass; NOT validated profit)</strong><br><br>`;
+    finalVerdictHtml = safeHtml`<strong style="color:var(--color-green)">🧪 ${sv(ens.action, 'N/A')} — Ensemble rank: ${svd(ens.score)}/100 (rule checks pass; NOT validated profit)</strong><br><br>`;
   } else {
-    finalVerdictHtml = safeHtml`<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Master Score: ${svd(ens.score)}/100 (${ens.calibration?.ready ? 'Relative rank only; no executable trade' : 'Threshold fit unavailable'})</strong><br><br>`;
+    finalVerdictHtml = safeHtml`<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Ensemble rank: ${svd(ens.score)}/100 (${ens.calibration?.ready ? 'Relative rank only; no executable trade' : 'Threshold fit unavailable'})</strong><br><br>`;
   }
   
   finalVerdictHtml += safeHtml`<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} probability (${sv(ml.confidence, 'UNKNOWN')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
