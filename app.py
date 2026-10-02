@@ -575,7 +575,7 @@ def fetch_nse_live_ltp(symbol):
     return None
 
 
-def fetch_yahoo_live_ltp(symbol):
+def fetch_yahoo_live_ltp(symbol, prefer_exch='NSE'):
     """
     FIX-23: Yahoo Finance v8 chart se LIVE LTP (measured 2026-09-30, market hours).
 
@@ -590,7 +590,9 @@ def fetch_yahoo_live_ltp(symbol):
         • Endpoint unofficial hai → TTL cache + fallback chain zaroori.
     """
     clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
-    for suffix in ('.NS', '.BO'):
+    # FIX-55: user jo exchange chune wo pehle try ho (pehle hamesha .NS-first)
+    _sfx = ('.BO', '.NS') if str(prefer_exch).upper() == 'BSE' else ('.NS', '.BO')
+    for suffix in _sfx:
         try:
             r = _HTTP.get(
                 f"https://query1.finance.yahoo.com/v8/finance/chart/{clean_sym}{suffix}",
@@ -642,7 +644,7 @@ def fetch_yahoo_live_ltp(symbol):
     return None
 
 
-def get_live_quote(symbol, force=False):
+def get_live_quote(symbol, force=False, prefer_exch='NSE'):
     """
     FIX-24: ONE function, ONE payload shape — chahe data kisi bhi tier se aaye.
 
@@ -654,21 +656,30 @@ def get_live_quote(symbol, force=False):
     clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
     now = time.time()
 
+    # FIX-55: BSE chuna ho to NSE ka official endpoint skip — wo NSE ka LTP dega,
+    # BSE ka nahi. Dono exchanges ke close alag hote hain (TCS 2075.00 vs 2079.30).
+    _bse = str(prefer_exch).upper() == 'BSE'
+    # Cache key me exchange zaroori hai — warna NSE ka quote BSE request par serve
+    # ho jaata (TTL 2s chhota hai, par galat exchange ka number galat hi hai).
+    _ckey = f"{clean_sym}:{'BSE' if _bse else 'NSE'}"
+
     if not force:
         with _LIVE_LOCK:
-            hit = _LIVE_CACHE.get(clean_sym)
+            hit = _LIVE_CACHE.get(_ckey)
         if hit and (now - hit[0]) < LIVE_TTL:
             payload = dict(hit[1])
             payload['cached'] = True
             return payload
 
-    quote = fetch_nse_live_ltp(clean_sym) or fetch_yahoo_live_ltp(clean_sym)
+    quote = ((None if _bse else fetch_nse_live_ltp(clean_sym))
+             or fetch_yahoo_live_ltp(clean_sym, prefer_exch=prefer_exch))
 
     if quote is None:
         # Tier 3 — last daily close (STALE). Change phir bhi compute hota hai,
         # warna UI me "undefined" aa jaata hai (jaisa pehle SSE path me hota tha).
         try:
-            df, src = DATA_MANAGER.smart_fetch(clean_sym, period='5d', interval='1d')
+            df, src = DATA_MANAGER.smart_fetch(clean_sym, period='5d', interval='1d',
+                                               prefer_exch=prefer_exch)
             if df is not None and not df.empty:
                 price = sf(df['Close'].iloc[-1])
                 prev = sf(df['Close'].iloc[-2]) if len(df) > 1 else None
@@ -718,7 +729,7 @@ def get_live_quote(symbol, force=False):
     quote.setdefault('source', 'unknown')
 
     with _LIVE_LOCK:
-        _LIVE_CACHE[clean_sym] = (now, dict(quote))
+        _LIVE_CACHE[_ckey] = (now, dict(quote))
         if len(_LIVE_CACHE) > 256:           # memory bound
             for k in sorted(_LIVE_CACHE, key=lambda s: _LIVE_CACHE[s][0])[:64]:
                 _LIVE_CACHE.pop(k, None)
@@ -1157,7 +1168,7 @@ class MultiTechDataSourceManager:
             self.tv = None
             print(f"⚠️ [TradingView Notice] Could not initialize tvDatafeed: {e}")
 
-    def fetch_tradingview(self, symbol, n_bars=500, interval_str='1d'):
+    def fetch_tradingview(self, symbol, n_bars=500, interval_str='1d', prefer_exch='NSE'):
         """Tier 1 Fetch: Direct TradingView Feed"""
         if self.tv is None:
             return None, None
@@ -1188,7 +1199,11 @@ class MultiTechDataSourceManager:
             # Direct' se pata hi nahi chalta tha. Ab exchange track hota hai.
             df = None
             used_exch = None
-            for exch in ('NSE', 'BSE'):
+            # FIX-55: user jo exchange chune wahi pehle try ho. Pehle hamesha
+            # NSE-first tha, isliye BSE chunne ka koi rasta hi nahi tha.
+            _order = (('BSE', 'NSE') if str(prefer_exch).upper() == 'BSE'
+                      else ('NSE', 'BSE'))
+            for exch in _order:
                 _d = self.tv.get_hist(
                     symbol=clean_sym,
                     exchange=exch,
@@ -1197,12 +1212,13 @@ class MultiTechDataSourceManager:
                 )
                 if _d is not None and not _d.empty:
                     df, used_exch = _d, exch
-                    if exch == 'BSE':
+                    if exch != _order[0]:
                         # FIX-54: "NSE feed khaali tha" misleading tha — BSE-only
                         # stocks (DHOOTIN = Dhoot Industrial Finance) NSE par hote
                         # hi nahi. Neutral wording.
-                        print(f"ℹ️  [TradingView] {clean_sym}: NSE par data nahi mila, BSE se le "
-                              f"rahe hain (stock BSE-only ho sakta hai). Label me dikhega.")
+                        print(f"ℹ️  [TradingView] {clean_sym}: {_order[0]} par data nahi mila, "
+                              f"{exch} se le rahe hain (stock us exchange par listed nahi ho "
+                              f"sakta). Label me dikhega.")
                     break
 
             if df is not None and not df.empty:
@@ -1345,7 +1361,8 @@ class MultiTechDataSourceManager:
             
         return None
 
-    def smart_fetch(self, symbol, period='2y', interval='1d', n_bars=500, _now=None):
+    def smart_fetch(self, symbol, period='2y', interval='1d', n_bars=500, _now=None,
+                    prefer_exch='NSE'):
         """
         Executes strict 3-tier cascade with real-time terminal logging.
 
@@ -1359,7 +1376,9 @@ class MultiTechDataSourceManager:
 
         # ── TIER 1: TradingView Direct (0-Second Delay Live Stream) ──
         if not symbol.startswith('^'):
-            df_tv, tv_exch = self.fetch_tradingview(clean_sym, n_bars=n_bars, interval_str=interval)
+            df_tv, tv_exch = self.fetch_tradingview(clean_sym, n_bars=n_bars,
+                                                     interval_str=interval,
+                                                     prefer_exch=prefer_exch)
             if df_tv is not None:
                 # FIX-53: exchange label me — 'TradingView Direct' akela ye nahi
                 # batata tha ki data NSE se aaya ya BSE fallback se.
@@ -1744,20 +1763,24 @@ def dynamic_search():
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"{CONFIG['YAHOO_SEARCH_URL']}?q={q}&quotesCount=8&newsCount=0"
             res = _HTTP.get(url, headers=headers, timeout=3).json()
-            existing = {r['sym'] for r in results}
-            
+            # FIX-55: dedupe (symbol, exchange) par — pehle sirf symbol par tha,
+            # isliye TCS.NSE milne ke baad TCS.BSE drop ho jaata tha. Dono
+            # exchanges alag instruments hain (close bhi alag), dono dikhne chahiye.
+            existing = {(r['sym'], r.get('ex', 'NSE')) for r in results}
+
             for item in res.get('quotes', []):
                 sym = item.get('symbol', '')
                 if sym.endswith('.NS') or sym.endswith('.BO') or item.get('exchange') in ['NSE', 'BSE']:
                     cs = sym.replace('.NS', '').replace('.BO', '')
-                    if cs not in existing:
+                    _x = 'NSE' if '.NS' in sym or item.get('exchange') == 'NSE' else 'BSE'
+                    if (cs, _x) not in existing:
                         results.append({
                             'sym': cs,
                             'name': item.get('longname') or item.get('shortname') or cs,
-                            'ex': 'NSE' if '.NS' in sym or item.get('exchange') == 'NSE' else 'BSE',
+                            'ex': _x,
                             'sec': item.get('sector') or 'Equity'
                         })
-                        existing.add(cs)
+                        existing.add((cs, _x))
         except Exception:
             pass
 
@@ -2819,7 +2842,7 @@ def engine_market_regime():
 
 
 # ENGINE 6: Real Multi-Timeframe Confluence Engine (5m, 15m, 1h, 1d)
-def engine_multitimeframe(symbol, daily_df=None):
+def engine_multitimeframe(symbol, daily_df=None, prefer_exch='NSE'):
     try:
         def _calc_tf(df_tf):
             if df_tf is None or len(df_tf) < 25:
@@ -2840,7 +2863,8 @@ def engine_multitimeframe(symbol, daily_df=None):
         results = {}
 
         # 5m & 15m timeframes
-        data5m, _ = DATA_MANAGER.smart_fetch(symbol, period='5d', interval='5m', n_bars=100)
+        data5m, _ = DATA_MANAGER.smart_fetch(symbol, period='5d', interval='5m', n_bars=100,
+                                              prefer_exch=prefer_exch)
         if data5m is not None and len(data5m) >= 25:
             results['5m'] = _calc_tf(data5m)
             try:
@@ -2858,14 +2882,16 @@ def engine_multitimeframe(symbol, daily_df=None):
             results['5m'], results['15m'] = None, None
 
         # 1h timeframe
-        data1h, _ = DATA_MANAGER.smart_fetch(symbol, period='1mo', interval='1h', n_bars=100)
+        data1h, _ = DATA_MANAGER.smart_fetch(symbol, period='1mo', interval='1h', n_bars=100,
+                                              prefer_exch=prefer_exch)
         results['1h'] = _calc_tf(data1h)
 
         # 1d timeframe
         if daily_df is not None and len(daily_df) >= 25:
             results['1d'] = _calc_tf(daily_df)
         else:
-            data1d, _ = DATA_MANAGER.smart_fetch(symbol, period='6mo', interval='1d', n_bars=100)
+            data1d, _ = DATA_MANAGER.smart_fetch(symbol, period='6mo', interval='1d', n_bars=100,
+                                                  prefer_exch=prefer_exch)
             results['1d'] = _calc_tf(data1d)
 
         valid_tfs = {k: v for k, v in results.items() if v is not None}
@@ -3520,7 +3546,10 @@ def quick_quote_api(symbol):
     """
     # FIX-24: ek hi source-of-truth. `?force=1` manual refresh (refresh icon) ke liye
     force = request.args.get('force', '0') in ('1', 'true', 'yes')
-    quote = get_live_quote(resolve_symbol(symbol), force=force)
+    # FIX-55: ?ex=NSE|BSE
+    _ex = (request.args.get('ex') or 'NSE').strip().upper()
+    quote = get_live_quote(resolve_symbol(symbol), force=force,
+                           prefer_exch=(_ex if _ex in ('NSE', 'BSE') else 'NSE'))
     if quote:
         return jsonify(clean_json(quote))
     return jsonify({'error': 'Live quote unavailable'}), 404
@@ -3532,13 +3561,20 @@ def quick_quote_api(symbol):
 @app.route('/api/stream/<symbol>')
 def sse_live_stream(symbol):
     """FIX-12: proper no-cache headers + heartbeats so the dashboard can use SSE."""
+    # FIX-55: SSE bhi wahi exchange use kare jo /api/stock use kar raha hai.
+    # `request.args` ko generator ke BAHAR padhna zaroori hai — streaming response
+    # me generator request-context ke bahar iterate hota hai.
+    _sse_ex = (request.args.get('ex') or 'NSE').strip().upper()
+    if _sse_ex not in ('NSE', 'BSE'):
+        _sse_ex = 'NSE'
+
     def event_stream():
         resolved = resolve_symbol(symbol)
         while True:
             # FIX-24: wahi unified payload jo /api/quote deta hai — isliye
             # change/pChange hamesha present rehte hain (pehle SSE fallback me
             # ye keys gayab thi → UI "undefined (undefined%)" dikhata tha).
-            quote = get_live_quote(resolved)
+            quote = get_live_quote(resolved, prefer_exch=_sse_ex)
             if quote:
                 yield f"data: {json.dumps(clean_json(quote))}\n\n"
             else:
@@ -3563,7 +3599,14 @@ def stock_api(symbol):
         return jsonify({'error': f"Symbol '{symbol}' could not be resolved "
                                   f"(cached miss, retry in {int(_hit - time.time())}s)"}), 404
     resolved = resolve_symbol(symbol)
-    df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d', n_bars=CONFIG['CHART_CANDLES'] * 2)
+    # FIX-55: user jo exchange chune wahi data aaye. Pehle pipeline hamesha
+    # NSE-first tha — BSE chunne ka koi rasta hi nahi tha.
+    req_exch = (request.args.get('ex') or 'NSE').strip().upper()
+    if req_exch not in ('NSE', 'BSE'):
+        req_exch = 'NSE'
+    df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d',
+                                                 n_bars=CONFIG['CHART_CANDLES'] * 2,
+                                                 prefer_exch=req_exch)
     daily_source = active_source  # price path NSE live source se baad me replace ho sakta hai
 
     if df is None or len(df) < 20:
@@ -3630,7 +3673,8 @@ def stock_api(symbol):
         e3 = engine_vcp(rank_window)
         e4 = engine_smc(rank_window)
         e5 = engine_market_regime()                 # market-wide exposure ONLY
-        e6 = engine_multitimeframe(resolved, daily_df=df)  # independent diagnostic
+        e6 = engine_multitimeframe(resolved, daily_df=df,
+                                    prefer_exch=req_exch)  # independent diagnostic
         engines = [e1, e2, e3, e4, e5, e6]
 
         ens = ensemble_score(engines, asof_session=rank_session,
@@ -3786,8 +3830,12 @@ def stock_api(symbol):
                 # FIX-51: yfinance ka `debtToEquity` PERCENTAGE hota hai (36.7 = 36.7%),
                 # ratio nahi. Bina '%' ke 36.7x lagta tha. Aur `if debt_val` falsy-check
                 # tha, isliye asli 0.0 D/E (zero-debt company) bhi 'N/A' ban jaata tha.
-                'debt_equity': (f"{fund_data['debt_val']:.1f}% D/E"
-                                if fund_data['debt_val'] is not None else 'N/A'),
+                # FIX-55: :.1f se DHOOTIN ka 0.027 -> "0.0%" ban jaata tha (precision
+                # lost, value fake nahi). 1 se chhoti value par 2 extra decimals.
+                'debt_equity': ('N/A' if fund_data['debt_val'] is None else
+                                (f"{fund_data['debt_val']:.3f}% D/E"
+                                 if abs(fund_data['debt_val']) < 1
+                                 else f"{fund_data['debt_val']:.1f}% D/E")),
                 'div_yield': f"{_dy:.2f}%" if _dy else 'N/A',
                 'mcap': f"₹{info.get('marketCap', 0) / 1e7:,.0f}Cr" if info.get('marketCap') else 'N/A',
                 'sector': info.get('sector') or None,        # FIX-32: 'NSE Equity' invented nahi
@@ -3836,6 +3884,7 @@ def stock_api(symbol):
             # universe par fitted hai (30 NSE naam, 250 NSE sessions), isliye BSE
             # frame par percentile ranks technically NSE distribution se compare
             # ho rahe hote hain. Chhupana nahi, batana.
+            'requested_exchange': req_exch,
             'frame_exchange': ('BSE' if '(BSE)' in str(daily_source)
                                else 'NSE' if '(NSE)' in str(daily_source) else None),
             # FIX-54: 'NSE feed khaali tha' aur 'ye stock NSE par listed hi nahi'

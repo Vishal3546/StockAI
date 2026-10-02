@@ -734,6 +734,9 @@ async function apiFetch(path, opts) {
   throw lastErr;
 }
 let activeSymbol = "RELIANCE";
+// FIX-55: user jo exchange chune, poori pipeline wahi use kare. Pehle har
+// cheez NSE-first thi — BSE chunne ka koi rasta nahi tha, sirf label dikhta tha.
+let activeExchange = "NSE";
 let lastKnownPrice = 0;
 // FIX-52: /api/stock ka price (jis se poora plan banta hai) vs /api/quote ka
 // price (jo bada number dikhata hai). Dono alag sources se aate hain.
@@ -939,6 +942,7 @@ symInput.addEventListener('input', function() {
         const item = document.createElement('div');
         item.className = 'search-item';
         item.dataset.sym = String(s.sym ?? '');
+        item.dataset.ex = String(s.ex ?? 'NSE').toUpperCase() === 'BSE' ? 'BSE' : 'NSE';
         const symEl = document.createElement('span');
         symEl.className = 'search-sym';
         symEl.textContent = String(s.sym ?? '');
@@ -972,8 +976,9 @@ symInput.addEventListener('input', function() {
   }, 150);
 });
 
-function selectStock(sym) {
+function selectStock(sym, ex) {
   symInput.value = sym;
+  if (ex === 'BSE' || ex === 'NSE') activeExchange = ex;   // FIX-55
   dropdown.classList.remove('show');
   loadStock();
 }
@@ -982,7 +987,8 @@ function selectStock(sym) {
 dropdown.addEventListener('click', (e) => {
   const item = e.target.closest('.search-item');
   const sym = item && item.dataset ? item.dataset.sym : '';
-  if (sym) selectStock(sym);
+  const ex = item && item.dataset ? (item.dataset.ex || 'NSE') : 'NSE';
+  if (sym) selectStock(sym, ex);
 });
 
 document.addEventListener('click', function(e) {
@@ -998,7 +1004,7 @@ function startLiveTicker(symbol) {
   if (liveSource) { liveSource.close(); liveSource = null; }
   // FIX(D9): prefer the server-sent-events stream; poll only if it fails.
   try {
-    liveSource = new EventSource(`${API}/api/stream/${symbol}`);
+    liveSource = new EventSource(`${API}/api/stream/${symbol}?ex=${activeExchange}`);
     let gotData = false;
     liveSource.onmessage = (ev) => {
       gotData = true;
@@ -1018,7 +1024,7 @@ function startLiveTicker(symbol) {
 function startPolling(symbol) {
   liveTickerInterval = setInterval(async () => {
     try {
-      const res = await apiFetch(`/api/quote/${symbol}`);
+      const res = await apiFetch(`/api/quote/${symbol}?ex=${activeExchange}`);
       const tick = await res.json();
       if (tick && tick.price) {
         updatePriceDOM(tick.price, tick.change, tick.pChange,
@@ -1127,7 +1133,7 @@ async function manualRefresh() {
   b.classList.add('busy');
   const t0 = Date.now();
   try {
-    const res = await apiFetch(`/api/quote/${activeSymbol}?force=1`);
+    const res = await apiFetch(`/api/quote/${activeSymbol}?force=1&ex=${activeExchange}`);
     const t = await res.json();
     if (!t || t.error || t.price === undefined) throw new Error((t && t.error) || 'no data');
     updatePriceDOM(t.price, t.change, t.pChange,
@@ -1174,7 +1180,7 @@ async function loadStock() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 40000); // Robust 40s Fetch window
 
-    const r = await apiFetch(`/api/stock/${sym}`, {
+    const r = await apiFetch(`/api/stock/${sym}?ex=${activeExchange}`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);

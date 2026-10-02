@@ -80,8 +80,9 @@ else:
               'timestamp': '10:00:00', 'is_realtime': True, 'source': 'stub'}
 
     # --- tier 1/2 (live source mil gaya) ---
+    # FIX-55: get_live_quote ab prefer_exch pass karta hai, isliye **k
     A.fetch_nse_live_ltp = lambda s: dict(canned)
-    A.fetch_yahoo_live_ltp = lambda s: None
+    A.fetch_yahoo_live_ltp = lambda s, **k: None
     A._LIVE_CACHE.clear()
     q1 = A.get_live_quote('TESTX', force=True)
     check('tier-1 payload shape', all(q1.get(k) is not None for k in REQUIRED),
@@ -103,7 +104,7 @@ else:
                          'Low': [99, 100, 101, 102, 103], 'Close': [100.5, 101.5, 102.5, 103.5, 104.5],
                          'Volume': [1e6] * 5}, index=idx)
     A.fetch_nse_live_ltp = lambda s: None
-    A.fetch_yahoo_live_ltp = lambda s: None
+    A.fetch_yahoo_live_ltp = lambda s, **k: None
     orig_fetch = A.DATA_MANAGER.smart_fetch
     A.DATA_MANAGER.smart_fetch = lambda *a, **k: (fake, 'stub-daily')
     A._LIVE_CACHE.clear()
@@ -287,7 +288,9 @@ check('purana unguarded interpolation hata diya', old_bug not in html,
 check('change unavailable fallback likha hai', 'change unavailable' in html)
 check('Yahoo live tier app.py me hai', 'def fetch_yahoo_live_ltp' in app_src)
 check('TTL cache app.py me hai', '_LIVE_CACHE' in app_src and 'LIVE_TTL' in app_src)
-check('SSE unified payload use karta hai', 'quote = get_live_quote(resolved)' in app_src)
+# FIX-55: ab prefer_exch bhi jaata hai, isliye assertion update
+check('SSE unified payload use karta hai',
+      'quote = get_live_quote(resolved, prefer_exch=_sse_ex)' in app_src)
 check('freshness guard app.py me hai', 'def frame_is_fresh' in app_src and 'smart_fetch' in app_src)
 check('tvDatafeed log noise suppressed', "getLogger('tvDatafeed').setLevel(logging.CRITICAL)" in app_src)
 
@@ -637,7 +640,7 @@ check('obv_ema indicators payload me hai', "'obv_ema': sfx(L.get('OBV_EMA')" in 
 check("debt_equity ab '%' ke saath hai (yfinance percentage deta hai)",
       'D/E' in app_src and "f\"{fund_data['debt_val']:.1f}% D/E\"" in app_src)
 check('debt_equity ka falsy-check `is not None` hua (0.0 D/E ab N/A nahi)',
-      "if fund_data['debt_val'] is not None else 'N/A'" in app_src)
+      "'N/A' if fund_data['debt_val'] is None else" in app_src)
 check('/api/stock feed_state + market_holiday bhejta hai',
       "'market_holiday': is_market_holiday()" in app_src)
 
@@ -703,7 +706,8 @@ _r = 0.47743
 _norm = (_r * 100.0) if (_r is not None and abs(_r) <= 2.0) else _r
 check('0.47743 → 47.74% (TCS ka measured ROE)',
       f'{_norm:.2f}%' == '47.74%', f'got {_norm:.2f}%')
-_norm0 = (0.0 * 100.0) if (0.0 is not None and abs(0.0) <= 2.0) else 0.0
+_z = 0.0
+_norm0 = (_z * 100.0) if (_z is not None and abs(_z) <= 2.0) else _z
 check('ROE 0.0 crash nahi karta', _norm0 == 0.0)
 
 print('\n-- FIX-52: do-price disclosure')
@@ -719,7 +723,9 @@ check('analysis price /api/stock se record hota hai',
 check('updatePriceDOM gap check call karta hai', 'checkPriceGap(p);' in _HTML)
 
 print('\n-- FIX-52: search bar me exchange suffix')
-check('/api/search `ex` field bhejta hai', "'ex': 'NSE' if '.NS' in sym" in app_src)
+# FIX-55: dedupe (symbol, exchange) par hone ke baad `ex` ab _x variable se aata hai
+check('/api/search `ex` field bhejta hai',
+      "_x = 'NSE' if '.NS' in sym" in app_src and "'ex': _x," in app_src)
 check('search dropdown `ex` render karta hai (pehle sirf sym/name/sec dikhte the)',
       "exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE'" in _HTML)
 check('dropdown item me exchange badge append hota hai',
@@ -803,9 +809,84 @@ check('Dashboard BSE-only aur NSE-feed-fail me farq karta hai',
       'd.on_nse_master === false' in _HTML)
 check('terminal warning ab neutral hai ("NSE feed khaali tha" nahi)',
       'NSE feed khaali tha, BSE par gir' not in app_src
-      and 'NSE par data nahi mila' in app_src)
+      and 'par data nahi mila' in app_src)
 check('priceGapWarn me galat CAS explanation nahi bacha (comments me theek hai)',
       'Closing Auction 15:15' not in _CODE_ONLY)
+
+# ── FIX-55: NSE/BSE toggle — user ka original request, ab properly bana ────
+# Pehle maine kaha tha "BSE ka multi-year historical reliable source se nahi
+# milta, isliye toggle possible nahi". WO GALAT THA — measured (tvDatafeed):
+#     TV-BSE DHOOTIN   1200 bars  2021-12-01 -> 2026-10-01
+#     TV-BSE TCS       1200 bars  2021-12-02 -> 2026-10-01
+#     TV-BSE RELIANCE  1200 bars  2021-12-02 -> 2026-10-01
+# Yaani 300-bar frame aur 250-bar calibration lookback dono ke liye kaafi hai.
+# Live verified (?ex=NSE vs ?ex=BSE, TCS):
+#     NSE -> TradingView Direct (NSE)  price 2075.0  52W 3350.0/1976.8  pos 7.2
+#     BSE -> TradingView Direct (BSE)  price 2079.3  52W 3336.7/1976.0  pos 7.6
+#     quote NSE -> yahoo.ns 2075.0 @ 15:15:00 | BSE -> yahoo.bo 2079.3 @ 15:50:08
+
+print('\n-- FIX-55: exchange toggle (server)')
+
+
+class _FakeTV55:
+    """Dono exchanges me data — order track karta hai."""
+    def __init__(self):
+        self.calls = []
+
+    def get_hist(self, symbol=None, exchange=None, interval=None, n_bars=None):
+        self.calls.append(exchange)
+        import pandas as _pd
+        idx = _pd.date_range('2026-07-01', periods=60, freq='D')
+        return _pd.DataFrame({'open': [100.0] * 60, 'high': [101.0] * 60,
+                              'low': [99.0] * 60, 'close': [100.0] * 60,
+                              'volume': [1000] * 60}, index=idx)
+
+
+_orig_tv55 = A.DATA_MANAGER.tv
+try:
+    _f = _FakeTV55()
+    A.DATA_MANAGER.tv = _f
+    _d, _x = A.DATA_MANAGER.fetch_tradingview('TCS', n_bars=60, interval_str='1d')
+    check('default NSE-first', _x == 'NSE' and _f.calls == ['NSE'], f'ex={_x} calls={_f.calls}')
+    _f2 = _FakeTV55()
+    A.DATA_MANAGER.tv = _f2
+    _d2, _x2 = A.DATA_MANAGER.fetch_tradingview('TCS', n_bars=60, interval_str='1d',
+                                                prefer_exch='BSE')
+    check("prefer_exch='BSE' → BSE pehle try hota hai",
+          _x2 == 'BSE' and _f2.calls == ['BSE'], f'ex={_x2} calls={_f2.calls}')
+finally:
+    A.DATA_MANAGER.tv = _orig_tv55
+
+check('smart_fetch prefer_exch accept karta hai', 'prefer_exch=' in
+      app_src.split('def smart_fetch(')[1].split('):')[0])
+check('MTF engine bhi exchange follow karta hai',
+      'prefer_exch=req_exch)  # independent diagnostic' in app_src)
+check('/api/stock ex param validate karta hai (NSE/BSE ke alawa → NSE)',
+      "if req_exch not in ('NSE', 'BSE')" in app_src)
+check('/api/stock requested_exchange bhejta hai', "'requested_exchange': req_exch" in app_src)
+check('/api/quote ex param leta hai', "request.args.get('ex')" in app_src)
+check('SSE ex param leta hai (generator ke BAHAR padha — request-context safe)',
+      '_sse_ex = (request.args.get' in app_src
+      and app_src.index('_sse_ex = (request.args.get') < app_src.index('def event_stream():'))
+check('BSE request par NSE official endpoint skip hota hai',
+      '(None if _bse else fetch_nse_live_ltp(clean_sym))' in app_src)
+check('live-quote cache key exchange-aware hai (warna galat exchange serve hota)',
+      '_LIVE_CACHE.get(_ckey)' in app_src and '_LIVE_CACHE[_ckey] =' in app_src)
+check('Yahoo quote suffix order exchange se badalta hai',
+      "_sfx = ('.BO', '.NS') if str(prefer_exch).upper() == 'BSE'" in app_src)
+check('/api/search dedupe (symbol, exchange) par hai — dono listings dikhte hain',
+      "existing = {(r['sym'], r.get('ex', 'NSE')) for r in results}" in app_src)
+
+print('\n-- FIX-55: exchange toggle (dashboard) + D/E precision')
+check('activeExchange state hai', 'let activeExchange = "NSE"' in _HTML)
+check('search item exchange carry karta hai', "item.dataset.ex =" in _HTML)
+check('selectStock exchange set karta hai', 'function selectStock(sym, ex)' in _HTML)
+check('/api/stock call me ex jaata hai', '?ex=${activeExchange}' in _HTML)
+check('SSE URL me ex jaata hai', '/api/stream/${symbol}?ex=${activeExchange}' in _HTML)
+check('polling URL me ex jaata hai', '/api/quote/${symbol}?ex=${activeExchange}' in _HTML)
+check('manual refresh me ex jaata hai', '?force=1&ex=${activeExchange}' in _HTML)
+check("D/E chhoti value par 3 decimals (0.027 -> '0.027%', '0.0%' nahi)",
+      "{fund_data['debt_val']:.3f}% D/E" in app_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

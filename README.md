@@ -499,7 +499,84 @@ duplicate-logging guards.
 
 ---
 
+### FIX-55 · the NSE/BSE toggle, built properly
+
+**Two more things I got wrong in FIX-54.** The user asked me to verify the three open items.
+
+**Wrong 1 — "Yahoo's `DHOOTIN.BO` is internally inconsistent."** I had queried `range=5d`/`10d`
+and seen `None` for the latest bar. With `range=1mo` the same session returns **244.60 — exactly
+TV-BSE**. Yahoo isn't inconsistent; the last bar lags on short ranges. The app uses `2y`, so it
+was never affected.
+
+**Wrong 2 — "BSE multi-year history isn't available, so the toggle needs a separate project."**
+Measured:
+
+```
+TV-BSE DHOOTIN    1200 bars  2021-12-01 -> 2026-10-01
+TV-BSE TCS        1200 bars  2021-12-02 -> 2026-10-01
+TV-BSE RELIANCE   1200 bars  2021-12-02 -> 2026-10-01
+```
+
+~5 years of BSE dailies were available all along — plenty for the 300-bar frame and the 250-bar
+calibration lookback. I said "not possible" without measuring.
+
+**One more measurement that justifies the toggle:** Yahoo's BSE data is noticeably less reliable
+than its NSE data. `DHOOTIN.BO` vs `TV-BSE`, 21 sessions → **7 mismatches** (up to −5.00).
+On NSE (TCS + RELIANCE), 22 sessions → **0 mismatches**.
+
+**`debtToEquity` units, now confirmed** across five symbols: it's a **percentage**
+(TCS 10.211/"10.21%", INFY 9.541/"9.54%", DHOOTIN 0.027/"0.03%"), while `returnOnEquity` is a
+**fraction** (SBIN 0.15177/"15.18%"). FIX-52's ×100 fix is confirmed. DHOOTIN's 0.027% is
+genuinely Yahoo's number — only the display precision was lost (`:.1f` → "0.0%"); now 3 decimals
+below 1.
+
+**Built — the whole pipeline is exchange-aware:**
+
+- `fetch_tradingview(..., prefer_exch=)` — the chosen exchange is tried first
+- `smart_fetch(..., prefer_exch=)` → frame **and** MTF (5m/1h/1d)
+- `/api/stock/<sym>?ex=NSE|BSE`, validated, echoed as `requested_exchange`
+- `/api/quote?ex=` and `/api/stream?ex=`
+- **BSE requests skip the NSE official endpoint** — it would return NSE's LTP, not BSE's
+- **exchange-aware cache key** (`SYM:BSE` / `SYM:NSE`) — otherwise a cached NSE quote would be
+  served for a BSE request
+- SSE reads `request.args` **outside** the generator — a streaming response iterates it outside
+  the request context
+- `/api/search` dedupes on `(symbol, exchange)` — previously `TCS.BSE` was dropped once `TCS.NS`
+  matched
+- Dashboard: `activeExchange` state, search items carry the exchange, and all four fetch sites
+  send `ex`
+
+**Live verified — `?ex=NSE` vs `?ex=BSE` on TCS:**
+
+| | `?ex=NSE` | `?ex=BSE` |
+|---|---|---|
+| data_source | TradingView Direct (NSE) | TradingView Direct (**BSE**) |
+| price / frame_close | 2075.0 | **2079.3** |
+| 52W high / low | 3350.0 / 1976.8 | **3336.7 / 1976.0** |
+| 52W position | 7.2 | **7.6** |
+| quote source | yahoo.ns | **yahoo.bo** |
+| quote_time | 2026-10-01 **15:15:00** | 2026-10-01 **15:50:08** |
+
+Every number matches the earlier `tvDatafeed` measurement, and the `quote_time` gap (15:15 vs
+15:50) confirms the two exchanges have different session ends.
+
+**Still open, honestly:** the score calibration is still fitted on the NSE universe (30 NSE
+names, 250 NSE sessions, 7500 stock-scores), so percentile ranks on a BSE frame are compared
+against an NSE distribution — which is why `exchWarn` says "indicative". A per-exchange refit is
+now *possible* (1200 BSE bars exist), but that means making
+`tools/build_score_calibration.py` exchange-aware, and I did not do it.
+
+`verify_live_quote.py` 174 → **194 checks**; regression **835 passed, 0 failed**.
+
+---
+
 ### FIX-54 · BSE-only stocks: "NSE feed failed" was the wrong message
+
+> ⚠️ **Two claims in this section were corrected in FIX-55:** (1) "Yahoo's `DHOOTIN.BO` is
+> internally inconsistent" — wrong, the last bar just lags on short ranges; (2) "BSE
+> multi-year history isn't available" — wrong, TV-BSE returns 1200 bars from 2021-12. What
+> still holds: DHOOTIN isn't on NSE, `DHOOTTRANS` is a different company, the hardcoded `.NS`
+> fundamentals bug, and the `on_nse_master` field.
 
 The user searched `DHOOTIN`. The terminal log had the answer:
 

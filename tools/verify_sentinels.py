@@ -125,7 +125,9 @@ check("measured risk-note par ATR assumption + WF sirf ek baar", 'ATR missing th
 # missing change None ho (0% invented nahi), par valid price phir bhi aana chahiye.
 fetch, nse, yahoo = A.DATA_MANAGER.smart_fetch, A.fetch_nse_live_ltp, A.fetch_yahoo_live_ltp
 try:
-    A.fetch_nse_live_ltp = A.fetch_yahoo_live_ltp = lambda _: None
+    # FIX-55: get_live_quote ab prefer_exch bhejta hai, isliye **k
+    A.fetch_nse_live_ltp = lambda _s: None
+    A.fetch_yahoo_live_ltp = lambda _s, **_k: None
     q_nan = bare.tail(5).copy()
     q_nan.loc[q_nan.index[-1], 'Close'] = np.nan
     A.DATA_MANAGER.smart_fetch = lambda *a, **kw: (q_nan, 'test')
