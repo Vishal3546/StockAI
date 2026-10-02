@@ -303,6 +303,151 @@ check('token-mask filter abhi bhi werkzeug logger par hai',
 check('_configure_werkzeug_logging startup par call hota hai',
       '_configure_werkzeug_logging()' in app_src)
 
+# ── FIX-49: live-quote freshness gate ──────────────────────────────────────
+# Measured 2026-10-02 09:31 IST (Fri, market 16 min se khula): Yahoo v8
+# `interval=1d&range=1d` ne RELIANCE ke liye regularMarketPrice=1167.7 diya,
+# regularMarketTime=2026-10-01 15:15 — 18.3 GHANTE purana. `fetch_yahoo_live_ltp`
+# ne use bina check kiye `is_realtime: True` bhej diya tha; `regularMarketTime`
+# sirf display string banata tha. Ab scalar timestamp par `frame_is_fresh` ka
+# twin gate lagti hai, aur missing timestamp fail-CLOSED hai.
+import datetime as _dt
+import io as _io
+import contextlib as _ctx
+_IST = A.IST
+_OPEN = _dt.datetime(2026, 10, 2, 9, 31)      # Fri, market khula
+_CLOSE = _dt.datetime(2026, 10, 2, 16, 30)    # Fri, market band
+_MONAM = _dt.datetime(2026, 10, 5, 8, 0)      # Mon subah, market band
+
+
+def _ep(naive_ist):
+    """naive-IST wall clock → sahi epoch (naive .timestamp() UTC maan leta hai)."""
+    return naive_ist.replace(tzinfo=_IST).timestamp()
+
+
+print('\n-- FIX-49: _parse_quote_ts')
+check('epoch int parse hota hai', A._parse_quote_ts(_ep(_OPEN)) is not None)
+check('epoch numeric-string parse hota hai',
+      A._parse_quote_ts(str(int(_ep(_OPEN)))) is not None)
+check('NSE format "02-Oct-2026 09:31:00" parse hota hai',
+      A._parse_quote_ts('02-Oct-2026 09:31:00') == _dt.datetime(2026, 10, 2, 9, 31))
+check('ISO-8601 parse hota hai',
+      A._parse_quote_ts('2026-10-02T09:31:00') == _dt.datetime(2026, 10, 2, 9, 31))
+check('None/empty/garbage/bool/negative → None (fail-closed input)',
+      all(A._parse_quote_ts(v) is None
+          for v in (None, '', 'garbage', True, -5, 0)))
+
+print('\n-- FIX-49: quote_is_fresh boundaries (market KHULA)')
+_lim = A.LIVE_MAX_AGE_MIN
+for _mins, _want in [(0, True), (_lim - 0.1, True), (_lim, True),
+                     (_lim + 0.1, False), (25, False), (1096, False)]:
+    _f, _r = A.quote_is_fresh(_ep(_OPEN - _dt.timedelta(minutes=_mins)), _OPEN)
+    check(f'{_mins:.1f}m purana quote → {"FRESH" if _want else "STALE"}',
+          _f is _want, _r)
+
+print('\n-- FIX-49: quote_is_fresh (market BAND) + asli measured case')
+check('AAPKI STATE: mkt khula, quote kal 15:15 (18.3h) → STALE',
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _OPEN)[0] is False)
+check('  ↳ age ~1096 min measure hota hai',
+      abs(A.quote_age_minutes(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _OPEN) - 1096) < 1)
+check('mkt band 16:30, quote aaj 15:15 → FRESH',
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 2, 15, 15)), _CLOSE)[0] is True)
+check('Mon subah, quote Fri 15:15 → FRESH (weekend skip)',
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 2, 15, 15)), _MONAM)[0] is True)
+check('mkt band, quote 11 din purana → STALE',
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 9, 21, 15, 15)), _CLOSE)[0] is False)
+
+print('\n-- FIX-49: fail-closed + timezone')
+check('MISSING timestamp → STALE (pehle datetime.now() maan leta tha)',
+      A.quote_is_fresh(None, _OPEN)[0] is False, A.quote_is_fresh(None, _OPEN)[1])
+_res = {A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _n)[0]
+        for _n in (_OPEN,
+                   _OPEN.replace(tzinfo=_IST),
+                   _dt.datetime(2026, 10, 2, 4, 1, tzinfo=_dt.timezone.utc))}
+check('naive / IST-aware / UTC-aware `now` sab same jawab dete hain',
+      len(_res) == 1 and _res == {False}, f'results={_res}')
+_gate = A.LIVE_GATE_ON
+A.LIVE_GATE_ON = False
+check('kill-switch STOCKAI_LIVE_GATE=off gate bypass karta hai',
+      A.quote_is_fresh(None, _OPEN)[0] is True)
+A.LIVE_GATE_ON = _gate
+
+print('\n-- FIX-49: warn throttle (2s refresh par console na bhare)')
+A._LIVE_STALE_WARNED.clear()
+_buf = _io.StringIO()
+with _ctx.redirect_stdout(_buf):
+    for _ in range(5):
+        A._warn_stale_quote('THROTTLETEST', 'Yahoo', 'STALE: test')
+_lines = [l for l in _buf.getvalue().splitlines() if l.strip()]
+check('5 stale calls → sirf 1 console line', len(_lines) == 1, f'lines={len(_lines)}')
+A._LIVE_STALE_WARNED.clear()
+
+print('\n-- FIX-49: end-to-end fetch_yahoo_live_ltp (stubbed HTTP)')
+
+
+class _FakeResp:
+    status_code = 200
+
+    def __init__(self, meta):
+        self._meta = meta
+
+    def json(self):
+        return {'chart': {'result': [{'meta': self._meta}]}}
+
+
+def _mk(ts):
+    return {'regularMarketPrice': 1167.7, 'chartPreviousClose': 1187.0,
+            'regularMarketTime': ts, 'regularMarketDayHigh': 1170.0,
+            'regularMarketDayLow': 1160.0}
+
+
+_orig_get = A._HTTP.get
+A._LIVE_STALE_WARNED.clear()
+try:
+    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(_ep(_dt.datetime(2026, 10, 1, 15, 15))))
+    _buf = _io.StringIO()
+    with _ctx.redirect_stdout(_buf):
+        _qs = A.fetch_yahoo_live_ltp('RELIANCE')
+    check('stale Yahoo quote → is_realtime False', _qs.get('is_realtime') is False)
+    check('stale Yahoo quote → stale True', _qs.get('stale') is True)
+    check('stale Yahoo quote par console warning aayi', 'LIVE Yahoo' in _buf.getvalue())
+    check('price phir bhi serve hota hai (UI blank nahi)', _qs.get('price') == 1167.7)
+    check('timestamp ab quote ka asli waqt hai, datetime.now() nahi',
+          _qs.get('timestamp') == '15:15:00', f"timestamp={_qs.get('timestamp')}")
+    check('change% sahi prevClose (1187.0 = 30 Sep) se bana',
+          _qs.get('close_price') == 1187.0 and _qs.get('change') == -19.3,
+          f"close={_qs.get('close_price')} change={_qs.get('change')}")
+
+    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(_dt.datetime.now(_IST).timestamp()))
+    _qf = A.fetch_yahoo_live_ltp('RELIANCE')
+    check('fresh Yahoo quote → is_realtime True', _qf.get('is_realtime') is True)
+    check('fresh Yahoo quote → stale False', _qf.get('stale') is False)
+
+    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(None))
+    _qn = A.fetch_yahoo_live_ltp('RELIANCE')
+    check('Yahoo timestamp missing → is_realtime False (fail-closed)',
+          _qn.get('is_realtime') is False)
+    check('Yahoo timestamp missing → timestamp "--:--:--", ab fake now() nahi',
+          _qn.get('timestamp') == '--:--:--', f"timestamp={_qn.get('timestamp')}")
+finally:
+    A._HTTP.get = _orig_get
+    A._LIVE_STALE_WARNED.clear()
+
+print('\n-- FIX-49: source-level guarantees')
+check('fetch_yahoo_live_ltp me hardcoded is_realtime: True nahi bacha',
+      re.search(r"def fetch_yahoo_live_ltp.*?'source': f'yahoo", app_src, re.S) is not None
+      and "'is_realtime': True,\n                'source': f'yahoo" not in app_src)
+check('fetch_nse_live_ltp me hardcoded is_realtime: True nahi bacha',
+      "'timestamp': datetime.now().strftime('%H:%M:%S'),\n                    'is_realtime': True"
+      not in app_src)
+check('dono fetcher quote_is_fresh call karte hain',
+      app_src.count('quote_is_fresh(') >= 3, f"count={app_src.count('quote_is_fresh(')}")
+check('LIVE_MAX_AGE_MIN env/.env se override ho sakta hai',
+      "os.environ.get('STOCKAI_LIVE_MAX_AGE_MIN')" in app_src)
+check('kill-switch env se override ho sakta hai',
+      "os.environ.get('STOCKAI_LIVE_GATE')" in app_src)
+check('NSE apna timestamp bhejta hai aur ab use hota hai',
+      "data.get('timestamp')" in app_src and 'lastUpdateTime' in app_src)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

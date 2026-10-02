@@ -235,7 +235,7 @@ SSE dead code → hardened + wired into the UI · unknown symbol 15 s → cached
 
 ```bash
 $ python tools/verify_fixes.py
- RESULT: 31 passed, 0 failed
+ RESULT: 53 passed, 0 failed
 ```
 
 The suite exercises routes, resolver, live payload, sizing invariants, ML caching, artefact
@@ -496,6 +496,80 @@ times, `token=***` **2** times).
 behaviour (`'stale bar accept (market closed…)'`), so the verifier had locked the bug in
 place; it now asserts the corrected behaviour, plus grace/weekend/timezone cases and the
 duplicate-logging guards.
+
+---
+
+### FIX-49 · a stale price no longer gets a "LIVE" badge
+
+Found while reading a pasted server log from **02-Oct-2026 09:23 IST — a Friday, market open
+for 8 minutes**. Every 5m/1h frame reported `18.2h old`. Before blaming the app, I asked the
+upstream directly:
+
+```
+sandbox now (IST): 2026-10-02 09:31  Fri
+RELIANCE.NS  5m  range=1d   bars=  0
+RELIANCE.NS  5m  range=5d   bars=298  last_bar=10-01 15:15  age=18.3h
+RELIANCE.NS  1d  range=1d   price=1167.7  regularMarketTime=10-01 15:15
+RELIANCE.NS  daily closes: 09-30=1187.0 · 10-01=1167.7 · 10-02=None
+```
+
+Two conclusions. The app's STALE cascade was **correct** — upstream genuinely had no bar for
+today's session, so rejecting it and sending `is_realtime=False` was right. But the same
+response hid the real bug: `regularMarketPrice=1167.7` paired with
+`regularMarketTime=2026-10-01 15:15`, i.e. **18.3 hours old while the market was open**.
+
+`fetch_yahoo_live_ltp()` read that timestamp **only to build a display string** — it was the
+sole reference to `regularMarketTime` in the whole file — and hardcoded `is_realtime: True`.
+Worse, a missing timestamp fell back to `datetime.now()`, presenting "right now" as the
+quote's time. Since `Dashboard.html` derives its chip from `stale: t.stale || !t.is_realtime`,
+the result was **the chart saying DELAYED and the header price saying LIVE, on one screen,
+from one payload**. `fetch_nse_live_ltp()` had the same shape: NSE sends its own `timestamp`,
+and the code wrote `datetime.now()` instead.
+
+This is the same fail-open class FIX-47 closed for OHLC frames; the live-quote path was never
+covered.
+
+**The fix** adds `quote_is_fresh()` — a scalar twin of `frame_is_fresh()` — plus
+`_parse_quote_ts()`, which handles both Yahoo epoch seconds and NSE's
+`'02-Oct-2026 09:31:00'`:
+
+- market **open** → the quote must not be older than `LIVE_MAX_AGE_MIN` (default 10)
+- market **closed** → the quote's date must not lag `last_completed_session()` by more than
+  `CLOSED_GRACE_DAYS` — the same session logic FIX-47 introduced, weekends skipped
+- timestamp **missing or unparseable → STALE (fail-closed)**
+- `timestamp` is now the quote's real time; missing gives `--:--:--`, never a fake `now()`
+- **the price is still served** — the gate only changes the label, the UI never blanks out
+- `STOCKAI_LIVE_MAX_AGE_MIN` tunes the limit, `STOCKAI_LIVE_GATE=off` is a kill-switch
+  (both work from `.env`)
+- the console warning is throttled to one line per symbol per 5 minutes, otherwise a 2-second
+  refresh would flood it
+
+Measured against real Yahoo, live, market open — `GET /api/quote/RELIANCE`:
+
+```jsonc
+// before
+{ "price": 1167.7, "timestamp": "09:31:04", "is_realtime": true }          // ← a lie
+
+// after
+{ "price": 1167.7, "timestamp": "15:15:00", "is_realtime": false,
+  "stale": true, "quote_time": "2026-10-01 15:15:00",
+  "stale_reason": "STALE: quote 1126m purana > 10m limit",
+  "source": "yahoo.ns" }
+```
+
+Boundaries measured: 0 / 9.9 / 10.0 min → FRESH; 10.1 / 25 / 1096 min → STALE. Naive,
+IST-aware and UTC-aware `now` all return the same verdict, so FIX-47's timezone fail-open
+does not repeat here.
+
+Side fix: NSE quotes used to report `source: 'unknown'` (they never set the key, so
+`get_live_quote`'s `setdefault` won). They now report `'nse'`.
+
+**One thing deliberately left alone:** the `change%` denominator was already correct.
+`range=1d` yields `chartPreviousClose = 1187.0`, which is the 30-Sep close ✅. `range=5d`
+would have given `1197.6` (28-Sep) — wrong. The old note that `range=5d` shifts `prevClose`
+is confirmed, and the app was already on the right side of it. No change made.
+
+`verify_live_quote.py` grew 50 → **86 checks**.
 
 ---
 

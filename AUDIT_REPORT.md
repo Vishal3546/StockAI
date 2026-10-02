@@ -2,6 +2,113 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-49 addendum — 2026-10-02 (live-quote freshness gate: stale price "LIVE" kehlata tha)
+
+### Kaise pakda gaya
+
+FIX-48 ke baad user ne apna server log paste kiya — 02-Oct-2026 09:23 IST, **Friday,
+market 8 minute se khula**. Har 5m/1h frame `18.2h old` dikha raha tha. Pehla sawaal ye
+tha ki ye app ka bug hai ya data ka. App ko blame karne se pehle upstream se poocha:
+
+```
+sandbox abhi (IST): 2026-10-02 09:31  Fri
+RELIANCE.NS  5m  range=1d   bars=  0
+RELIANCE.NS  1m  range=1d   bars=  0
+RELIANCE.NS  5m  range=5d   bars=298  last_bar=10-01 15:15  age=18.3h
+RELIANCE.NS  1h  range=5d   bars= 28  last_bar=10-01 15:15  age=18.3h
+RELIANCE.NS  1d  range=1d   price=1167.7  mktTime=10-01 15:15
+RELIANCE.NS  daily closes: 09-30=1187.0 · 10-01=1167.7 · 10-02=None
+```
+
+Do nateeje:
+
+1. **App ka STALE cascade sahi tha.** Aaj ki session ka ek bhi bar upstream par maujood
+   nahi tha — reject karna aur `is_realtime=False` bhejna bilkul correct behaviour tha.
+2. **Par usi response me asli bug chhupa tha** — `regularMarketPrice=1167.7` ke saath
+   `regularMarketTime=2026-10-01 15:15`, yaani **18.3 ghante purana**, jab market khula tha.
+
+### Bug
+
+`fetch_yahoo_live_ltp()` (app.py L557) us `regularMarketTime` ko **sirf ek display string
+banane ke liye** padhta tha:
+
+```python
+mkt_time = meta.get('regularMarketTime')
+ts = (datetime.fromtimestamp(mkt_time, tz=IST).strftime('%H:%M:%S')
+      if mkt_time else datetime.now().strftime('%H:%M:%S'))   # ← missing = abhi ka waqt!
+return { ..., 'timestamp': ts, 'is_realtime': True, ... }    # ← hardcoded
+```
+
+Poore file me `regularMarketTime` ka **ek hi reference** tha. Freshness kahin verify nahi
+hoti thi, aur timestamp missing ho to `datetime.now()` quote ka waqt maan liya jaata tha —
+actively misleading.
+
+Nateeja user ki screen par: **chart "DELAYED" bolta tha aur header wala price "LIVE"** —
+dono ek saath, ek hi screen par, ek hi data se. `Dashboard.html` me chip
+`stale: t.stale || !t.is_realtime` se banta hai, isliye `is_realtime: True` ne chip ko
+jhootha "LIVE" bana diya tha.
+
+`fetch_nse_live_ltp()` me bhi wahi pattern tha — NSE khud `timestamp` bhejta hai par code
+`datetime.now()` likh deta tha.
+
+Ye wahi **fail-open class** hai jo FIX-47 ne OHLC frames ke liye band ki thi; live-quote
+path usme cover nahi hua tha.
+
+### Fix
+
+`frame_is_fresh()` ka **scalar twin** — `quote_is_fresh(mkt_time, now)` — plus
+`_parse_quote_ts()` (Yahoo epoch seconds aur NSE ke `'02-Oct-2026 09:31:00'` dono).
+
+- Market **khula** → quote `LIVE_MAX_AGE_MIN` (default 10) se purana nahi hona chahiye
+- Market **band** → quote ka date `last_completed_session()` se zyada peeche nahi
+  (`CLOSED_GRACE_DAYS = 1` grace, weekend skip) — FIX-47 wali hi logic
+- Timestamp **missing/unparseable → STALE (fail-CLOSED)**
+- `timestamp` ab quote ka **asli** waqt hai; missing ho to `--:--:--`, fake `now()` nahi
+- Price **phir bhi serve hota hai** — gate sirf label badalta hai, UI kabhi blank nahi
+- `STOCKAI_LIVE_MAX_AGE_MIN` se limit aur `STOCKAI_LIVE_GATE=off` se kill-switch (`.env` me bhi)
+- Console warning **5 min me ek baar per symbol** — warna 2 s refresh par console bhar jaata
+
+### Measured (real Yahoo, live, market khula)
+
+`GET /api/quote/RELIANCE` — pehle vs ab:
+
+```jsonc
+// pehle
+{ "price": 1167.7, "timestamp": "09:31:04", "is_realtime": true }          // ← jhooth
+
+// ab
+{ "price": 1167.7, "timestamp": "15:15:00", "is_realtime": false,
+  "stale": true, "quote_time": "2026-10-01 15:15:00",
+  "stale_reason": "STALE: quote 1126m purana > 10m limit",
+  "source": "yahoo.ns" }
+```
+
+Console par ek line (throttled):
+
+```
+⚠️  [LIVE Yahoo] RELIANCE — STALE: quote 1126m purana > 10m limit → is_realtime=False
+```
+
+Boundaries measured: 0 / 9.9 / 10.0 min → FRESH · 10.1 / 25 / 1096 min → STALE.
+Timezone: naive, IST-aware aur UTC-aware `now` teeno **same** jawab dete hain — FIX-47 wali
+tz fail-open class yahan repeat nahi hui.
+
+### Side-fix
+
+NSE quote pehle `source: 'unknown'` report karta tha (`get_live_quote` ka
+`setdefault('source', 'unknown')` lag jaata tha). Ab `'nse'` jaata hai.
+
+### Ek cheez jo **nahi** badli
+
+`change%` ka `prevClose` **pehle se sahi tha** — verify kiya. `range=1d` se
+`chartPreviousClose = 1187.0` = 30-Sep ka close ✅. (`range=5d` `1197.6` = 28-Sep deta, jo
+galat hota.) Purani note "`range=5d` prevClose badal deta hai" confirm hui, aur app pehle
+se sahi side thi. Koi change nahi kiya.
+
+`verify_live_quote.py` 50 → **86 checks** · full regression **725 passed, 0 failed**.
+
+---
+
 ## FIX-48 addendum — 2026-10-01 (config provenance: token kahan se aaya)
 
 ### Shuruaat ek galat salah se hui
@@ -1183,6 +1290,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | Live-quote freshness verify hi nahi hoti thi — 18 ghante purana price "LIVE" label ke saath jaata tha | ✅ **Solved (FIX-49)** — `fetch_yahoo_live_ltp()` Yahoo ke `regularMarketTime` ko **sirf display string** banane ke liye padhta tha (poore file me ek hi reference), aur `is_realtime: True` **hardcoded** tha; timestamp missing ho to `datetime.now()` quote ka waqt maan leta tha. Measured 2026-10-02 09:31 IST (market 16 min se khula): `regularMarketPrice=1167.7` ke saath `regularMarketTime=2026-10-01 15:15` — **18.3h purana**. Nateeja: chart "DELAYED" aur header price "LIVE", ek hi screen par. `fetch_nse_live_ltp()` me bhi wahi pattern (NSE ka apna `timestamp` ignore, `datetime.now()` likha). Ab `frame_is_fresh()` ka scalar twin `quote_is_fresh()` + `_parse_quote_ts()` (Yahoo epoch + NSE `'02-Oct-2026 09:31:00'`), missing timestamp **fail-CLOSED**, `STOCKAI_LIVE_MAX_AGE_MIN` limit + `STOCKAI_LIVE_GATE=off` kill-switch, aur console warning 5 min/symbol throttle. Price phir bhi serve hota hai — gate sirf label badalta hai. Side-fix: NSE ab `source: 'nse'` bhejta hai, `'unknown'` nahi. `change%` ka prevClose **pehle se sahi tha** (verify kiya) — chheda nahi. `verify_live_quote.py` 50 → **86 checks**. |
 | — | Config provenance chhupi thi — token `.env` se aaya ya Windows env se, pata nahi chalta tha | ✅ **Solved (FIX-48)** — shuruaat **meri galat salah** se hui: maine do baar kaha "`.env` me token badal do", jabki wo token **Windows User-scope env var** me tha (verify: working tree + poori git history dono me absent). Do design gap the: `load_dotenv_file()` ka `override=False` default matlab pehle se set key par `.env` ka value **chup-chaap ignore** hota tha, aur banner sirf `Token auth ON` kehta tha — source nahi. Ab `config_source()` (`.env` load se **pehle** ka `PRE_DOTENV_KEYS` snapshot) banner par `↳ source: …` dikhata hai, aur override case me exact removal command bhi. `verify_security.py` 118 → **126 checks**. |
 | — | Freshness guard market band hone par poora bypass + duplicate log lines | ✅ **Solved (FIX-47)** — `frame_is_fresh()` market band hote hi `return True, 'market closed … (fine)'` kar deta tha, isliye **10-din purana bar bhi "fine"** kehlata tha. Real case: NSE-direct ne TCS ka bar 2 session purana diya (45.6h) jabki Yahoo ke paas aaj ka session tha (16.2h) — aur cascade ne pehle tier ko "fine" maan kar Yahoo try hi nahi kiya. Ab market band ho tab **session-level** compare hota hai (`last_completed_session()`, `CLOSED_GRACE_DAYS = 1` holiday ke liye). Saath me do **fail-open** paths theek kiye jo mere apne test ne pakde: `frame_age_minutes()` aware−naive `TypeError` ko `except` me chhupa kar `None` deta tha (→ "age unknown" → FRESH), aur `is_market_open()` aware UTC ko IST maan leta tha. Duplicate log lines: werkzeug apna handler khud add karta tha, phir koi library `basicConfig()` se root par handler laga deti → har line 2 baar; ab explicit handler + `propagate = False`. `verify_live_quote.py` 38 → **50 checks** (ek purana check *bug ko hi assert* kar raha tha). |
 | — | Pyrefly `bad-unpacking` × 4 in `app.py` (ML param unpacking) | ✅ **Solved (FIX-46)** — type-check issue tha, runtime bug nahi (`CONFIG` heterogeneous hai isliye checker mapping prove nahi kar sakta; runtime par chaaron values sach me `dict` hain, hyperparams unchanged). Reproduce karne ke liye `pyrefly.toml` + `preset = "strict"` chahiye tha — sandbox sklearn 1.7.2 me `py.typed` nahi hai, isliye default mode 0 errors deta hai. `ml_params()` helper se paanchon sites route kiye. Measured, `preset = "strict"`: total 262 → **258**, `bad-unpacking` 4 → **0**, **koi naya error kind nahi**. `verify_fixes.py` 31 → **53 checks**. |

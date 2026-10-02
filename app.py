@@ -535,6 +535,16 @@ def fetch_nse_live_ltp(symbol):
                 pChange = price_info.get('pChange')
                 close_price = price_info.get('close') or price_info.get('previousClose')
                 day_hl = price_info.get('intraDayHighLow', {}) or {}
+                # FIX-49: NSE khud timestamp bhejta hai — pehle use ignore karke
+                # `datetime.now()` likha jaata tha, matlab quote kitna bhi purana
+                # ho "LIVE" hi kehlata. Ab wahi gate jo Yahoo par lagti hai.
+                nse_ts = (data.get('timestamp')
+                          or price_info.get('lastUpdateTime')
+                          or (data.get('info') or {}).get('lastUpdateTime'))
+                q_dt = _parse_quote_ts(nse_ts)
+                fresh, reason = quote_is_fresh(nse_ts)
+                if not fresh:
+                    _warn_stale_quote(clean_sym, 'NSE', reason)
                 return {
                     'symbol': clean_sym,
                     'price': round(float(ltp), 2),
@@ -543,8 +553,12 @@ def fetch_nse_live_ltp(symbol):
                     'close_price': round(float(close_price), 2) if close_price is not None else round(float(ltp), 2),
                     'dayHigh': round(float(day_hl.get('max') or ltp), 2),
                     'dayLow': round(float(day_hl.get('min') or ltp), 2),
-                    'timestamp': datetime.now().strftime('%H:%M:%S'),
-                    'is_realtime': True
+                    'timestamp': q_dt.strftime('%H:%M:%S') if q_dt else '--:--:--',
+                    'is_realtime': fresh,
+                    'stale': not fresh,
+                    'stale_reason': reason,
+                    'quote_time': q_dt.strftime('%Y-%m-%d %H:%M:%S') if q_dt else None,
+                    'source': 'nse'
                 }
     except Exception as e:
         print(f"⚠️ Live NSE Quote fetch error for {clean_sym}: {e}")
@@ -585,9 +599,15 @@ def fetch_yahoo_live_ltp(symbol):
             prev = meta.get('chartPreviousClose') or meta.get('previousClose') or ltp
             change = float(ltp) - float(prev)
             pChange = (change / float(prev) * 100.0) if float(prev) else 0.0
+            # FIX-49: `regularMarketTime` ab sirf display ke liye nahi — freshness
+            # gate bhi isi se chalti hai. Pehle ye hardcoded `is_realtime: True`
+            # tha aur missing timestamp par `datetime.now()` quote ka waqt ban
+            # jaata tha (fail-open). Ab: stale → is_realtime False + DELAYED chip.
             mkt_time = meta.get('regularMarketTime')
-            ts = (datetime.fromtimestamp(mkt_time, tz=IST).strftime('%H:%M:%S')
-                  if mkt_time else datetime.now().strftime('%H:%M:%S'))
+            q_dt = _parse_quote_ts(mkt_time)
+            fresh, reason = quote_is_fresh(mkt_time)
+            if not fresh:
+                _warn_stale_quote(clean_sym, 'Yahoo', reason)
             return {
                 'symbol': clean_sym,
                 'price': round(float(ltp), 2),
@@ -596,8 +616,11 @@ def fetch_yahoo_live_ltp(symbol):
                 'close_price': round(float(prev), 2),
                 'dayHigh': round(float(meta.get('regularMarketDayHigh') or ltp), 2),
                 'dayLow': round(float(meta.get('regularMarketDayLow') or ltp), 2),
-                'timestamp': ts,
-                'is_realtime': True,
+                'timestamp': q_dt.strftime('%H:%M:%S') if q_dt else '--:--:--',
+                'is_realtime': fresh,
+                'stale': not fresh,
+                'stale_reason': reason,
+                'quote_time': q_dt.strftime('%Y-%m-%d %H:%M:%S') if q_dt else None,
                 'source': f'yahoo{suffix.lower()}',
             }
         except Exception as e:
@@ -815,6 +838,124 @@ def frame_is_fresh(df, interval='1d', now=None):
     if age <= limit:
         return True, f'last bar {human} old (fresh, limit {lim_h})'
     return False, f'STALE: last bar {human} old > {lim_h} limit'
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-49 — LIVE QUOTE FRESHNESS GATE
+# ═══════════════════════════════════════════════════════════════════════════
+#  Problem (measured 2026-10-02 09:31 IST, Fri, market 16 minute se khula):
+#    Yahoo v8 `interval=1d&range=1d` ne RELIANCE ke liye diya
+#        regularMarketPrice = 1167.7
+#        regularMarketTime  = 2026-10-01 15:15   ← 18.3 GHANTE purana
+#    aur `fetch_yahoo_live_ltp()` ne use bina check kiye `is_realtime: True`
+#    keh kar bhej diya. `regularMarketTime` sirf ek display string banane ke
+#    liye padha jaata tha — freshness kahin verify nahi hoti thi (poore file
+#    me uska ek hi reference tha). Usi waqt 5m/1h OHLC frames sahi-sahi STALE
+#    reject ho rahe the, isliye UI me chart "DELAYED" bolta tha aur header wala
+#    price "LIVE" — dono ek saath, ek hi screen par.
+#
+#  Ye wahi fail-open class hai jo FIX-47 ne OHLC frames ke liye band ki thi;
+#  live-quote path usme cover nahi hua tha. Ab scalar timestamp ke liye
+#  `frame_is_fresh()` ka twin hai: `quote_is_fresh()`.
+#
+#  NOTE: gate sirf LABEL badalta hai (is_realtime / stale) — price phir bhi
+#  serve hota hai, UI kabhi blank nahi hoga. Silent stale se honest stale
+#  behtar hai. Kill-switch: STOCKAI_LIVE_GATE=off (`.env` me bhi chal jaata hai).
+LIVE_MAX_AGE_MIN = max(1, int(os.environ.get('STOCKAI_LIVE_MAX_AGE_MIN') or 10))
+LIVE_GATE_ON = (os.environ.get('STOCKAI_LIVE_GATE') or 'on').strip().lower() \
+    not in ('0', 'off', 'false', 'no')
+
+_QUOTE_TS_FORMATS = ('%d-%b-%Y %H:%M:%S', '%d-%b-%Y %H:%M',
+                     '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d')
+_LIVE_STALE_WARNED = {}
+
+
+def _parse_quote_ts(v):
+    """Live-quote ka timestamp → naive-IST datetime (None agar parse na ho).
+
+    Yahoo epoch seconds deta hai; NSE `'02-Oct-2026 09:31:00'` jaisa IST string.
+    Dono handle hote hain. Kuch parse na ho to None — caller fail-CLOSED karta hai.
+    """
+    if v is None or v == '':
+        return None
+    try:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return (datetime.fromtimestamp(float(v), tz=IST).replace(tzinfo=None)
+                    if float(v) > 0 else None)
+        s = str(v).strip()
+        if s.replace('.', '', 1).isdigit():          # numeric string = epoch
+            f = float(s)
+            return datetime.fromtimestamp(f, tz=IST).replace(tzinfo=None) if f > 0 else None
+        for fmt in _QUOTE_TS_FORMATS:
+            try:
+                return datetime.strptime(s, fmt)     # NSE IST me hi bhejta hai
+            except ValueError:
+                continue
+        dt = pd.Timestamp(s)                         # ISO-8601 fallback
+        if getattr(dt, 'tzinfo', None) is not None:
+            dt = dt.tz_convert(IST).tz_localize(None)
+        return dt.to_pydatetime()
+    except Exception:
+        return None
+
+
+def quote_age_minutes(mkt_time, now=None):
+    """Quote kitna purana hai (minutes). Parse na ho to None."""
+    dt = mkt_time if isinstance(mkt_time, datetime) else _parse_quote_ts(mkt_time)
+    if dt is None:
+        return None
+    try:
+        if getattr(dt, 'tzinfo', None) is not None:
+            dt = dt.astimezone(IST).replace(tzinfo=None)
+        return max(0.0, (_naive_ist(now) - dt).total_seconds() / 60.0)
+    except Exception:
+        return None
+
+
+def quote_is_fresh(mkt_time, now=None):
+    """(fresh?, reason) — `frame_is_fresh()` ka scalar twin.
+
+    Market KHULA → quote `LIVE_MAX_AGE_MIN` se purana nahi hona chahiye.
+    Market BAND  → quote ka date latest completed session se zyada peeche nahi
+                   (`CLOSED_GRACE_DAYS` grace — ek akel holiday absorb karne ko).
+    Timestamp missing/unparseable → STALE (fail-CLOSED). Pehle code missing
+    timestamp par `datetime.now()` ko quote ka waqt maan leta tha, jo actively
+    misleading tha — UI "LIVE" dikhata tha jabki data ka waqt pata hi nahi tha.
+    """
+    if not LIVE_GATE_ON:
+        return True, 'gate off (STOCKAI_LIVE_GATE=off)'
+    age = quote_age_minutes(mkt_time, now)
+    if age is None:
+        return False, 'STALE: quote ka timestamp mila hi nahi (fail-closed)'
+    if is_market_open(now):
+        if age <= LIVE_MAX_AGE_MIN:
+            return True, f'quote {age:.1f}m old (fresh, limit {LIVE_MAX_AGE_MIN}m)'
+        return False, f'STALE: quote {age:.0f}m purana > {LIVE_MAX_AGE_MIN}m limit'
+    dt = mkt_time if isinstance(mkt_time, datetime) else _parse_quote_ts(mkt_time)
+    q_date = dt.date() if dt is not None else None
+    if q_date is None:
+        return False, 'STALE: quote ka date parse nahi hua (fail-closed)'
+    expected = last_completed_session(now)
+    gap = (expected - q_date).days
+    if gap <= CLOSED_GRACE_DAYS:
+        return True, f'market closed, quote {q_date} (latest {expected}) — fine'
+    return False, (f'STALE: quote {q_date}, latest completed session '
+                   f'{expected} ({gap}d behind)')
+
+
+def _warn_stale_quote(symbol, source, reason):
+    """Stale live-quote par ek line warn karo — par spam nahi.
+
+    UI har ~2s refresh karta hai aur `LIVE_TTL = 2.0` hai, isliye bina throttle
+    ke console har 2 second me bhar jaata. Ek symbol ke liye 5 min me ek line.
+    """
+    now = time.time()
+    if now - _LIVE_STALE_WARNED.get(symbol, 0.0) < 300:
+        return
+    if len(_LIVE_STALE_WARNED) > 512:
+        _LIVE_STALE_WARNED.clear()
+    _LIVE_STALE_WARNED[symbol] = now
+    print(f"⚠️  [LIVE {source}] {symbol} — {reason} → is_realtime=False")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
