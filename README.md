@@ -499,6 +499,42 @@ duplicate-logging guards.
 
 ---
 
+### FIX-56 · BSE trades until 16:00, and `quote_time` was in UTC
+
+A small cleanup — but it surfaced another bug.
+
+**`is_market_open()` didn't know about exchanges.** It used 15:35 for both, but BSE's
+closing/post-close runs to 16:00 (measured: BSE `Ason` = `01 Oct 26 | 16:00`, Yahoo BO
+`quote_time` = `15:50:08`). Now `BSE_SESSION_CLOSE_HM = 16:00` and
+`is_market_open(now, exchange=)`:
+
+| time | NSE | BSE |
+|---|---|---|
+| 15:35 | open | open |
+| 15:36 | **closed** | open |
+| 15:45 | closed | **open** |
+| 16:01 | closed | **closed** |
+
+**On BSE, Yahoo's data is the weaker source** — 7 mismatches in 21 sessions vs TV-BSE (NSE: 0
+in 22), and its `regularMarketPrice` is a snapshot (DHOOTIN `251.0 @ 15:27:03` while the session
+close was `244.60`). So when the market is closed and the exchange is BSE, the Yahoo snapshot is
+skipped in favour of TradingView's daily close — the actual session close. Live: DHOOTIN
+`?ex=BSE` went from `251.0 (yahoo.bo)` to **`244.6 (TradingView Direct (BSE))`**.
+
+**⚠️ New bug found while testing that fix:** `quote_time` read `2026-10-01 03:45:00`. That's
+**UTC**. `tvDatafeed` returns a naive-UTC index, and the code only converted tz-*aware*
+timestamps — so the branch never ran. `03:45 UTC` = `09:15 IST`, which is the session **open**,
+not the close. Both problems fixed: TradingView's naive timestamps now convert UTC→IST, and on a
+daily bar `quote_time` reads `2026-10-01 (daily close)` rather than inventing an intraday time.
+
+**Not done:** the score calibration is still fitted on the NSE universe. A per-exchange refit is
+possible (1200 BSE bars exist) but means making `tools/build_score_calibration.py`
+exchange-aware.
+
+`verify_live_quote.py` 194 → **210 checks**; regression **851 passed, 0 failed**.
+
+---
+
 ### FIX-55 · the NSE/BSE toggle, built properly
 
 **Two more things I got wrong in FIX-54.** The user asked me to verify the three open items.

@@ -868,8 +868,9 @@ check('/api/quote ex param leta hai', "request.args.get('ex')" in app_src)
 check('SSE ex param leta hai (generator ke BAHAR padha — request-context safe)',
       '_sse_ex = (request.args.get' in app_src
       and app_src.index('_sse_ex = (request.args.get') < app_src.index('def event_stream():'))
+# FIX-56: structure badla (ab quote = None if _bse else ...), assertion update
 check('BSE request par NSE official endpoint skip hota hai',
-      '(None if _bse else fetch_nse_live_ltp(clean_sym))' in app_src)
+      'quote = None if _bse else fetch_nse_live_ltp(clean_sym)' in app_src)
 check('live-quote cache key exchange-aware hai (warna galat exchange serve hota)',
       '_LIVE_CACHE.get(_ckey)' in app_src and '_LIVE_CACHE[_ckey] =' in app_src)
 check('Yahoo quote suffix order exchange se badalta hai',
@@ -887,6 +888,60 @@ check('polling URL me ex jaata hai', '/api/quote/${symbol}?ex=${activeExchange}'
 check('manual refresh me ex jaata hai', '?force=1&ex=${activeExchange}' in _HTML)
 check("D/E chhoti value par 3 decimals (0.027 -> '0.027%', '0.0%' nahi)",
       "{fund_data['debt_val']:.3f}% D/E" in app_src)
+
+# ── FIX-56: BSE session 16:00 tak, aur BSE par TradingView > Yahoo ────────
+# 1. is_market_open exchange nahi jaanta tha. BSE ka closing/post-close 16:00 tak
+#    chalta hai — measured BSE `Ason` "01 Oct 26 | 16:00" aur Yahoo BO quote_time
+#    15:50:08. Yaani BSE mode me 15:36 se "market band" bolna galat tha.
+# 2. Yahoo ka BSE data NSE jitna bharosemand nahi: DHOOTIN.BO vs TV-BSE 21
+#    sessions me 7 mismatch (-5.00 tak), NSE par 22 me 0. Aur Yahoo ka
+#    regularMarketPrice ek snapshot hai (DHOOTIN 251.0 @ 15:27:03, close 244.60).
+
+print('\n-- FIX-56: BSE session 16:00 tak')
+check('BSE_SESSION_CLOSE_HM = 16:00', A.BSE_SESSION_CLOSE_HM == 16 * 60,
+      f'actual={A.BSE_SESSION_CLOSE_HM}')
+check('NSE 15:45 → BAND', A.is_market_open(_dt.datetime(2026, 10, 1, 15, 45)) is False)
+check('BSE 15:45 → KHULA (post-close chal raha hai)',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 15, 45), exchange='BSE') is True)
+check('BSE 16:00 → KHULA (aakhri minute)',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 16, 0), exchange='BSE') is True)
+check('BSE 16:01 → BAND',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 16, 1), exchange='BSE') is False)
+check('NSE 15:35 → KHULA, 15:36 → BAND (FIX-52 regression guard)',
+      A.is_market_open(_dt.datetime(2026, 10, 1, 15, 35)) is True
+      and A.is_market_open(_dt.datetime(2026, 10, 1, 15, 36)) is False)
+check('holiday par dono exchange BAND',
+      A.is_market_open(_dt.datetime(2026, 10, 2, 15, 45), exchange='BSE') is False)
+
+print('\n-- FIX-56: BSE + market band → TradingView ka close, Yahoo ka snapshot nahi')
+check('_bse_closed gate hai', '_bse_closed = _bse and not is_market_open(' in app_src)
+check('Yahoo tier _bse_closed par skip hota hai',
+      'if quote is None and not _bse_closed:' in app_src)
+check('/api/stock market_open exchange-aware hai',
+      "'market_open': is_market_open(exchange=req_exch)" in app_src)
+check('partial_today bhi exchange-aware hai',
+      'is_market_open(now_ist, exchange=req_exch)' in app_src)
+check('Yahoo quote payload exchange-aware market_open bhejta hai',
+      "'market_open': is_market_open(exchange=prefer_exch)" in app_src)
+check('NSE ka official endpoint NSE hi rehta hai (exchange param nahi)',
+      app_src.count("'market_open': is_market_open(),") == 1)
+
+print('\n-- FIX-56: tier-3 timestamp (tvDatafeed UTC-naive deta hai)')
+# Live measured: TradingView tier se quote_time "2026-10-01 03:45:00" aata tha —
+# wo UTC hai (IST me 09:15, session open). Aur daily bar ka timestamp session ka
+# OPEN hota hai, close nahi — use "quote ka waqt" kehna jhooth tha.
+check('tvDatafeed ka naive timestamp UTC maan kar IST me convert hota hai',
+      "_lb.tz_localize('UTC').tz_convert(IST)" in app_src)
+check('daily bar par quote_time "(daily close)" kehta hai (09:15 open nahi)',
+      "_lb_note = ' (daily close)'" in app_src
+      and "{_lb_note}" in app_src)
+# conversion khud verify karo
+import datetime as _dtl
+_naive = _dtl.datetime(2026, 10, 1, 3, 45)          # tvDatafeed ka raw index
+_conv = _naive.replace(tzinfo=_dtl.timezone.utc).astimezone(
+    _dtl.timezone(_dtl.timedelta(hours=5, minutes=30)))
+check('03:45 UTC -> 09:15 IST (session open)',
+      _conv.strftime('%H:%M') == '09:15', f'got {_conv.strftime("%H:%M")}')
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

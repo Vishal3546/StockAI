@@ -635,7 +635,7 @@ def fetch_yahoo_live_ltp(symbol, prefer_exch='NSE'):
                 # FIX-51: UI ko guess karne na do — state + asli age server se
                 'feed_state': _state,
                 'feed_label': feed_label(_state, _age),
-                'market_open': is_market_open(),
+                'market_open': is_market_open(exchange=prefer_exch),
                 'quote_age_min': round(_age, 1) if _age is not None else None,
                 'source': f'yahoo{suffix.lower()}',
             }
@@ -671,8 +671,17 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
             payload['cached'] = True
             return payload
 
-    quote = ((None if _bse else fetch_nse_live_ltp(clean_sym))
-             or fetch_yahoo_live_ltp(clean_sym, prefer_exch=prefer_exch))
+    # FIX-56: BSE par Yahoo ka data noticeably kam reliable hai — measured
+    # DHOOTIN.BO vs TV-BSE, 21 sessions me 7 mismatch (-5.00 tak), jabki NSE par
+    # 22 sessions me 0. Aur Yahoo ka `regularMarketPrice` ek point-in-time
+    # snapshot hai (DHOOTIN par 251.0 @ 15:27:03 jabki session close 244.60 tha).
+    # Isliye: market BAND ho to Yahoo ka snapshot skip karke TradingView ke daily
+    # close (tier 3) par jao — wo session ka asli close hai. Market khula ho to
+    # Yahoo hi near-real-time deta hai, isliye tab wahi.
+    _bse_closed = _bse and not is_market_open(exchange='BSE')
+    quote = None if _bse else fetch_nse_live_ltp(clean_sym)
+    if quote is None and not _bse_closed:
+        quote = fetch_yahoo_live_ltp(clean_sym, prefer_exch=prefer_exch)
 
     if quote is None:
         # Tier 3 — last daily close (STALE). Change phir bhi compute hota hai,
@@ -686,10 +695,22 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
                 if price is not None and price > 0:
                     change = round(price - prev, 2) if prev is not None and prev > 0 else None
                     _lb = None
+                    _lb_note = ''
                     try:
                         _lb = pd.Timestamp(df.index[-1])
                         if _lb.tzinfo is not None:
                             _lb = _lb.tz_convert(IST).tz_localize(None)
+                        elif 'TradingView' in str(src):
+                            # FIX-56: tvDatafeed NAIVE-UTC index deta hai — measured
+                            # 2026-10-01 03:45:00, jo IST me 09:15 hai (session open).
+                            # Purana code sirf tz-aware convert karta tha, isliye
+                            # 03:45:00 seedha UI me chala jaata tha.
+                            _lb = _lb.tz_localize('UTC').tz_convert(IST).tz_localize(None)
+                        if True:      # tier-3 hamesha interval='1d' fetch karta hai
+                            # Daily bar ka timestamp session ka OPEN hota hai (09:15),
+                            # close nahi. Use "quote ka waqt" bolna jhooth hoga — price
+                            # session ka CLOSE hai. Isliye label karte hain.
+                            _lb_note = ' (daily close)'
                     except Exception:
                         _lb = None            # parse na ho to '--:--:--', fake now() nahi
                     quote = {
@@ -703,12 +724,13 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
                         # close ko "abhi ka waqt" bata kar. Ab frame ke last bar ka
                         # asli timestamp, aur feed_state CLOSED/DELAYED server se.
                         'timestamp': (_lb.strftime('%H:%M:%S') if _lb else '--:--:--'),
-                        'quote_time': (_lb.strftime('%Y-%m-%d %H:%M:%S') if _lb else None),
+                        'quote_time': ((f"{_lb.strftime('%Y-%m-%d')}{_lb_note}")
+                                       if _lb else None),
                         'is_realtime': False, 'stale': True,
                         'stale_reason': 'daily-close fallback — koi live feed nahi',
                         'feed_state': feed_state(False),
                         'feed_label': feed_label(feed_state(False)),
-                        'market_open': is_market_open(),
+                        'market_open': is_market_open(exchange=prefer_exch),
                         'quote_age_min': None,
                         'source': src or 'daily-close',
                     }
@@ -843,8 +865,8 @@ def is_market_holiday(d=None):
     return d in NSE_HOLIDAYS
 
 
-def is_market_open(now=None):
-    """NSE cash session: Mon-Fri 09:15–15:35 IST, **aur holiday na ho**.
+def is_market_open(now=None, exchange='NSE'):
+    """Cash session: Mon-Fri 09:15–15:35 (NSE) / 09:15–16:00 (BSE) IST, holiday na ho.
 
     FIX-47: `now` pehle IST me normalize hota hai. Pehle ye caller ke `.hour`/`.minute`
     ko as-is padhta tha — ek aware UTC datetime (10:36Z = 16:06 IST, market BAND) ko
@@ -863,7 +885,8 @@ def is_market_open(now=None):
     # FIX-52: pehle yahan literal `15 * 60 + 40` tha — `SESSION_CLOSE_HM` se
     # alag. Matlab SESSION_CLOSE_HM badalne par is_market_open change hi nahi
     # hota tha; dono constants chup-chaap drift kar gaye the. Ab ek hi source.
-    return SESSION_OPEN_HM <= hm <= SESSION_CLOSE_HM
+    _close = BSE_SESSION_CLOSE_HM if str(exchange).upper() == 'BSE' else SESSION_CLOSE_HM
+    return SESSION_OPEN_HM <= hm <= _close
 
 
 def _naive_ist(now=None):
@@ -913,7 +936,12 @@ def frame_age_minutes(df, now=None):
 # chalata hai. 15:35 teeno cover karta hai; 15:40 NSE ke liye 5 min zyada tha
 # (us waqt tak official close already publish ho chuka hota hai).
 SESSION_OPEN_HM = 9 * 60 + 15          # regular cash session ka pehla minute
-SESSION_CLOSE_HM = 15 * 60 + 35        # official CAS close; is_market_open isi ko padhta hai
+SESSION_CLOSE_HM = 15 * 60 + 35        # NSE official CAS close
+# FIX-56: BSE ka closing/post-close 16:00 tak chalta hai — measured BSE ka `Ason`
+# "01 Oct 26 | 16:00" tha aur Yahoo BO quote_time 15:50:08. Pehle is_market_open
+# exchange nahi jaanta tha, isliye BSE mode me 15:36 se "band" bol deta jabki
+# BSE par price abhi bhi move kar raha tha.
+BSE_SESSION_CLOSE_HM = 16 * 60
 CLOSED_GRACE_DAYS = 1
 
 
@@ -3664,7 +3692,7 @@ def stock_api(symbol):
         # completed bar wins; live LTP still comes from the dedicated quote path.
         now_ist = datetime.now(IST)
         last_daily = pd.Timestamp(df.index[-1]).date()
-        partial_today = last_daily == now_ist.date() and is_market_open(now_ist)
+        partial_today = last_daily == now_ist.date() and is_market_open(now_ist, exchange=req_exch)
         ranked_df = df.iloc[:-1] if partial_today else df
         rank_window = ranked_df.tail(SCORE_CAL.LOOKBACK_BARS)
         rank_session = pd.Timestamp(ranked_df.index[-1]).strftime('%Y-%m-%d')
@@ -3865,7 +3893,7 @@ def stock_api(symbol):
             'feed_state': feed_state(bool(live_nse and live_nse.get('is_realtime'))),
             'feed_label': feed_label(feed_state(bool(live_nse and live_nse.get('is_realtime'))),
                                      (live_nse or {}).get('quote_age_min')),
-            'market_open': is_market_open(),
+            'market_open': is_market_open(exchange=req_exch),
             'market_holiday': is_market_holiday(),
             # FIX-52: analysis kis price se bani aur frame ka close kya tha — ye
             # dono disclose karte hain. Karan: header ka bada number /api/quote se

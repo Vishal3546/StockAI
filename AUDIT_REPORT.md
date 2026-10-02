@@ -2,6 +2,79 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-56 addendum — 2026-10-02 (BSE session 16:00 tak, BSE par TradingView > Yahoo)
+
+Chhota cleanup fix — par isme ek naya bug bhi mila.
+
+### 1. `is_market_open()` exchange-aware nahi tha
+
+```python
+return SESSION_OPEN_HM <= hm <= SESSION_CLOSE_HM     # 15:35, dono exchange ke liye
+```
+
+BSE ka closing/post-close **16:00 tak** chalta hai — measured BSE ka `Ason` = `01 Oct 26 | 16:00`,
+aur Yahoo BO `quote_time` = `15:50:08`. Yaani BSE mode me 15:36 se "market band" bolna galat tha.
+
+Ab `BSE_SESSION_CLOSE_HM = 16:00`, aur `is_market_open(now, exchange=)`. Verified boundaries:
+
+| time | NSE | BSE |
+|---|---|---|
+| 15:35 | KHULA | KHULA |
+| 15:36 | **BAND** | KHULA |
+| 15:45 | BAND | **KHULA** |
+| 16:00 | BAND | KHULA |
+| 16:01 | BAND | **BAND** |
+
+Holiday par dono BAND. `SESSION_CLOSE_HM` NSE ke liye 15:35 hi hai (FIX-52 regression guard).
+
+Exchange thread kiya: `/api/stock` payload ka `market_open`, `partial_today`, aur Yahoo quote
+payload. `fetch_nse_live_ltp` NSE hi rehta hai (exchange param nahi).
+
+### 2. BSE par Yahoo ka data kam reliable — TradingView prefer kiya
+
+Measured: `DHOOTIN.BO` vs `TV-BSE`, 21 sessions me **7 mismatch** (−5.00 tak). NSE par 22 me **0**.
+Aur Yahoo ka `regularMarketPrice` ek point-in-time snapshot hai — DHOOTIN par `251.0 @ 15:27:03`
+jabki session ka close `244.60` tha.
+
+Ab: **market BAND ho + BSE ho → Yahoo ka snapshot skip, TradingView ka daily close (session ka
+asli close) use ho.** Market khula ho to Yahoo hi near-real-time deta hai, isliye tab wahi.
+
+Live verified:
+
+| | pehle | ab |
+|---|---|---|
+| DHOOTIN `?ex=BSE` | 251.0 (yahoo.bo) | **244.6 (TradingView Direct (BSE))** |
+| TCS `?ex=BSE` | 2079.3 (yahoo.bo) | **2079.3 (TradingView Direct (BSE))** |
+
+### 3. ⚠️ Naya bug — `quote_time` UTC me dikha raha tha
+
+Fix test karte waqt dikha: `quote_time = 2026-10-01 03:45:00`. **Wo UTC hai.** tvDatafeed
+**naive-UTC** index deta hai, aur purana code sirf tz-aware convert karta tha:
+
+```python
+_lb = pd.Timestamp(df.index[-1])
+if _lb.tzinfo is not None:                 # tvDatafeed naive deta hai → ye kabhi True nahi
+    _lb = _lb.tz_convert(IST).tz_localize(None)
+```
+
+`03:45 UTC` = **09:15 IST** — yaani session ka **open**, close nahi. Do problem thi:
+1. Timezone convert hi nahi ho raha tha
+2. Convert karne ke baad bhi 09:15 ek **daily bar ka open timestamp** hai — use "quote ka waqt"
+   bol kar dikhana jhooth hota, kyunki price session ka CLOSE hai
+
+Dono theek kiye: TradingView ke naive timestamps UTC→IST, aur daily bar par `quote_time` ab
+`2026-10-01 (daily close)` — koi fake intraday time nahi.
+
+### Jo nahi kiya
+
+**Score calibration abhi bhi NSE universe par fitted hai.** Per-exchange refit possible hai
+(1200 BSE bars milte hain) par wo `tools/build_score_calibration.py` ko exchange-aware banane
+ka alag kaam hai.
+
+`verify_live_quote.py` 194 → **210 checks** · regression **851 passed, 0 failed**
+
+---
+
 ## FIX-55 addendum — 2026-10-02 (NSE/BSE toggle — user ka original request, ab bana)
 
 ### ⚠️ Pehle: FIX-54 me maine do aur galat cheezein likhi thi
@@ -1948,6 +2021,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | `is_market_open` exchange nahi jaanta tha, aur `quote_time` UTC me dikh raha tha | ✅ **Solved (FIX-56)** — BSE ka closing/post-close 16:00 tak chalta hai (measured `Ason` = `01 Oct 26 | 16:00`, Yahoo BO `quote_time` 15:50:08), par `is_market_open` dono exchange ke liye 15:35 use karta tha. Ab `BSE_SESSION_CLOSE_HM = 16:00` + `is_market_open(now, exchange=)`; boundaries verified (NSE 15:36 BAND, BSE 15:45 KHULA, 16:01 dono BAND). Saath me BSE par Yahoo ka snapshot skip — market band ho to TradingView ka daily close use hota hai, kyunki Yahoo ka BSE data 21 din me 7 mismatch deta hai (NSE par 22 me 0) aur uska `regularMarketPrice` snapshot hai (DHOOTIN 251.0 @ 15:27:03 jabki close 244.60). **Fix test karte waqt naya bug mila:** `quote_time` `03:45:00` dikha raha tha — tvDatafeed naive-**UTC** index deta hai aur code sirf tz-aware convert karta tha. 03:45 UTC = 09:15 IST = session ka OPEN, close nahi. Ab UTC→IST convert hota hai aur daily bar par `quote_time = "2026-10-01 (daily close)"` — fake intraday time nahi. `verify_live_quote.py` 194 → **210 checks**, regression **851 passed, 0 failed**. |
 | — | NSE/BSE toggle possible hi nahi tha — poori pipeline NSE-first hardcoded thi | ✅ **Solved (FIX-55)** — user ka original request. Pehle maine kaha tha "BSE ka multi-year historical nahi milta, Phase 2 ka alag project" — **wo galat tha**: measured `TV-BSE` **1200 bars (2021-12 se)** deta hai DHOOTIN/TCS/RELIANCE teeno ke liye, jo 300-bar frame aur 250-bar calibration lookback dono ke liye kaafi hai. Doosri galti bhi sudhari: "Yahoo DHOOTIN.BO internally inconsistent" — galat, `range=1mo` par wahi session 244.60 deta hai (TV-BSE se exact match); short range par last bar lag karta hai. Aur measure kiya ki **Yahoo ka BSE data NSE jitna bharosemand nahi** (DHOOTIN 21 din me 7 mismatch, jabki NSE par 22 din me 0). Ab `prefer_exch` poore pipeline me: `fetch_tradingview` / `smart_fetch` / MTF / `/api/stock?ex=` / `/api/quote?ex=` / `/api/stream?ex=`, BSE par NSE official endpoint skip, exchange-aware cache key, aur search dedupe `(symbol, exchange)` par. Live verified TCS: NSE 2075.0 / 52W 3350.0 / pos 7.2 vs BSE **2079.3 / 3336.7 / 7.6**, quote_time 15:15:00 vs **15:50:08**. `verify_live_quote.py` 174 → **194 checks**, regression **835 passed, 0 failed**. **Abhi bhi khula:** score calibration NSE universe par fitted hai — per-exchange refit ab possible hai par maine nahi kiya. |
 | — | BSE-only stocks par poora Fundamentals panel N/A tha, aur "NSE feed fail" wala galat message dikhta tha | ✅ **Solved (FIX-54)** — user ne DHOOTIN search kiya; log me hi jawab tha (`404: Quote not found for symbol: DHOOTIN.NS`). Verify kiya: `DHOOTIN.NS` Yahoo par 404, `TV-NSE:DHOOTIN` EMPTY, aur NSE master (2593 rows) me sirf `DHOOTTRANS` hai — jo **alag company** hai (Dhoot Transmission, close 1443.40, mcap Rs29,578Cr) vs `DHOOTIN` = **Dhoot Industrial Finance** (close 244.60, mcap Rs158.6Cr). Yaani NSE feed "fail" nahi hua tha, **stock NSE par listed hi nahi** — aur mera FIX-53 ka "tvDatafeed session limit" wala andaza is case me galat tha. Do bugs: yfinance hamesha `.NS` try karta tha isliye poora Fundamentals N/A (jabki `.BO` se sab milta hai — ab mcap Rs159Cr, P/E 2.8, P/B 0.36, sector Financial Services live verified), aur `priceGapWarn` me wahi galat CAS explanation likhi thi jo FIX-53 me maine khud disprove ki thi. Ab suffix frame ke exchange se chunta hai, `on_nse_master` bhejta hai, aur Dashboard BSE-only vs feed-failure me farq karta hai. `verify_live_quote.py` 168 → **174 checks**, regression **815 passed, 0 failed**. |
 | — | TradingView ka fetch silently NSE se BSE par gir jaata tha, aur label batata hi nahi tha | ✅ **Solved (FIX-53)** — user ne FIX-52 ke teen "verify nahi kiya" items par sawaal kiya; verify karne par **teeno meri galtiyan nikli**. `tvDatafeed` se direct measure: `NSE:TCS 2075.00` vs `BSE:TCS 2079.30`, `NSE:RELIANCE 1167.70` vs `BSE:RELIANCE 1166.00`. Yaani **"Yahoo 4.30 off tha" galat tha** — 2079.30 BSE ka close hai, NSE ka nahi. **"Yahoo CAS close miss karta hai" bhi galat** — 11 sessions × 2 stocks = **22 din, 0 mismatch** (Yahoo = TradingView-NSE). **"ML study par asar" bhi nahi.** Asli wajah: `fetch_tradingview` me silent `exchange='BSE'` fallback tha aur caller dono ko `'TradingView Direct'` kehta tha. **Proof:** user ke dashboard ke chaaron numbers (2079.30 / ATR 57.54 / 52W 3336.7 / 1976) TV-BSE se **exact match** — poora analysis BSE data se bana tha jabki calibration NSE universe par fitted hai. Ab `fetch_tradingview` `(df, exchange)` return karta hai, label `'TradingView Direct (NSE|BSE)'`, `/api/stock` me `frame_exchange`, aur Dashboard BSE frame par warn karta hai. `verify_live_quote.py` 160 → **168 checks**, regression **809 passed, 0 failed**. |
