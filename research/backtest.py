@@ -22,8 +22,14 @@ import pandas as pd
 
 from .costs import CostConfig, DEFAULT as DEFAULT_COSTS
 
-TRADING_DAYS = 252
-RF_ANNUAL = 0.065          # India ~6.5% risk-free
+# FIX-60: 252 US convention hai. NSE par actual trading days MEASURE kiye
+# (RELIANCE, yfinance 1240 bars): 2022=248, 2023=245, 2024=246, 2025=249
+# -> average 247.0. 252 use karne se annualised return/vol +2.02% overstate
+# hote the, aur usse Sharpe/Sortino bhi. Ab measured value.
+TRADING_DAYS = 247
+RF_ANNUAL = 0.065          # India ~6.5% risk-free (app.py CONFIG['RISK_FREE_RATE']
+                           # aur deep_analyzer.py rf_rate se MATCH hona chahiye —
+                           # tools/verify_live_quote.py guard karta hai, drift par fail)
 
 
 @dataclass

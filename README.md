@@ -499,6 +499,65 @@ duplicate-logging guards.
 
 ---
 
+### FIX-60 · The `research/` module had no test coverage, and three bugs
+
+Audited all 1,129 lines of `research/` (`backtest`, `features`, `ml_lab`, `run_study`,
+`data`, `analyze`). **No verifier tested any of it** — which is why these survived.
+
+**Bug 1 — `TRADING_DAYS = 252` is the US convention, not India's.** Measured from real
+NSE data (RELIANCE, 1240 bars):
+
+| year | trading days |
+|---|---|
+| 2022 | 248 |
+| 2023 | 245 |
+| 2024 | 246 |
+| 2025 | 249 |
+| **average** | **247.0** |
+
+Using 252 **overstated annualised return and vol by +2.02%**, and Sharpe/Sortino with
+them. Now 247.
+
+**Bug 2 — `research/data.py` ignored `period`, and the cache lied.** Tier 2 hardcoded
+`n_bars=520`; `period` was never passed. The cache file is named `{symbol}_{period}.csv`.
+Measured with Tier 1 forced to fail:
+
+| asked | got (before) | cached as |
+|---|---|---|
+| `period='5y'` | **520 bars** (2024-08-29..2026-10-01) | `RELIANCE_5y.csv` |
+| `period='10y'` | **520 bars** (same) | `RELIANCE_10y.csv` |
+
+So `--period 5y / 10y` returned ~2 years, cached under a 5y/10y name, served for 12
+hours. With `WARMUP=252`, 520 bars yields only ~265 OOS bars vs ~988 from 1235 — the
+study silently ran ~3.7x thinner. Now period is honoured and the cache only writes when
+the data reaches 80% of the requested depth. Verified: `5y` → **1235 bars**, `10y` →
+**2470 bars**.
+
+**Bug 3 — the risk-free rate 0.065 is hardcoded in three places:** `app.py:367`,
+`deep_analyzer.py:330`, `research/backtest.py:26`. Same duplication class as the FIX-59
+cost model. `research/` is deliberately app-independent, so instead of importing I added a
+**drift guard**: the verifier fails if the three disagree.
+
+**What was clean** (verified, not assumed): `exec_lag=1` look-ahead guard with an explicit
+future-change invariant test (5/5 pass); purged walk-forward with permutation null,
+majority-class baseline, and a train-only scaler; `run_study.py` correctly passes
+`embargo=int(lab['horizon'].iloc[0])` even though `ml_lab`'s default is 0.
+
+**A suspicion of mine that was wrong:** I thought `PROB_THRESHOLD = 0.55  # app ka
+threshold` was inconsistent. It isn't — `app.py:2107` uses `ens_prob >= 55` on a 0–100
+scale, the study uses `>= 0.55` on a 0–1 scale. Equivalent. Checking is why I know;
+guessing would have produced a wrong "fix".
+
+**Two things I deliberately did not change:** `ci95_pp` uses a binomial SE that assumes
+independent samples, but `ret5_atr` labels overlap over 5 days and errors are
+autocorrelated — so the true CI is **wider** and `verdict()`'s "noise band" is optimistic.
+And `permutation_null(n_perm=3)` takes the max of 3 shuffles as the ceiling, which is
+noisy. Both would move the published NO EDGE verdict, so they're yours to approve.
+
+`verify_live_quote.py` 260 → **275 checks**; regression **916 passed, 0 failed**.
+
+---
+
 ### FIX-59 · There were two cost models, and mine was wrong
 
 Auditing `research/` — the least-reviewed part of the project — turned up

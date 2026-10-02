@@ -1171,6 +1171,70 @@ check("qty 0 par basis honestly 'reference' bolta hai (jhooth position nahi)",
       'reference' in str(_r59['cost']['notional_basis']))
 check('Dashboard notional basis dikhata hai', 'notional_basis' in dash_src)
 
+# ── FIX-60: research/ module audit ────────────────────────────────────────
+# research/ project ka sabse kam-audited hissa tha; FIX-59 bhi wahin se nikla tha.
+# Poora padha (backtest/features/ml_lab/run_study/data/analyze). Teen concrete
+# bugs mile, aur do achhi cheezein confirm hui.
+
+print('\n-- FIX-60: TRADING_DAYS measured hai, US convention nahi')
+from research.backtest import TRADING_DAYS as _TD
+check('TRADING_DAYS = 247 (measured NSE avg), 252 (US) nahi', _TD == 247,
+      f'got {_TD}. NSE actual: 2022=248 2023=245 2024=246 2025=249 -> avg 247.0. '
+      f'252 se annualisation +2.02% overstate hoti thi.')
+_bt = (ROOT / 'research' / 'backtest.py').read_text(encoding='utf-8')
+# NOTE: FIX-60 ka comment khud "252 US convention hai" bolta hai — isliye comments
+# strip karke check karo. Ye galti main teen baar kar chuka hoon (FIX-50, FIX-59,
+# ab): source-grep test apne hi documentation par fail hota hai.
+def _py_code(txt):
+    return '\n'.join(l.split('#')[0] for l in txt.splitlines())
+
+
+check('252 backtest.py ke CODE me kahin nahi bacha', '252' not in _py_code(_bt))
+
+print('\n-- FIX-60: research/data.py period honour karta hai')
+from research.data import _period_bars
+check('period -> bars mapping sahi hai',
+      _period_bars('2y') == 494 and _period_bars('5y') == 1235 and _period_bars('10y') == 2470)
+check('unknown period par silent 2y fallback (crash nahi)', _period_bars('junk') == 494)
+_rd = (ROOT / 'research' / 'data.py').read_text(encoding='utf-8')
+check("hardcoded n_bars=520 CODE me gaya (period ab pass hota hai)",
+      'n_bars=520' not in _py_code(_rd) and 'n_bars=want' in _py_code(_rd))
+check('cache sirf tab likhta hai jab data maangi hui range ke kareeb ho',
+      '0.8 * want' in _rd)
+check('load() period ko _period_bars se jodta hai', '_period_bars(period)' in _rd)
+
+print('\n-- FIX-60: risk-free rate teen jagah hai — drift GUARD')
+# 0.065 teen files me hardcoded hai. research/ deliberately app-independent hai
+# ("taaki study reproducible rahe"), isliye import karke single-source nahi kiya —
+# uske bajaye guard test: teeno MATCH karein, warna fail.
+import re as _re60
+_rf_app = _re60.search(r"'RISK_FREE_RATE':\s*([0-9.]+)", app_src)
+_rf_bt = _re60.search(r"RF_ANNUAL\s*=\s*([0-9.]+)", _bt)
+_rf_da = _re60.search(r"rf_rate\s*=\s*([0-9.]+)",
+                      (ROOT / 'deep_analyzer.py').read_text(encoding='utf-8'))
+check('risk-free rate teeno jagah parse ho gaya',
+      bool(_rf_app and _rf_bt and _rf_da))
+if _rf_app and _rf_bt and _rf_da:
+    _vals = {'app.py': float(_rf_app.group(1)), 'backtest.py': float(_rf_bt.group(1)),
+             'deep_analyzer.py': float(_rf_da.group(1))}
+    check('risk-free rate teeno jagah SAME hai (drift nahi)',
+          len(set(_vals.values())) == 1, f'{_vals}')
+
+print('\n-- FIX-60: backtester ke look-ahead guards abhi bhi maujood hain')
+check('exec_lag default 1 hai (look-ahead guard)', 'exec_lag: int = 1' in _bt)
+check('position shift hoti hai (signal bar t -> position t+lag)',
+      'pos.shift(exec_lag)' in _bt)
+_ml = (ROOT / 'research' / 'ml_lab.py').read_text(encoding='utf-8')
+check('ml_lab embargo support karta hai (overlapping-label leakage guard)',
+      'train_end = start - embargo' in _ml)
+_rs = (ROOT / 'research' / 'run_study.py').read_text(encoding='utf-8')
+check("run_study embargo=0 default par NAHI chalta — horizon se set karta hai",
+      "embargo=int(lab['horizon'].iloc[0])" in _rs)
+check('permutation null maujood hai (shuffled-label ceiling)',
+      'permutation_null' in _ml and 'shuffle_train_labels' in _ml)
+check('StandardScaler sirf TRAIN par fit hota hai (test leakage nahi)',
+      'StandardScaler().fit(Xtr)' in _ml)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

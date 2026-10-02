@@ -2,6 +2,95 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-60 addendum — 2026-10-02 (`research/` module ka poora audit)
+
+User ne poochha ki `research/` ke baaki files bhi deeply audit karun (FIX-59 wahi se
+nikla tha). Poora padha — `backtest.py` (223 L), `features.py` (137), `ml_lab.py` (154),
+`run_study.py` (350), `data.py` (70), `analyze.py` (189). **Koi verifier in files ko
+test hi nahi karta tha**, isliye bugs chhupe the.
+
+### Bug 1: `TRADING_DAYS = 252` — US convention, India ka nahi
+
+Real NSE data se measure kiya (RELIANCE, yfinance 1240 bars):
+
+| saal | trading days |
+|---|---|
+| 2022 | 248 |
+| 2023 | 245 |
+| 2024 | 246 |
+| 2025 | 249 |
+| **average** | **247.0** |
+
+Code 252 use karta tha → **annualised return/vol +2.02% overstate**, aur usse Sharpe/
+Sortino bhi. Ab `TRADING_DAYS = 247`.
+
+### Bug 2: `research/data.py` `period` ignore karta tha — aur cache jhooth bolta tha
+
+Tier-2 (tvDatafeed) me `n_bars=520` **hardcoded** tha; `period` param pass hi nahi hota
+tha. Aur cache file `{symbol}_{period}.csv` naam se banti thi. Measured, Tier-1 fail
+karke:
+
+| maanga | mila (pehle) | cache file |
+|---|---|---|
+| `period='5y'` | **520 bars** (2024-08-29..2026-10-01) | `RELIANCE_5y.csv` |
+| `period='10y'` | **520 bars** (wahi) | `RELIANCE_10y.csv` |
+
+Yaani CLI `--period 5y / 10y` advertise karta tha, code 2 saal deta tha, aur wo 2 saal
+**12 ghante tak "5 saal ka data" bankar cache se serve hote the.** `WARMUP=252` ke saath
+520 bars me sirf ~265 OOS bars bante hain (1235 bars me ~988) — study ~3.7x patli ho
+jaati, aur kisi ko pata nahi chalta.
+
+Ab period honour hota hai (`2y→494, 5y→1235, 10y→2470`, 247/saal ke hisaab se), aur cache
+tabhi likhta hai jab data maangi hui depth ke **80%** ke kareeb ho. Verified:
+
+| maanga | mila (ab) | range |
+|---|---|---|
+| `period='2y'` | 494 bars | 2024-10-07..2026-10-01 |
+| `period='5y'` | **1235 bars** | 2021-10-11..2026-10-01 |
+| `period='10y'` | **2470 bars** | (poora 10 saal mila) |
+
+### Bug 3: risk-free rate 0.065 TEEN jagah hardcoded
+
+| file | line |
+|---|---|
+| `app.py` | 367 — `'RISK_FREE_RATE': 0.065` |
+| `deep_analyzer.py` | 330 — `rf_rate = 0.065` |
+| `research/backtest.py` | 26 — `RF_ANNUAL = 0.065` |
+
+Bilkul wahi duplication class jo FIX-59 me cost model me thi. `research/` **jaan-boojh
+kar** app-independent hai ("taaki study reproducible rahe"), isliye import karke
+single-source nahi kiya — uske bajaye **drift guard test** lagaya: teeno match karein,
+warna verifier fail.
+
+### Jo CLEAN nikla (verify kiya, badla nahi)
+
+- **`backtest.py` ka look-ahead guard solid hai** — `exec_lag=1` default, `pos.shift(exec_lag)`,
+  aur invariant self-test #2 explicitly future-change test karta hai. 5/5 invariants PASS.
+- **`ml_lab.py` methodologically sahi hai** — purged walk-forward, permutation null,
+  majority-class baseline, binomial CI, `StandardScaler` sirf train par fit.
+- **`run_study.py` embargo sahi pass karta hai** — `embargo=int(lab['horizon'].iloc[0])`.
+  `ml_lab` ka default `embargo=0` ek footgun hai, par caller sahi hai.
+- **`PROB_THRESHOLD = 0.55  # app ka threshold` — comment SACH hai.** Maine shak kiya tha
+  ki galat hai; verify kiya: `app.py:2107` `ens_prob >= 55` (0-100 scale), study
+  `>= 0.55` (0-1 scale). Equivalent. **Check kiya isliye pata chala, guess kiya hota to
+  galat "fix" kar deta.**
+
+### Do observations jo maine JAAN-BOOJH KAR nahi badle
+
+1. **`ci95_pp` binomial SE se banta hai** — wo samples ko independent maanta hai. Par
+   `ret5_atr` labels 5-din overlapping hain aur errors autocorrelated, isliye asli CI isse
+   **chauda** hoga. Matlab `verdict()` ka "noise band ±Xpp" optimistic hai. Isse badalne se
+   published NO EDGE verdict change ho sakta hai, isliye bina aapki haan ke nahi chheda.
+2. **`permutation_null(n_perm=3)`** aur `verdict()` `null['max_pct']` ko ceiling maanta hai —
+   3 shuffles ka max noisy hai. Zyada permutations better honge (par slow).
+
+### Verify
+
+`verify_live_quote.py` 260 → **275 checks** · regression **916 passed, 0 failed** ·
+backtest invariants 5/5 · `py_compile` OK
+
+---
+
 ## FIX-59 addendum — 2026-10-02 (do cost model the jo aapas me ladte the)
 
 `research/` module project ka sabse kam-audited hissa tha. Wahan dekha to
@@ -2236,6 +2325,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | `research/` module ka koi verifier coverage nahi tha; 3 bugs chhupe the | ✅ **Solved (FIX-60)** — poora audit kiya (`backtest`/`features`/`ml_lab`/`run_study`/`data`/`analyze`, 1129 lines). **Bug 1:** `TRADING_DAYS = 252` (US convention) jabki measured NSE avg **247.0** (2022=248, 2023=245, 2024=246, 2025=249) → annualisation **+2.02% overstate**, Sharpe/Sortino bhi. **Bug 2:** `research/data.py` Tier-2 me `n_bars=520` hardcoded tha, `period` pass hi nahi hota tha — measured: `period='5y'` → 520 bars, aur wo `RELIANCE_5y.csv` me cache hokar 12 ghante "5 saal" bankar serve hote the (study ~3.7x patli, kisi ko pata nahi). Ab period honour hota hai (5y→**1235 bars** verified) aur cache sirf 80%+ depth par likhta hai. **Bug 3:** risk-free 0.065 **teen** jagah hardcoded (`app.py`/`deep_analyzer.py`/`backtest.py`) — wahi FIX-59 wali class; `research/` deliberately independent hai isliye drift-guard test lagaya. **Jo clean nikla:** `exec_lag=1` look-ahead guard + 5/5 invariants, purged walk-forward + permutation null + train-only scaler, `embargo` horizon se set. **Mera `PROB_THRESHOLD` shaq galat tha** — 0.55 (0-1) aur 55 (0-100) equivalent hain. `verify_live_quote.py` 260 → **275**, regression **916/0**. |
 | — | Do cost model the jo aapas me DISAGREE karte the (FIX-57 ka apna dict vs `research/costs.py`) | ✅ **Solved (FIX-59)** — `research/` audit karte waqt mila: `research/costs.py` me pehle se notional-aware model tha, aur FIX-57 ke rates galat the. Delivery STT maine sirf sell par lagaya (sahi: **dono taraf** 0.1%) → 0.10pp understate; delivery stamp 0.003% (wo **intraday** rate hai, sahi **0.015%**) → 0.012pp understate; intraday STT ×2 (sahi: **sirf sell**, buy nil) → 0.025pp overstate. Net: intraday 0.2310% vs sahi **0.1832%** (OVERSTATE), delivery 0.2810% vs sahi **0.3702%** (UNDERSTATE) — dono directions me galat. **Aur mera brokerage-cap hypothesis measurement ne reject kiya** (≤0.01pp, sirf ₹66,667+ par bind karta hai). Delegate karne ke baad bhi 0.0008pp gap tha — do jagah do `exch_pct` default; ab `.env` set ho tabhi override. Cost ab **notional-aware** (₹25k capital → break-even ₹4.29, ₹10L → ₹2.92) aur statutory rates ka override hataya (wahi FIX-57 ka bug tha). app vs research **10/10 exact match**. `verify_live_quote.py` 246 → **260**, regression **901/0**. |
 | — | Header har stock ke liye "NSE / BSE" bolta tha — actual exchange kabhi nahi batata tha | ✅ **Solved (FIX-58)** — live `/api/stock` se measured: TCS `?ex=NSE` (frame NSE), TCS `?ex=BSE` (frame **BSE**), DHOOTIN `?ex=NSE` (frame **BSE**, `on_nse_master` **false**) — chaaron me header identical `SYM — NSE / BSE` tha. DHOOTIN NSE par listed hi nahi. Ab `frame_exchange`/`requested_exchange`/`on_nse_master` (FIX-53/54/55 se payload me already the) use hote hain: `TCS — BSE`, `TCS — BSE — aapne NSE maanga tha`, `DHOOTIN — BSE only — NSE par listed nahi`, `XYZ — exchange unknown`. **Aur mera flagged concern galat nikla:** `deep_analyzer.py`/`nifty_scanner.py`/`research/data.py` me silent BSE fallback NAHI hai — `exchange='NSE'` hardcoded hai, aur teeno jagah sahi (Nifty NSE-only, calibration NSE-fitted, deep_analyzer app.py se reachable nahi). Us reasoning ko 4 guard tests me pin kiya. `verify_live_quote.py` 230 → **246**, regression **887/0**. |
 | — | T1/T2/SL/Kelly sab GROSS the — transaction cost ka koi model nahi | ✅ **Solved (FIX-57)** — `brokerage`/`STT`/`transaction cost` teenon ke 0 hits the, aur app khud maanta tha *"costs/slippage included nahi"*. Ab `TRADE_COST` (NSE published rates + env-overridable slippage) = **0.231% round-trip**, aur `cost_plan()` break-even move (TCS ₹2,075 par ₹4.79), cost-to-risk ratio, aur har target ka NET deta hai. Do warnings: T1 break-even se chhota ho, ya cost SL ka >20% ho. **Ye koi naya prediction nahi — sirf missing arithmetic.** Basis: `tools/study_new_signals.py` ne measure kiya ki +0.169% gross signal 0.231% cost me negative ho jaata hai; aur futures-spot basis ka "t=+6.21, 52.78% accuracy" wala result **basis convergence** nikla — tradable leg par −0.053% gross, 49.13% accuracy (coin flip se kam). `verify_live_quote.py` 210 → **230**, regression **871/0**. |

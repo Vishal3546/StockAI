@@ -30,6 +30,18 @@ def _norm(df: pd.DataFrame) -> pd.DataFrame:
     return df[~df.index.duplicated(keep='last')].sort_index()
 
 
+# FIX-60: period -> bars. 247 NSE trading days/saal (measured, backtest.py me bhi).
+_PERIOD_BARS = {'6mo': 124, '1y': 247, '2y': 494, '3y': 741, '5y': 1235, '10y': 2470}
+
+
+def _period_bars(period: str) -> int:
+    """`'5y'` -> 1235. Unknown/blank par 2y (purana default behaviour)."""
+    try:
+        return int(_PERIOD_BARS.get(str(period).strip().lower(), _PERIOD_BARS['2y']))
+    except Exception:
+        return _PERIOD_BARS['2y']
+
+
 def load(symbol: str, period: str = '2y', use_cache: bool = True) -> pd.DataFrame | None:
     CACHE.mkdir(parents=True, exist_ok=True)
     f = CACHE / f'{symbol.replace("^", "_")}_{period}.csv'
@@ -56,14 +68,24 @@ def load(symbol: str, period: str = '2y', use_cache: bool = True) -> pd.DataFram
         pass
 
     # Tier 2: tvDatafeed
+    # FIX-60: pehle yahan `n_bars=520` HARDCODED tha — `period` pass hi nahi hota
+    # tha. Matlab `--period 5y`/`10y` maangne par bhi ~2 saal milta tha. Aur cache
+    # file `{symbol}_{period}.csv` naam se banti thi, isliye 520 bars
+    # `RELIANCE_5y.csv` me 12 ghante tak "5 saal ka data" bankar serve hote the —
+    # measured: period='5y' -> 520 bars (2024-08-29..2026-10-01), wahi '10y' par bhi.
+    # Ab period honour hota hai, aur cache tabhi likhte hain jab data maangi hui
+    # range ke kareeb ho (warna file apne contents ke baare me jhooth bolegi).
+    want = _period_bars(period)
     try:
         from tvDatafeed import TvDatafeed, Interval
         df = TvDatafeed().get_hist(symbol=symbol, exchange='NSE',
-                                   interval=Interval.in_daily, n_bars=520)
+                                   interval=Interval.in_daily, n_bars=want)
         if df is not None and not df.empty:
             df = _norm(df.rename(columns=str.title))
             if len(df) >= 250:
-                df.to_csv(f)
+                # Kam se kam 80% maangi hui depth mile tabhi is naam se cache karo.
+                if len(df) >= 0.8 * want:
+                    df.to_csv(f)
                 return df
     except Exception:
         pass
