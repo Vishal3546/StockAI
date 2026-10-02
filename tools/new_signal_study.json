@@ -1,0 +1,78 @@
+{
+  "asof": "2026-10-02",
+  "symbols": 26,
+  "symbol_days": 31044,
+  "signal": "futures_spot_basis = (fut_close - spot_close) / spot_close * 100",
+  "basis_stats": {
+    "mean_pct": 0.2124,
+    "median_pct": 0.2429,
+    "sd_pct": 0.396,
+    "pct_negative": 18.17
+  },
+  "on_spot_return_NOT_tradable": {
+    "1d": {
+      "gross_spread_pct": 0.1651,
+      "cross_symbol_t": 6.21,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 52.78
+    },
+    "2d": {
+      "gross_spread_pct": 0.1332,
+      "cross_symbol_t": 2.77,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 51.58
+    },
+    "3d": {
+      "gross_spread_pct": 0.1059,
+      "cross_symbol_t": 1.57,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 51.26
+    },
+    "5d": {
+      "gross_spread_pct": 0.0583,
+      "cross_symbol_t": 0.44,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 50.94
+    }
+  },
+  "on_futures_return_tradable": {
+    "1d": {
+      "gross_spread_pct": -0.0531,
+      "cross_symbol_t": -2.25,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 49.13,
+      "net_after_futures_cost_pct": -0.1988
+    },
+    "2d": {
+      "gross_spread_pct": -0.1756,
+      "cross_symbol_t": -3.88,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 48.09,
+      "net_after_futures_cost_pct": -0.3213
+    },
+    "3d": {
+      "gross_spread_pct": -0.2722,
+      "cross_symbol_t": -4.55,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 47.82,
+      "net_after_futures_cost_pct": -0.4179
+    },
+    "5d": {
+      "gross_spread_pct": -0.4266,
+      "cross_symbol_t": -5.13,
+      "n_symbols": 26,
+      "directional_accuracy_pct": 47.42,
+      "net_after_futures_cost_pct": -0.5723
+    }
+  },
+  "costs": {
+    "equity_round_trip_pct": 0.23,
+    "futures_round_trip_pct": 0.1457
+  },
+  "timing_control": {
+    "corr_basis_vs_same_day_return": -0.0559,
+    "corr_basis_vs_next_day_return": 0.055
+  },
+  "verdict": "NO TRADEABLE EDGE",
+  "verdict_detail": "Futures-spot basis ka spot-return relationship real hai (t>6, out-of-sample survives) par wo BASIS CONVERGENCE hai — mechanical. Tradable leg (futures) par gross spread negative hai aur accuracy 50% se neeche. Cost alag se negative karta hai. Naya indicator nahi mila."
+}

@@ -499,6 +499,77 @@ duplicate-logging guards.
 
 ---
 
+### FIX-57 · Cost-aware plan — and why "higher accuracy" is the wrong target
+
+The user asked how to raise accuracy. I measured first (`tools/study_new_signals.py`), then built.
+
+**I falsified my own finding.** Futures-spot basis looked strong on the spot leg:
+
+| leg | 1d gross | cross-symbol t | accuracy |
+|---|---|---|---|
+| SPOT return (not tradable) | **+0.165%** | **+6.21** | **52.78%** |
+
+It even survived an out-of-sample split (t=+7.07 then +3.36). But the signal comes from futures,
+so the tradable leg is the future:
+
+| leg | 1d gross | net after cost | accuracy |
+|---|---|---|---|
+| FUTURES return (tradable) | **−0.053%** | **−0.199%** | **49.13%** |
+| 5d futures | −0.427% | −0.572% | 47.42% |
+
+**49.13% — below a coin flip.** It's just basis convergence: the future's premium decays, so spot
+rises while the future falls. Mechanical, already priced. Verdict: **NO TRADEABLE EDGE**.
+
+That measurement is the answer to "how do I raise accuracy":
+
+| | accuracy | money |
+|---|---|---|
+| this new signal | 52.78% | **loses** |
+| the app's ML | 55% (shuffled ceiling 59.3%) | no edge |
+| a hypothetical 40% system at 3:1 R:R | 40% | makes money |
+
+**Cost decides, not accuracy.** Measured: equity round-trip **0.231%**, futures **0.146%**. A
++0.169% gross signal goes negative after 0.231% of cost.
+
+**What 2026 traders use vs what's reachable** (all probed):
+
+| Signal | Reachable | Result |
+|---|---|---|
+| Option chain — OI / IV / PCR / max pain | ❌ | NSE API 404; tvDatafeed returns OHLCV only |
+| Participant-wise FII/DII OI | ❌ | `fo_participant_*.csv` 404 (both archives hosts) |
+| Delivery % / FO bhavcopy | ❌ | 404 (6 variants tried) |
+| **Futures OHLCV** (`TCS1!`, `NIFTY1!`) | ✅ | 1200 bars; edge measured — none |
+
+> ⚠️ Retraction: I briefly reported "BSE bhavcopy works (200, 14 KB)". It was the BSE
+> **homepage HTML**, not a CSV — I checked status and size, not content.
+
+**What I built instead — the missing arithmetic.** The app had no cost model at all
+(`brokerage` 0 hits, `STT` 0 hits) and said so itself: *"costs/slippage included nahi"*. Now:
+
+```python
+TRADE_COST = {brokerage 0.06, stt 0.05, exchange_txn 0.00594, sebi 0.0002,
+              stamp 0.003, gst 0.01187, slippage 0.10}   # = 0.231% round trip
+```
+
+`cost_plan()` adds two things that were invisible before:
+
+1. **Break-even move** — how far price must travel just to cover fees (TCS at ₹2,075 → **₹4.79 /
+   +0.231%**)
+2. **Cost-to-risk** — what share of your SL budget fees eat. At a 0.8% SL, cost is **28.9%** of
+   the risk, however good the R:R looks
+
+Plus **NET** targets (gross − cost) and two warnings: T1 smaller than break-even, or cost above
+20% of the SL. **This is not a new prediction** — just arithmetic that was missing. Override via
+`.env`: `STOCKAI_COST_MODE` (intraday/delivery), `STOCKAI_COST_SLIPPAGE`,
+`STOCKAI_COST_BROKERAGE`, `STOCKAI_COST_STT`.
+
+Verified: model gives **0.231%** vs the study's measured **0.230%**; the Dashboard template
+renders in all four cases (normal / tight-SL / negative-net / no `cost` key → graceful, no NaN).
+
+`verify_live_quote.py` 210 → **230 checks**; regression **871 passed, 0 failed**.
+
+---
+
 ### FIX-56 · BSE trades until 16:00, and `quote_time` was in UTC
 
 A small cleanup — but it surfaced another bug.

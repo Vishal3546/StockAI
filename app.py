@@ -3352,6 +3352,97 @@ def regime_exposure(regime, direction, *, required=False):
     return policy[direction], f'{name}: {direction} exposure cap {policy[direction]:.0%} (risk policy, NOT backtested edge)'
 
 
+# ── FIX-57: transaction-cost model ────────────────────────────────────────
+# Pehle app T1/T2/SL/R-multiple/Kelly sab calculate karta tha bina ye jaane ki
+# trade kitne ki padti hai. `tools/study_new_signals.py` ne measure kiya ki
+# +0.169% gross signal 0.230% round-trip cost me NEGATIVE ho jaata hai — matlab
+# cost ignore karke plan banana ek real risk hai, sirf ek missing detail nahi.
+# Rates NSE ke published charges se (equity, intraday, per side unless noted):
+#   brokerage 0.03%  ·  STT 0.025%  ·  exchange txn 0.00297%  ·  SEBI 0.0001%
+#   stamp duty 0.003% (BUY side only)  ·  GST 18% brokerage+txn par
+#   slippage 0.05% (1-2 ticks) — env se override, kyunki ye stock par depend karta hai
+def _cost_side(pct, env_key, lo=0.0, hi=5.0):
+    """`.env` override, sane range me clamp. Galat value chup-chaap 0 na ho."""
+    raw = (os.environ.get(env_key) or '').strip()
+    if not raw:
+        return float(pct)
+    try:
+        v = float(raw)
+    except ValueError:
+        return float(pct)
+    return float(min(max(v, lo), hi))
+
+
+TRADE_COST = {
+    'brokerage_pct':    _cost_side(0.03 * 2,   'STOCKAI_COST_BROKERAGE'),
+    'stt_pct':          _cost_side(0.025 * 2,  'STOCKAI_COST_STT'),
+    'exchange_txn_pct': 0.00297 * 2,
+    'sebi_pct':         0.0001 * 2,
+    'stamp_pct':        0.003,                  # buy side only
+    'gst_pct':          0.18 * (0.03 + 0.00297) * 2,
+    'slippage_pct':     _cost_side(0.05 * 2,   'STOCKAI_COST_SLIPPAGE'),
+}
+
+
+def trade_cost_pct(mode='intraday'):
+    """Round-trip cost, % of notional. 'delivery' par STT 0.1% (sell only)."""
+    base = sum(TRADE_COST.values())
+    if str(mode).lower() == 'delivery':
+        # intraday STT 0.025%x2 hatao, delivery STT 0.1% sell-only lagao
+        base = base - TRADE_COST['stt_pct'] + 0.1
+    return round(base, 4)
+
+
+def cost_plan(cost_pct, price, sl_pct, targets):
+    """Break-even move + har target ka NET (cost ke baad), aur honest warnings.
+
+    Do cheezein matter karti hain jo pehle dikhti hi nahi thi:
+      1. Break-even move — sirf fees cover karne ke liye price kitna move kare.
+      2. Cost-to-risk — cost aapke SL budget ka kitna % hai. SL tight ho to cost
+         risk ka bada hissa kha jaata hai, chahe R:R accha dikhe.
+    """
+    if not price or price <= 0:
+        return None
+    be = float(cost_pct)
+    out = {
+        'mode': 'intraday',
+        'round_trip_pct': round(be, 3),
+        'break_even_pct': round(be, 3),
+        'break_even_rs': round(price * be / 100.0, 2),
+        'cost_per_share': round(price * be / 100.0, 2),
+        'targets_net_pct': {},
+        'cost_to_risk_pct': None,
+        'warning': None,
+    }
+    for name, gross in (targets or {}).items():
+        if gross is None:
+            out['targets_net_pct'][name] = None
+        else:
+            out['targets_net_pct'][name] = round(float(gross) - be, 3)
+    if sl_pct and sl_pct > 0:
+        out['cost_to_risk_pct'] = round(be / float(sl_pct) * 100.0, 1)
+
+    warns = []
+    t1 = out['targets_net_pct'].get('t1')
+    t1g = (targets or {}).get('t1')
+    if t1g is not None and t1g <= be:
+        warns.append(f'T1 (+{t1g:.2f}%) break-even (+{be:.2f}%) se chhota hai — '
+                     f'ye trade fees bhi cover nahi karti.')
+    elif t1 is not None and t1 <= 0:
+        warns.append(f'T1 cost ke baad negative (+{t1:.2f}%) — target fees se chhota hai.')
+    if out['cost_to_risk_pct'] is not None and out['cost_to_risk_pct'] > 20:
+        warns.append(f'Cost aapke SL ka {out["cost_to_risk_pct"]:.0f}% hai — SL itna tight '
+                     f'hai ki fees risk budget ka bada hissa kha jaati hain.')
+    out['warning'] = ' '.join(warns) if warns else None
+    return out
+
+
+_cost_mode = ((os.environ.get('STOCKAI_COST_MODE') or 'intraday').strip().lower()
+              or 'intraday')
+if _cost_mode not in ('intraday', 'delivery'):
+    _cost_mode = 'intraday'
+
+
 def calculate_risk(price, atr, score, capital=None, action=None,
                    measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None,
                    plan_measure=None, atr_basis=None, regime=None, require_plan=False):
@@ -3517,10 +3608,27 @@ def calculate_risk(price, atr, score, capital=None, action=None,
     if direction != 'NONE':
         _risk_note += f' | Market regime: {regime_basis}.'
 
+    # FIX-57: cost-aware plan. Ye naya prediction NAHI hai — sirf wo arithmetic
+    # jo pehle missing thi. Targets/SL gross the; ab net (cost ke baad) bhi.
+    _sl_pct = round(risk_per_share / price * 100, 2) if price > 0 else 0.0
+    _cost = cost_plan(trade_cost_pct(_cost_mode), price, _sl_pct, {
+        't1': (abs(t1 - price) / price * 100 if price > 0 else None),
+        't2': (abs(t2 - price) / price * 100 if price > 0 else None),
+        't3': (abs(t3 - price) / price * 100 if price > 0 else None),
+    })
+    if _cost:
+        _cost['mode'] = _cost_mode
+        _cost['qty'] = qty
+        _cost['round_trip_on_notional'] = (round(notional * _cost['round_trip_pct'] / 100.0, 2)
+                                          if notional else 0.0)
+        if _cost['warning']:
+            _risk_note += f" | 💸 {_cost['warning']}"
+
     return {
         'direction': direction,
+        'cost': _cost,
         'sl': round(sl, 2),
-        'sl_pct': round(risk_per_share / price * 100, 2),
+        'sl_pct': _sl_pct,
         't1': round(t1, 2),
         't2': round(t2, 2),
         't3': round(t3, 2),

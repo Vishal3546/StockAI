@@ -2,6 +2,89 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-57 addendum — 2026-10-02 (cost-aware plan — "accuracy high kaise kare" ka measured jawaab)
+
+User ne poochha: accuracy badhane ke liye naya timeframe/signal add kare? Maine pehle
+**measure** kiya (`tools/study_new_signals.py`), phir banaya.
+
+### Pehle: meri apni measurement falsify hui
+
+Futures-spot basis (`(fut_close − spot_close)/spot_close`) — pehla result dikhne me strong tha:
+
+| leg | 1d gross | cross-symbol t | accuracy |
+|---|---|---|---|
+| **SPOT** return (trade NAHI hota) | **+0.165%** | **+6.21** | **52.78%** |
+
+Out-of-sample bhi survive kiya (1st half t=+7.07, 2nd half t=+3.36). Agar yahin ruk jaata to
+"edge mil gaya" bol deta. **Par wo leg trade nahi hota** — signal futures se aata hai:
+
+| leg | 1d gross | net (cost ke baad) | accuracy |
+|---|---|---|---|
+| **FUTURES** return (trade hota hai) | **−0.053%** | **−0.199%** | **49.13%** |
+| 5d futures | −0.427% | −0.572% | 47.42% |
+
+**Accuracy 49.13% — coin flip se bhi kam.** Wo "signal" sirf **basis convergence** hai: future ka
+premium converge hota hai, isliye spot upar jaata hai aur future neeche. Mechanical, already
+priced. **Koi naya indicator nahi mila** — `verdict: NO TRADEABLE EDGE`.
+
+### "Accuracy high karo" galat target hai — ye uska proof hai
+
+| | accuracy | paisa |
+|---|---|---|
+| Ye naya signal | 52.78% | **lose karta hai** |
+| App ka ML | 55% (shuffled ceiling 59.3%) | no edge |
+| Hypothetical 40% system, 3:1 R:R | 40% | banata hai |
+
+Faisla **cost** karta hai, accuracy nahi. Measured: equity round-trip **0.231%**, futures
+**0.146%**. Ek +0.169% gross signal 0.231% cost me **negative** ho jaata hai.
+
+### 2026 practice vs reachability (sab probe kiya)
+
+| 2026 me traders ye dekhte hain | Reachable? | Result |
+|---|---|---|
+| Option chain — OI / IV / PCR / max pain | ❌ | NSE API **404**; tvDatafeed sirf OHLCV deta hai (`['open','high','low','close','volume']`) |
+| Participant-wise FII/DII OI | ❌ | `fo_participant_*.csv` **404** (dono archives hosts) |
+| Delivery % | ❌ | **404** |
+| FO bhavcopy (OI history) | ❌ | **404** (6 date/path variants) |
+| **Futures OHLCV** (`TCS1!`, `NIFTY1!`) | ✅ | `tvDatafeed(fut_contract=1)` — 1200 bars; edge measured: nahi |
+
+**⚠️ Retraction:** maine probe ke dauraan kaha "BSE bhavcopy kaam kar gaya (200, 14 KB)".
+**Galat tha** — wo BSE ka homepage HTML tha, CSV nahi. Maine sirf status+size dekha, content nahi.
+**Kisi bhi fetch ka status+size dekh kar format assume mat karo — content padho.**
+
+### Jo banaya: cost-aware plan
+
+App me transaction cost ka **koi model nahi tha** (`brokerage` 0 hits, `STT` 0 hits), aur app
+khud maanta tha (L3322): *"costs/slippage included nahi"*. Matlab T1/T2/SL/R:R/Kelly sab gross
+the. Ab:
+
+```python
+TRADE_COST = {brokerage 0.06, stt 0.05, exchange_txn 0.00594, sebi 0.0002,
+              stamp 0.003, gst 0.01187, slippage 0.10}   # = 0.231% round-trip
+```
+
+`cost_plan()` do cheezein deta hai jo pehle dikhti hi nahi thi:
+
+1. **Break-even move** — sirf fees cover karne ke liye price kitna move kare
+   (TCS ₹2,075 par **₹4.79 / +0.231%**)
+2. **Cost-to-risk** — cost aapke SL budget ka kitna % hai. SL 0.8% ho to cost
+   risk ka **28.9%** kha jaata hai, chahe R:R accha dikhe
+
+Plus har target ka **NET** (gross − cost), aur warnings:
+- `T1 break-even se chhota hai — ye trade fees bhi cover nahi karti`
+- `Cost aapke SL ka 29% hai — SL itna tight hai ki fees risk budget ka bada hissa kha jaati hain`
+
+**Ye koi naya prediction NAHI hai** — sirf wo arithmetic jo missing thi. `.env` se override:
+`STOCKAI_COST_MODE` (intraday/delivery), `STOCKAI_COST_SLIPPAGE`, `STOCKAI_COST_BROKERAGE`,
+`STOCKAI_COST_STT`.
+
+Verify: cost model **0.231%** vs study ka measured **0.230%**. Dashboard template chaaron cases
+me render hua (normal / tight-SL / negative-net / `cost` absent → graceful, koi NaN nahi).
+
+`verify_live_quote.py` 210 → **230 checks** · regression **871 passed, 0 failed**
+
+---
+
 ## FIX-56 addendum — 2026-10-02 (BSE session 16:00 tak, BSE par TradingView > Yahoo)
 
 Chhota cleanup fix — par isme ek naya bug bhi mila.
@@ -2021,6 +2104,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | T1/T2/SL/Kelly sab GROSS the — transaction cost ka koi model nahi | ✅ **Solved (FIX-57)** — `brokerage`/`STT`/`transaction cost` teenon ke 0 hits the, aur app khud maanta tha *"costs/slippage included nahi"*. Ab `TRADE_COST` (NSE published rates + env-overridable slippage) = **0.231% round-trip**, aur `cost_plan()` break-even move (TCS ₹2,075 par ₹4.79), cost-to-risk ratio, aur har target ka NET deta hai. Do warnings: T1 break-even se chhota ho, ya cost SL ka >20% ho. **Ye koi naya prediction nahi — sirf missing arithmetic.** Basis: `tools/study_new_signals.py` ne measure kiya ki +0.169% gross signal 0.231% cost me negative ho jaata hai; aur futures-spot basis ka "t=+6.21, 52.78% accuracy" wala result **basis convergence** nikla — tradable leg par −0.053% gross, 49.13% accuracy (coin flip se kam). `verify_live_quote.py` 210 → **230**, regression **871/0**. |
 | — | `is_market_open` exchange nahi jaanta tha, aur `quote_time` UTC me dikh raha tha | ✅ **Solved (FIX-56)** — BSE ka closing/post-close 16:00 tak chalta hai (measured `Ason` = `01 Oct 26 | 16:00`, Yahoo BO `quote_time` 15:50:08), par `is_market_open` dono exchange ke liye 15:35 use karta tha. Ab `BSE_SESSION_CLOSE_HM = 16:00` + `is_market_open(now, exchange=)`; boundaries verified (NSE 15:36 BAND, BSE 15:45 KHULA, 16:01 dono BAND). Saath me BSE par Yahoo ka snapshot skip — market band ho to TradingView ka daily close use hota hai, kyunki Yahoo ka BSE data 21 din me 7 mismatch deta hai (NSE par 22 me 0) aur uska `regularMarketPrice` snapshot hai (DHOOTIN 251.0 @ 15:27:03 jabki close 244.60). **Fix test karte waqt naya bug mila:** `quote_time` `03:45:00` dikha raha tha — tvDatafeed naive-**UTC** index deta hai aur code sirf tz-aware convert karta tha. 03:45 UTC = 09:15 IST = session ka OPEN, close nahi. Ab UTC→IST convert hota hai aur daily bar par `quote_time = "2026-10-01 (daily close)"` — fake intraday time nahi. `verify_live_quote.py` 194 → **210 checks**, regression **851 passed, 0 failed**. |
 | — | NSE/BSE toggle possible hi nahi tha — poori pipeline NSE-first hardcoded thi | ✅ **Solved (FIX-55)** — user ka original request. Pehle maine kaha tha "BSE ka multi-year historical nahi milta, Phase 2 ka alag project" — **wo galat tha**: measured `TV-BSE` **1200 bars (2021-12 se)** deta hai DHOOTIN/TCS/RELIANCE teeno ke liye, jo 300-bar frame aur 250-bar calibration lookback dono ke liye kaafi hai. Doosri galti bhi sudhari: "Yahoo DHOOTIN.BO internally inconsistent" — galat, `range=1mo` par wahi session 244.60 deta hai (TV-BSE se exact match); short range par last bar lag karta hai. Aur measure kiya ki **Yahoo ka BSE data NSE jitna bharosemand nahi** (DHOOTIN 21 din me 7 mismatch, jabki NSE par 22 din me 0). Ab `prefer_exch` poore pipeline me: `fetch_tradingview` / `smart_fetch` / MTF / `/api/stock?ex=` / `/api/quote?ex=` / `/api/stream?ex=`, BSE par NSE official endpoint skip, exchange-aware cache key, aur search dedupe `(symbol, exchange)` par. Live verified TCS: NSE 2075.0 / 52W 3350.0 / pos 7.2 vs BSE **2079.3 / 3336.7 / 7.6**, quote_time 15:15:00 vs **15:50:08**. `verify_live_quote.py` 174 → **194 checks**, regression **835 passed, 0 failed**. **Abhi bhi khula:** score calibration NSE universe par fitted hai — per-exchange refit ab possible hai par maine nahi kiya. |
 | — | BSE-only stocks par poora Fundamentals panel N/A tha, aur "NSE feed fail" wala galat message dikhta tha | ✅ **Solved (FIX-54)** — user ne DHOOTIN search kiya; log me hi jawab tha (`404: Quote not found for symbol: DHOOTIN.NS`). Verify kiya: `DHOOTIN.NS` Yahoo par 404, `TV-NSE:DHOOTIN` EMPTY, aur NSE master (2593 rows) me sirf `DHOOTTRANS` hai — jo **alag company** hai (Dhoot Transmission, close 1443.40, mcap Rs29,578Cr) vs `DHOOTIN` = **Dhoot Industrial Finance** (close 244.60, mcap Rs158.6Cr). Yaani NSE feed "fail" nahi hua tha, **stock NSE par listed hi nahi** — aur mera FIX-53 ka "tvDatafeed session limit" wala andaza is case me galat tha. Do bugs: yfinance hamesha `.NS` try karta tha isliye poora Fundamentals N/A (jabki `.BO` se sab milta hai — ab mcap Rs159Cr, P/E 2.8, P/B 0.36, sector Financial Services live verified), aur `priceGapWarn` me wahi galat CAS explanation likhi thi jo FIX-53 me maine khud disprove ki thi. Ab suffix frame ke exchange se chunta hai, `on_nse_master` bhejta hai, aur Dashboard BSE-only vs feed-failure me farq karta hai. `verify_live_quote.py` 168 → **174 checks**, regression **815 passed, 0 failed**. |

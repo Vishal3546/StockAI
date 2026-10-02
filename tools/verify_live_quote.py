@@ -943,6 +943,69 @@ _conv = _naive.replace(tzinfo=_dtl.timezone.utc).astimezone(
 check('03:45 UTC -> 09:15 IST (session open)',
       _conv.strftime('%H:%M') == '09:15', f'got {_conv.strftime("%H:%M")}')
 
+# ── FIX-57: transaction-cost model (cost-aware plan) ──────────────────────
+# Pehle app T1/T2/SL/R:R/Kelly sab GROSS dikhata tha — fees ka koi hisaab nahi.
+# tools/study_new_signals.py ne measure kiya: equity round-trip ~0.231%, aur ek
+# +0.169% gross signal us cost me NEGATIVE ho jaata hai. Cost ignore karna ek
+# missing detail nahi, ek real risk hai.
+
+print('\n-- FIX-57: cost model arithmetic')
+_c = A.trade_cost_pct('intraday')
+check('intraday round-trip ≈ 0.231% (study ne 0.230 measure kiya)',
+      abs(_c - 0.231) < 0.005, f'got {_c}')
+check('delivery > intraday (STT 0.1% sell-only vs 0.025% x2)',
+      A.trade_cost_pct('delivery') > _c,
+      f"intraday={_c} delivery={A.trade_cost_pct('delivery')}")
+check('saare components positive hain (koi negative rate nahi)',
+      all(v > 0 for v in A.TRADE_COST.values()))
+check('components ka sum == trade_cost_pct (drift nahi)',
+      abs(sum(A.TRADE_COST.values()) - _c) < 0.0001)
+
+print('\n-- FIX-57: cost_plan output')
+_cp = A.cost_plan(_c, 2000.0, 5.0, {'t1': 5.0, 't2': 8.0, 't3': 12.0})
+check('break_even_pct == round_trip_pct', _cp['break_even_pct'] == _cp['round_trip_pct'])
+check('break_even_rs = price x cost% (2000 par ~Rs4.6)',
+      abs(_cp['break_even_rs'] - 2000.0 * _c / 100) < 0.02, f"got {_cp['break_even_rs']}")
+check('T1 net = gross - cost', abs(_cp['targets_net_pct']['t1'] - (5.0 - _c)) < 0.001,
+      f"got {_cp['targets_net_pct']['t1']}")
+check('cost_to_risk = cost/SL x100 (0.231/5 = 4.6%)',
+      abs(_cp['cost_to_risk_pct'] - _c / 5.0 * 100) < 0.15, f"got {_cp['cost_to_risk_pct']}")
+check('normal plan par koi warning nahi', _cp['warning'] is None)
+check('price 0/None par cost_plan None deta hai (crash nahi)',
+      A.cost_plan(_c, 0, 5.0, {'t1': 5.0}) is None
+      and A.cost_plan(_c, None, 5.0, {'t1': 5.0}) is None)
+
+print('\n-- FIX-57: warnings (jab trade cost ke layak nahi)')
+_t1low = A.cost_plan(_c, 2000.0, 5.0, {'t1': 0.15, 't2': 8.0, 't3': 12.0})
+check('T1 break-even se chhota -> warning',
+      _t1low['warning'] is not None and 'break-even' in _t1low['warning'],
+      f"warning={_t1low['warning']}")
+_tight = A.cost_plan(_c, 2000.0, 0.8, {'t1': 3.0, 't2': 8.0, 't3': 12.0})
+check('SL itna tight ki cost >20% of risk -> warning',
+      _tight['warning'] is not None and 'tight' in _tight['warning'],
+      f"cost_to_risk={_tight['cost_to_risk_pct']} warning={_tight['warning']}")
+
+print('\n-- FIX-57: calculate_risk + payload + UI wiring')
+_r = A.calculate_risk(2075.0, 57.54, 33, capital=100000, action='WATCHLIST',
+                      regime='NEUTRAL')
+check('calculate_risk ab `cost` block return karta hai', isinstance(_r.get('cost'), dict))
+check('cost block me break_even + net targets + cost_to_risk sab hai',
+      all(k in _r['cost'] for k in
+          ('break_even_pct', 'break_even_rs', 'targets_net_pct', 'cost_to_risk_pct',
+           'round_trip_pct', 'mode', 'qty', 'round_trip_on_notional')))
+check("'risk': risk poora dict bhejta hai (to cost payload me hai)",
+      "'risk': risk," in app_src)
+dash_src = _CODE_ONLY   # already a str (HTML minus // comments)
+check('Dashboard break-even move dikhata hai', 'break_even_pct' in dash_src)
+check('Dashboard NET targets dikhata hai (gross nahi)', 'targets_net_pct' in dash_src)
+check('Dashboard cost warning render karta hai', 'cost.warning' in dash_src)
+check('.env.example me cost keys documented hain',
+      all(k in (ROOT / '.env.example').read_text(encoding='utf-8')
+          for k in ('STOCKAI_COST_MODE', 'STOCKAI_COST_SLIPPAGE',
+                    'STOCKAI_COST_BROKERAGE', 'STOCKAI_COST_STT')))
+check('cost model ka claim study se referenced hai (hawa me nahi)',
+      'study_new_signals' in app_src or 'study_new_signals' in (ROOT / 'README.md').read_text(encoding='utf-8'))
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)
