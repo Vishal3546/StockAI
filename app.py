@@ -713,16 +713,109 @@ def get_live_quote(symbol, force=False):
 MAX_AGE_MIN = {'1d': 4 * 24 * 60, '5m': 45, '15m': 60, '1h': 150, '1w': 15 * 24 * 60}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-50 — NSE/BSE HOLIDAY CALENDAR
+# ═══════════════════════════════════════════════════════════════════════════
+#  Problem (measured, user ne khud pakda): 2026-10-02 Friday = Mahatma Gandhi
+#  Jayanti, NSE/BSE poora din BAND. Par `is_market_open()` sirf weekday + time
+#  dekhta tha, isliye 09:31 par `True` bola — aur FIX-49 ka gate minute-level
+#  branch me chala gaya:
+#      is_market_open()  = True                          ← galat
+#      quote_is_fresh()  = 'STALE: quote 1096m purana'   ← FALSE POSITIVE
+#  Jabki data bilkul sahi tha — aaj trading hai hi nahi, last quote 01-Oct
+#  15:15 hona chahiye aur wahi tha.
+#
+#  Ye sirf FIX-49 ko nahi, FIX-47 ko bhi chhuta tha: `last_completed_session()`
+#  holiday ko normal weekday maan kar "expected session" galat batata tha
+#  (2026-10-05 Mon ko expected 2026-10-02 batata, jabki wo holiday tha).
+#  `CLOSED_GRACE_DAYS = 1` ne verdict bacha liya tha, par reason string jhoothi thi.
+#
+#  NSE equity + equity-derivatives ke 2026 ke 16 weekday trading holidays.
+#  NOTE: 15-Jan original calendar me nahi tha — NSE ne 12-Jan-2026 ke circular se
+#  add kiya (Maharashtra municipal elections). Isliye late circular ke liye
+#  `STOCKAI_EXTRA_HOLIDAYS` env / `nse_holidays.txt` file ka raasta bhi hai —
+#  patch ke bina update ho jaata hai.
+NSE_HOLIDAYS_RAW = {
+    '2026-01-15',   # Municipal Corporation Election in Maharashtra (circular se add)
+    '2026-01-26',   # Republic Day
+    '2026-03-03',   # Holi
+    '2026-03-26',   # Shri Ram Navami
+    '2026-03-31',   # Shri Mahavir Jayanti
+    '2026-04-03',   # Good Friday
+    '2026-04-14',   # Dr. Baba Saheb Ambedkar Jayanti
+    '2026-05-01',   # Maharashtra Day
+    '2026-05-28',   # Bakri Id / Eid ul-Adha
+    '2026-06-26',   # Muharram
+    '2026-09-14',   # Ganesh Chaturthi
+    '2026-10-02',   # Mahatma Gandhi Jayanti
+    '2026-10-20',   # Dussehra
+    '2026-11-10',   # Diwali-Balipratipada
+    '2026-11-24',   # Prakash Gurpurb Sri Guru Nanak Dev
+    '2026-12-25',   # Christmas
+}
+HOLIDAYS_FILE = pathlib.Path(__file__).resolve().parent / 'nse_holidays.txt'
+
+
+def _parse_iso_date(s):
+    try:
+        return datetime.strptime(str(s).strip()[:10], '%Y-%m-%d').date()
+    except Exception:
+        return None
+
+
+def _load_extra_holidays():
+    """`STOCKAI_EXTRA_HOLIDAYS` env + optional `nse_holidays.txt` — dono ISO dates.
+
+    Late NSE circular (jaise 15-Jan-2026) ke liye: patch ki zaroorat nahi.
+    Galat format chup-chaap ignore hota hai, crash nahi.
+    """
+    out = set()
+    raw = (os.environ.get('STOCKAI_EXTRA_HOLIDAYS') or '')
+    for chunk in raw.replace(';', ',').replace(' ', ',').split(','):
+        d = _parse_iso_date(chunk)
+        if d:
+            out.add(d)
+    try:
+        for line in HOLIDAYS_FILE.read_text(encoding='utf-8-sig').splitlines():
+            line = line.split('#', 1)[0].strip()
+            if line:
+                d = _parse_iso_date(line)
+                if d:
+                    out.add(d)
+    except (OSError, UnicodeDecodeError):
+        pass                     # file optional hai
+    return out
+
+
+NSE_HOLIDAYS = frozenset(
+    d for d in (_parse_iso_date(s) for s in NSE_HOLIDAYS_RAW) if d
+) | _load_extra_holidays()
+
+
+def is_market_holiday(d=None):
+    """Ye IST date NSE equity ke liye trading holiday hai?"""
+    if d is None:
+        d = _naive_ist(None).date()
+    if isinstance(d, datetime):
+        d = d.date()
+    return d in NSE_HOLIDAYS
+
+
 def is_market_open(now=None):
-    """NSE cash session: Mon-Fri 09:15–15:40 IST (close ke baad wale minutes bhi le lete hain).
+    """NSE cash session: Mon-Fri 09:15–15:40 IST, **aur holiday na ho**.
 
     FIX-47: `now` pehle IST me normalize hota hai. Pehle ye caller ke `.hour`/`.minute`
     ko as-is padhta tha — ek aware UTC datetime (10:36Z = 16:06 IST, market BAND) ko
     10:36 IST maan kar market KHULA bata deta. Production me `_now=None` hota hai isliye
     ye trigger nahi hua, par wahi fail-open class hai jo `frame_age_minutes` me thi.
+
+    FIX-50: holiday check add hua. Pehle Gandhi Jayanti (Fri 02-Oct-2026) ko 09:31 par
+    market khula batata tha, jisse FIX-49 ka gate perfectly-sahi data ko STALE keh deta.
     """
     now = _naive_ist(now)
     if now.weekday() > 4:            # Sat/Sun
+        return False
+    if now.date() in NSE_HOLIDAYS:   # FIX-50
         return False
     hm = now.hour * 60 + now.minute
     return (9 * 60 + 15) <= hm <= (15 * 60 + 40)
@@ -780,9 +873,13 @@ def last_completed_session(now=None):
     now = _naive_ist(now)
     d = now.date()
     hm = now.hour * 60 + now.minute
-    if not (d.weekday() <= 4 and hm >= SESSION_CLOSE_HM):
+    # FIX-50: holiday par aaj ka session kabhi complete hi nahi hota
+    today_traded = (d.weekday() <= 4 and d not in NSE_HOLIDAYS)
+    if not (today_traded and hm >= SESSION_CLOSE_HM):
         d = d - timedelta(days=1)       # aaj ka session abhi complete nahi hua
-    while d.weekday() > 4:              # Sat/Sun
+    for _ in range(30):                 # Sat/Sun + holidays skip (bound: calendar
+        if d.weekday() <= 4 and d not in NSE_HOLIDAYS:   # galat ho to infinite na ho)
+            break
         d -= timedelta(days=1)
     return d
 
@@ -3582,7 +3679,17 @@ def stock_api(symbol):
             },
             # FIX-08/09: re-centred diagnostic score + honest data-source flags
             'ensemble_v2': ensemble_v2(engines, ens),
-            'is_realtime': ('NSE' in str(active_source) and 'TradingView' not in str(active_source)),
+            # FIX-50: pehle ye SOURCE KE NAAM se decide karta tha — `'NSE' in
+            # str(active_source)`. Do raaste jahan ye jhooth bolta tha:
+            #   • smart_fetch stale frame par `src + ' (STALE)'` return karta hai,
+            #     to 'NSE Official Direct (STALE)' me bhi 'NSE' match ho jaata tha
+            #   • `active_source = 'NSE Direct Live'` tab set hota hai jab NSE quote
+            #     mile — stale ho ya fresh, farq nahi padta tha
+            # Ab single source of truth: FIX-49 ka gate. Realtime = live quote mila
+            # AUR usne gate pass kiya. Warna price daily close se aaya hai → False.
+            'is_realtime': bool(live_nse and live_nse.get('is_realtime')),
+            'realtime_reason': ((live_nse.get('stale_reason') or 'live NSE quote, gate passed')
+                                if live_nse else 'koi live quote nahi — price daily close se'),
             'disclaimer': ('Prices are exchange-delayed whenever data_source is TradingView/Yahoo. '
                            'ml.* accuracy is in-sample/diagnostic; the OOS verdict comes from '
                            'ml_study (tools/build_ml_edge_study.py) — see ml_study.verdict.'),
@@ -3662,6 +3769,20 @@ if __name__ == '__main__':
     print(f"👉 Config: {('.env loaded — ' + str(len(DOTENV_KEYS)) + ' keys') if DOTENV_KEYS else '.env nahi mila (env vars/defaults)'}")
     print(f"👉 CORS allowlist: {SECURITY['CORS_ORIGINS'] or 'same-origin only'} | "
           f"rate limit: {SECURITY['RATE_LIMIT_PER_MIN']}/min/IP")
+    # FIX-50: holiday calendar ki coverage. Saal badalne par calendar purana ho
+    # jaata hai aur har holiday par jhootha STALE warning aane lagega — chup-chaap
+    # nahi, startup par batao.
+    _hol_years = sorted({d.year for d in NSE_HOLIDAYS})
+    _this_year = _naive_ist(None).year
+    if _this_year not in _hol_years:
+        print(f"⚠️  NSE holiday calendar me {_this_year} NAHI hai (sirf {_hol_years}) — "
+              f"har holiday par jhootha STALE warning aayega.")
+        print(f"   Fix: nse_holidays.txt me {_this_year}-MM-DD lines daalo, ya "
+              f".env me STOCKAI_EXTRA_HOLIDAYS=...")
+    else:
+        _n = sum(1 for d in NSE_HOLIDAYS if d.year == _this_year)
+        print(f"👉 NSE holidays: {_n} dates loaded for {_this_year} "
+              f"(aaj {'HOLIDAY — market band' if is_market_holiday() else 'trading day'})")
     if SECURITY['TOKEN']:
         print("🔒 Token auth ON — neeche wali link me token pehle se juda hua hai")
         # FIX-48: token KAHAN se aaya — .env se ya Windows/process env se. Pehle ye

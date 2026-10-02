@@ -499,7 +499,96 @@ duplicate-logging guards.
 
 ---
 
+### FIX-50 · the app now knows what a market holiday is
+
+**The user caught this one, not me.** Shipping FIX-49, I wrote "market open for 16 minutes"
+about 02-Oct-2026 09:31 IST. Their reply: *"today market me holiday he."*
+
+They were right. 2 October 2026, Friday, is **Mahatma Gandhi Jayanti** — NSE and BSE closed all
+day. So my premise was wrong, and that also meant the "stale" reading I had measured was
+**correct data**: there is no trading today, the last quote *should* be 01-Oct 15:15, and it
+was. Measured before the fix:
+
+```
+2026-10-02 09:31 Fri (HOLIDAY)
+   is_market_open()  = True                            ← wrong
+   quote_is_fresh()  = 'STALE: quote 1096m purana'     ← FALSE POSITIVE
+```
+
+The root cause: `is_market_open()` only checked `weekday <= 4` and `09:15–15:40`. **There was
+no concept of a holiday at all.** That hit FIX-49 and FIX-47 both — `last_completed_session()`
+treated a holiday as an ordinary weekday, so it reported the wrong "expected session" (Monday
+05-Oct expected `2026-10-02`, which was a holiday). `CLOSED_GRACE_DAYS = 1` rescued the
+verdict, but the reason string was a lie.
+
+**Fix A — a holiday calendar.** `NSE_HOLIDAYS` holds NSE equity + equity-derivatives' **16
+weekday trading holidays for 2026**. Two ways to extend it *without a patch*:
+
+- `STOCKAI_EXTRA_HOLIDAYS=2027-01-26,2027-03-23` (works from `.env`)
+- an optional `nse_holidays.txt` in the repo root, one ISO date per line, `#` comments allowed
+
+That escape hatch matters because **15-Jan-2026 was never in the original calendar** — NSE
+added it by circular on 12-Jan-2026 for the Maharashtra municipal elections. A calendar can
+always be out of date. If it is, the app does not crash: it degrades to the weekday rule (today's
+behaviour) and prints a startup warning.
+
+```
+👉 NSE holidays: 16 dates loaded for 2026 (aaj HOLIDAY — market band)
+```
+
+Measured after the fix:
+
+| case | `is_market_open` | `last_completed_session` | `quote_is_fresh` |
+|---|---|---|---|
+| HOLIDAY 02-Oct 09:31 | **False** | 2026-10-01 | **FRESH** — `market closed, quote 2026-10-01 (latest 2026-10-01) — fine` |
+| normal Mon 05-Oct 09:31 | True | **2026-10-01** (holiday skipped) | STALE for an 18.3h-old quote |
+| Mon 09:31, quote 30s old | True | — | FRESH |
+
+The holiday false positive is gone **and the gate is exactly as strict on a normal day**.
+
+One subtlety worth recording: `2026-08-15` (Independence Day) falls on a **Saturday**, so it is
+not in the 16-date weekday list — but the market is still closed that day, via the weekend rule.
+Both facts are asserted separately.
+
+**Fix B — `/api/stock` derived `is_realtime` from a source *name*.** This is the leftover I
+flagged when shipping FIX-49:
+
+```python
+'is_realtime': ('NSE' in str(active_source) and 'TradingView' not in str(active_source)),
+```
+
+Nothing to do with freshness — a substring match. Two verified paths where it lied:
+`smart_fetch` returns `src + ' (STALE)'` for a stale frame, and `'NSE Official Direct (STALE)'`
+still matches `'NSE'`; and `active_source = 'NSE Direct Live'` is set whenever an NSE quote
+arrives, stale or not. Now it reuses the FIX-49 gate as the single source of truth, plus a
+`realtime_reason` field. Measured on the holiday, real `/api/stock/RELIANCE`:
+
+```
+is_realtime     = False
+realtime_reason = 'koi live quote nahi — price daily close se'
+data_source     = 'Yahoo Finance'
+```
+
+**What I got wrong, and what it caught.** My FIX-49 tests used `2026-10-02` as the
+"market open" fixture — a day that is not a trading day at all. Adding the calendar broke **11
+of my own tests**, which surfaced two design faults: that fixture, and an end-to-end stub test
+that **depended on the wall clock** (its verdict would change on a Monday morning or a holiday).
+`now` is now frozen (`_FrozenDT` = 01-Oct-2026 09:31, a real trading day), so the test gives
+the same answer whenever it runs. Two older FIX-47 tests needed the same treatment — they
+treated `2026-10-02` as "the Friday"; the weekend fixture moved to 26/27-Sep, which is not
+adjacent to any holiday.
+
+`verify_live_quote.py` grew 86 → **114 checks**.
+
+---
+
 ### FIX-49 · a stale price no longer gets a "LIVE" badge
+
+> ⚠️ **Correction, added by FIX-50.** This section says "market open for 8/16 minutes" on
+> 02-Oct-2026. That was wrong — it was Gandhi Jayanti, market closed all day. The two bugs
+> described here are real (a hardcoded `is_realtime: True`, and `datetime.now()` standing in
+> for a missing quote timestamp — on a holiday nothing is live either), but the
+> `1126m purana` STALE verdict was a **false positive** that FIX-50's holiday calendar fixed.
 
 Found while reading a pasted server log from **02-Oct-2026 09:23 IST — a Friday, market open
 for 8 minutes**. Every 5m/1h frame reported `18.2h old`. Before blaming the app, I asked the

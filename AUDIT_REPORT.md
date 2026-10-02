@@ -2,6 +2,118 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-50 addendum — 2026-10-02 (NSE holiday calendar + ek aur source-name fail-open)
+
+### Ye user ne pakda, maine nahi
+
+FIX-49 deliver karte waqt maine likha tha: *"market 16 minute se khula"* — 02-Oct-2026 09:31
+IST par. User ne jawab diya: **"today market me holiday he."**
+
+Wo sahi tha. 2 October 2026, Friday = **Mahatma Gandhi Jayanti** — NSE/BSE poora din band.
+Mera premise galat tha, aur uska matlab ye bhi hua ki **FIX-49 ka jo "false STALE" maine
+measure kiya tha, wo actually sahi data tha** — aaj trading hai hi nahi, last quote 01-Oct
+15:15 hona chahiye aur wahi tha.
+
+Measure kiya, fix se pehle:
+
+```
+2026-10-02 09:31 Fri (HOLIDAY)
+   is_market_open()  = True                              ← galat
+   quote_is_fresh()  = 'STALE: quote 1096m purana'       ← FALSE POSITIVE
+```
+
+Jad: `is_market_open()` sirf `weekday <= 4` aur `09:15–15:40` dekhta tha. **Holiday ka koi
+concept hi nahi tha.** Ye FIX-49 ko bhi chhuta tha aur FIX-47 ko bhi — `last_completed_session()`
+holiday ko normal weekday maan kar "expected session" galat batata tha (Mon 05-Oct ko expected
+`2026-10-02` batata, jabki wo holiday tha). `CLOSED_GRACE_DAYS = 1` ne verdict bacha liya tha,
+par reason string jhoothi thi.
+
+### Fix A — holiday calendar
+
+NSE equity + equity-derivatives ke **2026 ke 16 weekday trading holidays** `NSE_HOLIDAYS` me.
+Do update-raaste bhi, taaki late NSE circular ke liye patch na maangna pade:
+
+- `STOCKAI_EXTRA_HOLIDAYS=2027-01-26,2027-03-23` (`.env` me bhi)
+- repo root me optional `nse_holidays.txt` (ek date per line, `#` comments ok)
+
+Ye raasta isliye zaroori hai kyunki **15-Jan-2026 original calendar me tha hi nahi** — NSE ne
+use 12-Jan-2026 ke circular se add kiya (Maharashtra municipal elections). Calendar hamesha
+adhoora reh sakta hai.
+
+Safety: calendar khaali/purana ho to **crash nahi** — behaviour weekday-rule par wapas chala
+jaata hai (jo aaj ka behaviour hai), aur agar current year calendar me nahi hai to startup par
+warning aati hai:
+
+```
+👉 NSE holidays: 16 dates loaded for 2026 (aaj HOLIDAY — market band)
+```
+```
+⚠️  NSE holiday calendar me 2027 NAHI hai (sirf [2026]) — har holiday par jhootha STALE warning aayega.
+   Fix: nse_holidays.txt me 2027-MM-DD lines daalo, ya .env me STOCKAI_EXTRA_HOLIDAYS=...
+```
+
+Measured, fix ke baad:
+
+| case | `is_market_open` | `last_completed_session` | `quote_is_fresh` |
+|---|---|---|---|
+| HOLIDAY 02-Oct 09:31 | **False** | 2026-10-01 | **FRESH** — `market closed, quote 2026-10-01 (latest 2026-10-01) — fine` |
+| HOLIDAY 02-Oct 20:00 | False | 2026-10-01 | FRESH |
+| normal Mon 05-Oct 09:31 | True | **2026-10-01** (holiday skip) | STALE (18.3h purana quote) |
+| normal Mon 05-Oct 16:30 | False | 2026-10-05 | STALE (4d behind) |
+| Mon 09:31, quote 30s pehle | True | — | FRESH |
+
+Yaani holiday par false-positive gaya, **aur normal din par gate utna hi strict hai**.
+
+Ek subtlety: `2026-08-15` (Independence Day) **Saturday** par padta hai, isliye wo 16-date
+weekday list me nahi hai — par market us din bhi band hai, weekend rule se. Dono alag assert kiye.
+
+### Fix B — `/api/stock` ka `is_realtime` source-name se aata tha
+
+Ye wahi cheez thi jo maine FIX-49 deliver karte waqt "bacha hua" batayi thi:
+
+```python
+'is_realtime': ('NSE' in str(active_source) and 'TradingView' not in str(active_source)),
+```
+
+Freshness se koi lena-dena nahi — **sirf source ke naam ka substring match**. Do concrete
+raaste jahan ye jhooth bolta tha, dono verify kiye:
+
+1. `smart_fetch` stale frame par `src + ' (STALE)'` return karta hai (app.py L1231) —
+   `'NSE Official Direct (STALE)'` me bhi `'NSE'` match ho jaata tha → `is_realtime: True`
+2. `active_source = 'NSE Direct Live'` tab set hota hai jab NSE quote mile — **stale ho ya
+   fresh, farq nahi padta tha** → `is_realtime: True`
+
+Ab single source of truth FIX-49 ka gate hai:
+
+```python
+'is_realtime': bool(live_nse and live_nse.get('is_realtime')),
+'realtime_reason': (... gate ka reason, ya 'koi live quote nahi — price daily close se'),
+```
+
+Measured, real `/api/stock/RELIANCE` (02-Oct, holiday):
+
+```
+is_realtime     = False
+realtime_reason = 'koi live quote nahi — price daily close se'
+data_source     = 'Yahoo Finance'
+```
+
+### Ek cheez jo maine galat ki, aur uska hisaab
+
+FIX-49 ke tests me maine `2026-10-02` ko "market khula" fixture banaya tha — jo ab holiday
+hai. Calendar lagte hi **mere apne 11 tests toote**. Ye accha hua: isse do design galtiyan
+pakdi gayi — (a) fixture ek aise din par bana tha jo trading day hi nahi tha, aur (b) end-to-end
+stub test **wall-clock par depend** karta tha (Monday subah ya holiday par verdict badal jaata).
+Ab `now` freeze hota hai (`_FrozenDT` = 01-Oct-2026 09:31, ek asli trading day), to test jis
+din chale wahi jawab dega.
+
+Do purane FIX-47 tests bhi update karne pade — wo `2026-10-02` ko "Friday" maan kar expected
+session batate the. Weekend fixture 26/27-Sep par shift kiya, jo kisi holiday ke paas nahi hai.
+
+`verify_live_quote.py` 86 → **114 checks** · full regression **753 passed, 0 failed**.
+
+---
+
 ## FIX-49 addendum — 2026-10-02 (live-quote freshness gate: stale price "LIVE" kehlata tha)
 
 ### Kaise pakda gaya
@@ -1290,7 +1402,8 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
-| — | Live-quote freshness verify hi nahi hoti thi — 18 ghante purana price "LIVE" label ke saath jaata tha | ✅ **Solved (FIX-49)** — `fetch_yahoo_live_ltp()` Yahoo ke `regularMarketTime` ko **sirf display string** banane ke liye padhta tha (poore file me ek hi reference), aur `is_realtime: True` **hardcoded** tha; timestamp missing ho to `datetime.now()` quote ka waqt maan leta tha. Measured 2026-10-02 09:31 IST (market 16 min se khula): `regularMarketPrice=1167.7` ke saath `regularMarketTime=2026-10-01 15:15` — **18.3h purana**. Nateeja: chart "DELAYED" aur header price "LIVE", ek hi screen par. `fetch_nse_live_ltp()` me bhi wahi pattern (NSE ka apna `timestamp` ignore, `datetime.now()` likha). Ab `frame_is_fresh()` ka scalar twin `quote_is_fresh()` + `_parse_quote_ts()` (Yahoo epoch + NSE `'02-Oct-2026 09:31:00'`), missing timestamp **fail-CLOSED**, `STOCKAI_LIVE_MAX_AGE_MIN` limit + `STOCKAI_LIVE_GATE=off` kill-switch, aur console warning 5 min/symbol throttle. Price phir bhi serve hota hai — gate sirf label badalta hai. Side-fix: NSE ab `source: 'nse'` bhejta hai, `'unknown'` nahi. `change%` ka prevClose **pehle se sahi tha** (verify kiya) — chheda nahi. `verify_live_quote.py` 50 → **86 checks**. |
+| — | Holiday ka koi concept hi nahi tha — market band hone par bhi app "market khula" maanti thi | ✅ **Solved (FIX-50)** — **user ne pakda**, maine nahi. Maine FIX-49 me likha tha "market 16 min se khula" (02-Oct-2026 09:31); wo **Mahatma Gandhi Jayanti** tha, NSE/BSE poora din band. `is_market_open()` sirf weekday+time dekhta tha, isliye `True` bola aur FIX-49 ka gate perfectly-sahi data ko `STALE: quote 1096m purana` keh gaya — **false positive**. Wahi bug FIX-47 ko bhi chhuta tha: `last_completed_session()` holiday ko normal weekday maan kar expected session galat batata tha. Ab NSE equity ke **2026 ke 16 weekday holidays** `NSE_HOLIDAYS` me, plus do patch-free update raaste (`STOCKAI_EXTRA_HOLIDAYS` env, optional `nse_holidays.txt`) — zaroori isliye kyunki 15-Jan-2026 original calendar me tha hi nahi, NSE ne circular se baad me add kiya. Calendar purana/khaali ho to crash nahi, weekday-rule par degrade + startup warning. Saath me `/api/stock` ka `is_realtime` bhi theek hua — pehle `'NSE' in str(active_source)` substring match se aata tha, jisme `'NSE Official Direct (STALE)'` bhi True ban jaata tha; ab FIX-49 ke gate verdict se + `realtime_reason`. Measured: holiday 09:31 → `is_market_open=False`, quote **FRESH** (`market closed, quote 2026-10-01 (latest 2026-10-01) — fine`); normal Mon 09:31 → gate utna hi strict. `verify_live_quote.py` 86 → **114 checks**. |
+| — | Live-quote freshness verify hi nahi hoti thi — 18 ghante purana price "LIVE" label ke saath jaata tha | ✅ **Solved (FIX-49)** — `fetch_yahoo_live_ltp()` Yahoo ke `regularMarketTime` ko **sirf display string** banane ke liye padhta tha (poore file me ek hi reference), aur `is_realtime: True` **hardcoded** tha; timestamp missing ho to `datetime.now()` quote ka waqt maan leta tha. Measured 2026-10-02 09:31 IST (market 16 min se khula): `regularMarketPrice=1167.7` ke saath `regularMarketTime=2026-10-01 15:15` — **18.3h purana**. Nateeja: chart "DELAYED" aur header price "LIVE", ek hi screen par. `fetch_nse_live_ltp()` me bhi wahi pattern (NSE ka apna `timestamp` ignore, `datetime.now()` likha). Ab `frame_is_fresh()` ka scalar twin `quote_is_fresh()` + `_parse_quote_ts()` (Yahoo epoch + NSE `'02-Oct-2026 09:31:00'`), missing timestamp **fail-CLOSED**, `STOCKAI_LIVE_MAX_AGE_MIN` limit + `STOCKAI_LIVE_GATE=off` kill-switch, aur console warning 5 min/symbol throttle. Price phir bhi serve hota hai — gate sirf label badalta hai. Side-fix: NSE ab `source: 'nse'` bhejta hai, `'unknown'` nahi. `change%` ka prevClose **pehle se sahi tha** (verify kiya) — chheda nahi. `verify_live_quote.py` 50 → **86 checks**. ⚠️ **Correction (FIX-50 me):** is fix me jo "measured 09:31, market 16 min se khula" likha hai wo **galat premise** tha — 02-Oct-2026 Gandhi Jayanti tha, market poora din band. Hardcoded `is_realtime: True` aur fake `datetime.now()` timestamp asli bugs the (holiday par bhi kuch "live" nahi hota), par wo `1126m purana` STALE verdict **false positive** tha. FIX-50 ne holiday calendar add karke use theek kiya. |
 | — | Config provenance chhupi thi — token `.env` se aaya ya Windows env se, pata nahi chalta tha | ✅ **Solved (FIX-48)** — shuruaat **meri galat salah** se hui: maine do baar kaha "`.env` me token badal do", jabki wo token **Windows User-scope env var** me tha (verify: working tree + poori git history dono me absent). Do design gap the: `load_dotenv_file()` ka `override=False` default matlab pehle se set key par `.env` ka value **chup-chaap ignore** hota tha, aur banner sirf `Token auth ON` kehta tha — source nahi. Ab `config_source()` (`.env` load se **pehle** ka `PRE_DOTENV_KEYS` snapshot) banner par `↳ source: …` dikhata hai, aur override case me exact removal command bhi. `verify_security.py` 118 → **126 checks**. |
 | — | Freshness guard market band hone par poora bypass + duplicate log lines | ✅ **Solved (FIX-47)** — `frame_is_fresh()` market band hote hi `return True, 'market closed … (fine)'` kar deta tha, isliye **10-din purana bar bhi "fine"** kehlata tha. Real case: NSE-direct ne TCS ka bar 2 session purana diya (45.6h) jabki Yahoo ke paas aaj ka session tha (16.2h) — aur cascade ne pehle tier ko "fine" maan kar Yahoo try hi nahi kiya. Ab market band ho tab **session-level** compare hota hai (`last_completed_session()`, `CLOSED_GRACE_DAYS = 1` holiday ke liye). Saath me do **fail-open** paths theek kiye jo mere apne test ne pakde: `frame_age_minutes()` aware−naive `TypeError` ko `except` me chhupa kar `None` deta tha (→ "age unknown" → FRESH), aur `is_market_open()` aware UTC ko IST maan leta tha. Duplicate log lines: werkzeug apna handler khud add karta tha, phir koi library `basicConfig()` se root par handler laga deti → har line 2 baar; ab explicit handler + `propagate = False`. `verify_live_quote.py` 38 → **50 checks** (ek purana check *bug ko hi assert* kar raha tha). |
 | — | Pyrefly `bad-unpacking` × 4 in `app.py` (ML param unpacking) | ✅ **Solved (FIX-46)** — type-check issue tha, runtime bug nahi (`CONFIG` heterogeneous hai isliye checker mapping prove nahi kar sakta; runtime par chaaron values sach me `dict` hain, hyperparams unchanged). Reproduce karne ke liye `pyrefly.toml` + `preset = "strict"` chahiye tha — sandbox sklearn 1.7.2 me `py.typed` nahi hai, isliye default mode 0 errors deta hai. `ml_params()` helper se paanchon sites route kiye. Measured, `preset = "strict"`: total 262 → **258**, `bad-unpacking` 4 → **0**, **koi naya error kind nahi**. `verify_fixes.py` 31 → **53 checks**. |

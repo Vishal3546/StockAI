@@ -160,10 +160,13 @@ try:
     check('1-session-behind accept (market closed, holiday grace)', f7 is True, w7)
 
     # Weekend: Monday subah ka answer Friday hona chahiye (false-positive nahi)
+    # FIX-50 note: pehle ye 2026-10-03/05 use karta tha aur expected 2026-10-02 tha.
+    # Ab 02-Oct Gandhi Jayanti hai (holiday calendar), isliye wo weekend shift kiya —
+    # 26/27-Sep ka weekend kisi holiday ke paas nahi hai.
     check('last_completed_session skips weekend (Sat → Fri)',
-          A.last_completed_session(_dt.datetime(2026, 10, 3, 12, 0)) == _dt.date(2026, 10, 2))
+          A.last_completed_session(_dt.datetime(2026, 9, 26, 12, 0)) == _dt.date(2026, 9, 25))
     check('last_completed_session Mon subah → Fri',
-          A.last_completed_session(_dt.datetime(2026, 10, 5, 8, 0)) == _dt.date(2026, 10, 2))
+          A.last_completed_session(_dt.datetime(2026, 9, 28, 8, 0)) == _dt.date(2026, 9, 25))
     check('last_completed_session close ke baad → aaj',
           A.last_completed_session(_dt.datetime(2026, 10, 1, 16, 6)) == _dt.date(2026, 10, 1))
     check('last_completed_session close se pehle → kal',
@@ -314,9 +317,11 @@ import datetime as _dt
 import io as _io
 import contextlib as _ctx
 _IST = A.IST
-_OPEN = _dt.datetime(2026, 10, 2, 9, 31)      # Fri, market khula
-_CLOSE = _dt.datetime(2026, 10, 2, 16, 30)    # Fri, market band
-_MONAM = _dt.datetime(2026, 10, 5, 8, 0)      # Mon subah, market band
+# FIX-50 note: pehle ye 2026-10-02 (Fri) tha — jo ab holiday calendar me hai, isliye
+# "market khula" fixture jhootha ho gaya tha. 01-Oct Thursday ek asli trading day hai.
+_OPEN = _dt.datetime(2026, 10, 1, 9, 31)      # Thu, market khula (trading day)
+_CLOSE = _dt.datetime(2026, 10, 1, 16, 30)    # Thu, market band
+_MONAM = _dt.datetime(2026, 9, 28, 8, 0)      # Mon subah, market band
 
 
 def _ep(naive_ist):
@@ -345,24 +350,27 @@ for _mins, _want in [(0, True), (_lim - 0.1, True), (_lim, True),
           _f is _want, _r)
 
 print('\n-- FIX-49: quote_is_fresh (market BAND) + asli measured case')
-check('AAPKI STATE: mkt khula, quote kal 15:15 (18.3h) → STALE',
-      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _OPEN)[0] is False)
+# _OPEN = 01-Oct 09:31 (trading day, market khula). Ek din purana quote = 30-Sep 15:15.
+check('mkt khula, quote pichhle session 15:15 (18.3h) → STALE',
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 9, 30, 15, 15)), _OPEN)[0] is False)
 check('  ↳ age ~1096 min measure hota hai',
-      abs(A.quote_age_minutes(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _OPEN) - 1096) < 1)
+      abs(A.quote_age_minutes(_ep(_dt.datetime(2026, 9, 30, 15, 15)), _OPEN) - 1096) < 1,
+      f"age={A.quote_age_minutes(_ep(_dt.datetime(2026, 9, 30, 15, 15)), _OPEN)}")
 check('mkt band 16:30, quote aaj 15:15 → FRESH',
-      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 2, 15, 15)), _CLOSE)[0] is True)
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _CLOSE)[0] is True)
 check('Mon subah, quote Fri 15:15 → FRESH (weekend skip)',
-      A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 2, 15, 15)), _MONAM)[0] is True)
-check('mkt band, quote 11 din purana → STALE',
+      A.quote_is_fresh(_ep(_dt.datetime(2026, 9, 25, 15, 15)), _MONAM)[0] is True)
+check('mkt band, quote 10 din purana → STALE',
       A.quote_is_fresh(_ep(_dt.datetime(2026, 9, 21, 15, 15)), _CLOSE)[0] is False)
 
 print('\n-- FIX-49: fail-closed + timezone')
 check('MISSING timestamp → STALE (pehle datetime.now() maan leta tha)',
       A.quote_is_fresh(None, _OPEN)[0] is False, A.quote_is_fresh(None, _OPEN)[1])
-_res = {A.quote_is_fresh(_ep(_dt.datetime(2026, 10, 1, 15, 15)), _n)[0]
-        for _n in (_OPEN,
-                   _OPEN.replace(tzinfo=_IST),
-                   _dt.datetime(2026, 10, 2, 4, 1, tzinfo=_dt.timezone.utc))}
+_STALE_Q = _ep(_dt.datetime(2026, 9, 30, 15, 15))
+_res = {A.quote_is_fresh(_STALE_Q, _n)[0]
+        for _n in (_OPEN,                                  # naive IST
+                   _OPEN.replace(tzinfo=_IST),             # IST-aware
+                   _dt.datetime(2026, 10, 1, 4, 1, tzinfo=_dt.timezone.utc))}  # UTC-aware
 check('naive / IST-aware / UTC-aware `now` sab same jawab dete hain',
       len(_res) == 1 and _res == {False}, f'results={_res}')
 _gate = A.LIVE_GATE_ON
@@ -400,10 +408,30 @@ def _mk(ts):
             'regularMarketDayLow': 1160.0}
 
 
+class _FrozenDT(_dt.datetime):
+    """Test ke liye ghadi rok do.
+
+    `fetch_yahoo_live_ltp()` gate ko `now=None` ke saath call karta hai, yaani asli
+    wall-clock. Bina freeze kiye ye test us din fail hota jis din chalaya jaaye —
+    Monday subah ya kisi holiday par verdict badal jaata. Freeze: 01-Oct-2026 09:31,
+    ek asli trading day, market khula.
+    """
+
+    _frozen = _dt.datetime(2026, 10, 1, 9, 31)
+
+    @classmethod
+    def now(cls, tz=None):
+        base = cls._frozen.replace(tzinfo=_IST)
+        return base.astimezone(tz) if tz is not None else base.replace(tzinfo=None)
+
+
 _orig_get = A._HTTP.get
+_orig_dt = A.datetime
+A.datetime = _FrozenDT
 A._LIVE_STALE_WARNED.clear()
 try:
-    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(_ep(_dt.datetime(2026, 10, 1, 15, 15))))
+    # stale: pichhle session (30-Sep) ka close, 18.3 ghante purana
+    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(_ep(_dt.datetime(2026, 9, 30, 15, 15))))
     _buf = _io.StringIO()
     with _ctx.redirect_stdout(_buf):
         _qs = A.fetch_yahoo_live_ltp('RELIANCE')
@@ -417,7 +445,8 @@ try:
           _qs.get('close_price') == 1187.0 and _qs.get('change') == -19.3,
           f"close={_qs.get('close_price')} change={_qs.get('change')}")
 
-    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(_dt.datetime.now(_IST).timestamp()))
+    # fresh: 30 second purana
+    A._HTTP.get = lambda url, **kw: _FakeResp(_mk(_ep(_dt.datetime(2026, 10, 1, 9, 30, 30))))
     _qf = A.fetch_yahoo_live_ltp('RELIANCE')
     check('fresh Yahoo quote → is_realtime True', _qf.get('is_realtime') is True)
     check('fresh Yahoo quote → stale False', _qf.get('stale') is False)
@@ -430,6 +459,7 @@ try:
           _qn.get('timestamp') == '--:--:--', f"timestamp={_qn.get('timestamp')}")
 finally:
     A._HTTP.get = _orig_get
+    A.datetime = _orig_dt
     A._LIVE_STALE_WARNED.clear()
 
 print('\n-- FIX-49: source-level guarantees')
@@ -447,6 +477,124 @@ check('kill-switch env se override ho sakta hai',
       "os.environ.get('STOCKAI_LIVE_GATE')" in app_src)
 check('NSE apna timestamp bhejta hai aur ab use hota hai',
       "data.get('timestamp')" in app_src and 'lastUpdateTime' in app_src)
+
+# ── FIX-50: NSE holiday calendar + source-name fail-open ───────────────────
+# User ne khud pakda: 2026-10-02 Friday = Gandhi Jayanti, market poora din BAND.
+# Par `is_market_open()` sirf weekday+time dekhta tha → 09:31 par True bola →
+# FIX-49 ka gate minute-level branch me gaya aur perfectly-sahi data ko
+# 'STALE: quote 1096m purana' keh diya. FALSE POSITIVE.
+_HOL = _dt.datetime(2026, 10, 2, 9, 31)      # Fri, Gandhi Jayanti — market BAND
+_HOLPM = _dt.datetime(2026, 10, 2, 20, 0)
+_MON = _dt.datetime(2026, 10, 5, 9, 31)      # Mon, normal trading day
+_MONPM = _dt.datetime(2026, 10, 5, 16, 30)
+_SAT = _dt.datetime(2026, 10, 3, 11, 0)
+_Q_LAST = _ep(_dt.datetime(2026, 10, 1, 15, 15))   # aakhri asli session ka quote
+
+print('\n-- FIX-50: holiday calendar')
+check('2026 ke 16 weekday holidays loaded hain',
+      sum(1 for d in A.NSE_HOLIDAYS if d.year == 2026) == 16,
+      f"count={sum(1 for d in A.NSE_HOLIDAYS if d.year == 2026)}")
+_known = ['2026-01-15', '2026-01-26', '2026-04-03', '2026-05-01',
+          '2026-10-02', '2026-10-20', '2026-12-25']
+_missing = [d for d in _known if A._parse_iso_date(d) not in A.NSE_HOLIDAYS]
+check('jaani-pehchani holidays maujood hain', not _missing, f'missing={_missing or "none"}')
+# 15-Aug-2026 Saturday par padta hai — NSE ki "weekday holidays" list me nahi hota,
+# par market us din bhi band hi hai (weekend rule se). Dono baat alag-alag assert karo.
+check('15-Aug-2026 (Sat) weekday-holiday list me NAHI, par market phir bhi band',
+      A._parse_iso_date('2026-08-15') not in A.NSE_HOLIDAYS
+      and A.is_market_open(_dt.datetime(2026, 8, 15, 11, 0)) is False)
+_not_hol = ['2026-01-16', '2026-07-15', '2026-09-30', '2026-10-01', '2026-10-05']
+_wrong = [d for d in _not_hol if A._parse_iso_date(d) in A.NSE_HOLIDAYS]
+check('normal trading days holiday NAHI maane gaye', not _wrong, f'wrongly flagged={_wrong or "none"}')
+check('is_market_holiday date/datetime/None teeno leta hai',
+      A.is_market_holiday(_dt.date(2026, 10, 2)) is True
+      and A.is_market_holiday(_dt.datetime(2026, 10, 2, 9, 31)) is True
+      and A.is_market_holiday(_dt.date(2026, 10, 5)) is False
+      and isinstance(A.is_market_holiday(None), bool))
+
+print('\n-- FIX-50: is_market_open holiday par')
+check('HOLIDAY 09:31 → market BAND (pehle True bolta tha)',
+      A.is_market_open(_HOL) is False)
+check('normal Mon 09:31 → market KHULA', A.is_market_open(_MON) is True)
+check('Saturday → market BAND', A.is_market_open(_SAT) is False)
+check('holiday 20:00 → market BAND', A.is_market_open(_HOLPM) is False)
+
+print('\n-- FIX-50: false-positive ab nahi (asli regression test)')
+_f, _r = A.quote_is_fresh(_Q_LAST, _HOL)
+check('HOLIDAY 09:31, quote 01-Oct 15:15 → FRESH (pehle STALE kehta tha)',
+      _f is True, _r)
+check('  ↳ reason "market closed" bolta hai, "purana" nahi',
+      'market closed' in _r and 'STALE' not in _r, _r)
+check('holiday 20:00 par bhi FRESH', A.quote_is_fresh(_Q_LAST, _HOLPM)[0] is True)
+
+print('\n-- FIX-50: last_completed_session holiday skip karta hai')
+check('Mon 05-Oct subah → 2026-10-01 (02-Oct holiday skip)',
+      A.last_completed_session(_MON) == _dt.date(2026, 10, 1),
+      f"got={A.last_completed_session(_MON)}")
+check('Mon 05-Oct shaam → 2026-10-05 (aaj ka session complete)',
+      A.last_completed_session(_MONPM) == _dt.date(2026, 10, 5),
+      f"got={A.last_completed_session(_MONPM)}")
+check('holiday ke agle din shaam → holiday skip hokar 10-01',
+      A.last_completed_session(_HOLPM) == _dt.date(2026, 10, 1),
+      f"got={A.last_completed_session(_HOLPM)}")
+
+print('\n-- FIX-50: normal din par gate abhi bhi strict hai')
+check('Mon 09:31, quote 01-Oct 15:15 (18.3h) → STALE',
+      A.quote_is_fresh(_Q_LAST, _MON)[0] is False, A.quote_is_fresh(_Q_LAST, _MON)[1])
+check('Mon 09:31, quote 30s pehle → FRESH',
+      A.quote_is_fresh(_ep(_MON - _dt.timedelta(seconds=30)), _MON)[0] is True)
+check('Mon 16:30, quote 4 din purana → STALE',
+      A.quote_is_fresh(_Q_LAST, _MONPM)[0] is False)
+
+print('\n-- FIX-50: calendar update karne ke raaste (patch ke bina)')
+_saved_env = os.environ.get('STOCKAI_EXTRA_HOLIDAYS')
+os.environ['STOCKAI_EXTRA_HOLIDAYS'] = '2027-01-26, 2027-03-23 ,garbage,2027-11-04'
+_extra = A._load_extra_holidays()
+check('STOCKAI_EXTRA_HOLIDAYS env se dates aati hain',
+      {_dt.date(2027, 1, 26), _dt.date(2027, 3, 23), _dt.date(2027, 11, 4)} <= _extra,
+      f'got={sorted(str(d) for d in _extra)}')
+check('  ↳ garbage entry chup-chaap ignore hoti hai',
+      all(d.year != 1900 for d in _extra) and len(_extra) == 3, f'count={len(_extra)}')
+if _saved_env is None:
+    os.environ.pop('STOCKAI_EXTRA_HOLIDAYS', None)
+else:
+    os.environ['STOCKAI_EXTRA_HOLIDAYS'] = _saved_env
+_hf = A.HOLIDAYS_FILE
+_hf_existed = _hf.exists()
+_hf_backup = _hf.read_text(encoding='utf-8') if _hf_existed else None
+try:
+    _hf.write_text('# comment line\n2027-08-15\n2027-10-02   # Gandhi Jayanti\n', encoding='utf-8')
+    _from_file = A._load_extra_holidays()
+    check('nse_holidays.txt se dates aati hain (inline # comment strip)',
+          _dt.date(2027, 8, 15) in _from_file and _dt.date(2027, 10, 2) in _from_file,
+          f'got={sorted(str(d) for d in _from_file)}')
+finally:
+    if _hf_existed:
+        _hf.write_text(_hf_backup, encoding='utf-8')
+    else:
+        _hf.unlink(missing_ok=True)
+
+print('\n-- FIX-50: calendar khaali ho to crash nahi, weekday par wapas')
+_saved_hol = A.NSE_HOLIDAYS
+try:
+    A.NSE_HOLIDAYS = frozenset()
+    check('khaali calendar → normal Mon khula maana jaata hai (degrade, crash nahi)',
+          A.is_market_open(_MON) is True and A.is_market_open(_SAT) is False)
+    check('khaali calendar → last_completed_session phir bhi weekend skip karta hai',
+          A.last_completed_session(_dt.datetime(2026, 10, 5, 8, 0)) == _dt.date(2026, 10, 2))
+finally:
+    A.NSE_HOLIDAYS = _saved_hol
+
+print('\n-- FIX-50: /api/stock ka is_realtime source-name se nahi aata')
+check("purana `'NSE' in str(active_source)` fail-open hata diya gaya",
+      "'NSE' in str(active_source)" not in app_src)
+check('ab live_nse ke gate verdict se aata hai',
+      "bool(live_nse and live_nse.get('is_realtime'))" in app_src)
+check('realtime_reason bhi expose hota hai', "'realtime_reason'" in app_src)
+check('banner par holiday coverage print hoti hai',
+      'NSE holidays:' in app_src and 'HOLIDAY — market band' in app_src)
+check('calendar purana ho to startup warning hai',
+      'holiday calendar me' in app_src and 'STOCKAI_EXTRA_HOLIDAYS' in app_src)
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
