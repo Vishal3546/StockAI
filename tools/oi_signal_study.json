@@ -1,0 +1,112 @@
+{
+  "asof": "2026-10-03",
+  "symbols": 26,
+  "symbol_days": 30550,
+  "proxy_signals": [
+    "fv_ratio = futures_vol / spot_vol",
+    "fv_rvol = fut_vol / 20d_avg"
+  ],
+  "futures_round_trip_cost_pct": 0.146,
+  "results": {
+    "fv_ratio": {
+      "1d": {
+        "gross_spread_pct": 0.0438,
+        "net_after_cost_pct": -0.1022,
+        "cross_symbol_t": 1.52,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 50.62
+      },
+      "2d": {
+        "gross_spread_pct": 0.1407,
+        "net_after_cost_pct": -0.0053,
+        "cross_symbol_t": 4.05,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 51.39
+      },
+      "3d": {
+        "gross_spread_pct": 0.2321,
+        "net_after_cost_pct": 0.0861,
+        "cross_symbol_t": 4.18,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 51.67
+      },
+      "5d": {
+        "gross_spread_pct": 0.4195,
+        "net_after_cost_pct": 0.2735,
+        "cross_symbol_t": 5.11,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 52.21
+      }
+    },
+    "fv_rvol": {
+      "1d": {
+        "gross_spread_pct": 0.047,
+        "net_after_cost_pct": -0.099,
+        "cross_symbol_t": 2.04,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 50.62
+      },
+      "2d": {
+        "gross_spread_pct": 0.1056,
+        "net_after_cost_pct": -0.0404,
+        "cross_symbol_t": 2.8,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 51.3
+      },
+      "3d": {
+        "gross_spread_pct": 0.1572,
+        "net_after_cost_pct": 0.0112,
+        "cross_symbol_t": 3.1,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 50.94
+      },
+      "5d": {
+        "gross_spread_pct": 0.2912,
+        "net_after_cost_pct": 0.1452,
+        "cross_symbol_t": 4.33,
+        "n_symbols": 26,
+        "directional_accuracy_pct": 51.16
+      }
+    }
+  },
+  "controls_fv_ratio_5d": {
+    "momentum": {
+      "controls_used": "past5 + past20 (pure backward-looking)",
+      "r2_momentum_only": 0.00133,
+      "r2_with_signal": 0.00409,
+      "r2_delta": 0.002761,
+      "signal_coeff_after_momentum": 0.163071
+    },
+    "out_of_sample": {
+      "first_half": {
+        "gross_pct": 0.3118,
+        "n_symbols": 13
+      },
+      "second_half": {
+        "gross_pct": 0.494,
+        "n_symbols": 13
+      }
+    },
+    "long_only": {
+      "universe_mean_pct": 0.2056,
+      "high_tercile_mean_pct": 0.4582,
+      "low_tercile_mean_pct": 0.0387,
+      "excess_vs_universe_pct": 0.2526,
+      "net_after_cost_pct": 0.1066
+    },
+    "per_symbol": {
+      "positive": 24,
+      "total": 26,
+      "median_pct": 0.3184,
+      "worst_pct": -0.4026,
+      "best_pct": 1.3095
+    }
+  },
+  "checks": {
+    "out_of_sample_both_positive": true,
+    "long_only_net_positive": true,
+    "per_symbol_70pct_positive": true
+  },
+  "verdict": "POSSIBLE EDGE — purged walk-forward + REAL OI collector se verify karo",
+  "verdict_detail": "best net-after-cost = +0.274%/trade, best accuracy = 52.21% (coin flip 50%). Cost ke baad positive hai — par ye sirf proxy hai, asli OI nahi."
+}

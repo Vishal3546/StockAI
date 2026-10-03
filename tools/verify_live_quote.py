@@ -1235,6 +1235,54 @@ check('permutation null maujood hai (shuffled-label ceiling)',
 check('StandardScaler sirf TRAIN par fit hota hai (test leakage nahi)',
       'StandardScaler().fit(Xtr)' in _ml)
 
+# ── FIX-61: OI/PCR/IV reachability + proxy study ──────────────────────────
+# User ne poochha "OI/PCR/IV nahi hai to add karna padega kya". Maine pehle
+# reachability MEASURE ki — aur apna pichhla claim ("NSE API 404, reachable nahi")
+# GALAT nikla. Teen galtiyan thi:
+#   1. path move ho gaya tha: option-chain-indices -> option-chain-v3
+#   2. `expiry` param REQUIRED hai — bina uske NSE `{}` (2 B) deta hai
+#   3. cookie handshake + `Accept-Encoding: identity` chahiye
+# Verified: 248,963 B JSON, 116 strikes, PCR(OI)=0.6852, call-wall 23000,
+# put-wall 22000 (niftytrader.in se cross-check: levels exact match).
+# HISTORICAL OI time series kahin nahi mila (bhavcopy/fo_participant sab 404).
+
+print('\n-- FIX-61: study tool maujood aur honest hai')
+_study = ROOT / 'tools' / 'study_oi_signal.py'
+check('tools/study_oi_signal.py maujood hai', _study.exists())
+_st = _study.read_text(encoding='utf-8') if _study.exists() else ''
+check('option chain ka VERIFIED recipe documented hai (path + expiry + encoding)',
+      'option-chain-v3' in _st and 'Accept-Encoding' in _st and 'expiry' in _st)
+check('purana 404 path bhi documented hai (taaki koi wapas na jaaye)',
+      'option-chain-indices' in _st)
+check('historical OI ke 404 paths documented hain',
+      'fo_participant' in _st and 'bhav' in _st.lower())
+check('--collect mode hai (real OI history banane ke liye)', '--collect' in _st)
+
+print('\n-- FIX-61: controls maujood hain (FIX-57 ka lesson)')
+check('charo controls hain: momentum / OOS / long-only / per-symbol',
+      all(k in _st for k in ('momentum', 'out_of_sample', 'long_only', 'per_symbol')))
+check('momentum control LOOK-AHEAD FREE hai (past5/past20, forward-return se nahi)',
+      "m['past5'].values" in _st and "m['past20'].values" in _st)
+check('leaky purana momentum formula gaya', "shift(1).rolling(5).sum()" not in _py_code(_st))
+check('long-only framing hai (retail easily short nahi kar sakta)',
+      'excess_vs_universe_pct' in _st)
+check('verdict sirf charo checks pass par "POSSIBLE" bolta hai',
+      '_oos_ok and _lo_ok and _ps_ok' in _st)
+check('outcomes future hain (shift(-h)) — look-ahead nahi', 'shift(-h)' in _st)
+
+print('\n-- FIX-61: study artifact ka verdict recorded hai')
+_art = ROOT / 'tools' / 'oi_signal_study.json'
+check('tools/oi_signal_study.json maujood hai', _art.exists())
+if _art.exists():
+    _j = json.loads(_art.read_text(encoding='utf-8'))
+    check('verdict explicitly recorded hai (chhupaya nahi gaya)', 'verdict' in _j)
+    check('verdict_detail me PROXY ka caveat hai (asli OI nahi)',
+          'proxy' in str(_j.get('verdict_detail', '')).lower())
+    check('controls artifact me saved hain', 'controls_fv_ratio_5d' in _j)
+    _c = _j.get('controls_fv_ratio_5d', {})
+    check('momentum control me look-ahead-free note hai',
+          'backward' in str(_c.get('momentum', {}).get('controls_used', '')).lower())
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

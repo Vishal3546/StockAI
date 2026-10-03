@@ -35,3 +35,6 @@ reports/*.log
 # FIX-39: NSE master list ka local cache (regenerate ho jaata hai)
 nse_master_cache.json
 nse_master_cache.json.tmp
+
+# FIX-61: OI collector ka generated data — roz append hota hai, commit nahi karna
+reports/oi_history/

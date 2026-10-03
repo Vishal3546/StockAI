@@ -2,6 +2,108 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-61 addendum — 2026-10-03 (OI/PCR/IV: reachable hai, aur mera pichhla claim galat tha)
+
+User ne poochha: *"OI / PCR / IV / delivery nahi hai to add karna padega kya"*
+
+### ⚠️ Pehle: mera claim "reachable nahi" GALAT tha
+
+Maine FIX-57 ke waqt kaha tha *"NSE API 404, OI reachable nahi"*. **Teen galtiyan thi:**
+
+| galti | asli baat |
+|---|---|
+| `option-chain-indices` use kiya | path **MOVE** ho gaya → **`option-chain-v3`** |
+| bina `expiry` ke maanga | `expiry` **REQUIRED** hai — bina uske NSE `{}` (2 B) deta hai |
+| plain request | cookie handshake + **`Accept-Encoding: identity`** chahiye |
+
+Sahi recipe se verified:
+
+```
+[200] 248,963 B  application/json
+  records.data = 116 strikes
+  fields: openInterest, changeinOpenInterest, impliedVolatility, lastPrice,
+          totalTradedVolume, buyPrice1, sellPrice1, PChange …
+```
+
+Aur actually compute kiya (NIFTY, expiry 06-Oct-2026):
+
+| metric | value |
+|---|---|
+| **PCR (OI)** | 2,054,451 / 2,998,319 = **0.6852** |
+| max call OI strike (resistance) | **23,000** |
+| max put OI strike (support) | **22,000** |
+| ATM IV | 20.30 |
+
+Cross-check niftytrader.in se: *"Nifty immediate OI resistance is at 23,000, support at
+22,000. PCR: 0.60"* — **levels exact match**, PCR same ballpark. Stock-level bhi chalta
+hai (TCS PCR 0.8072 IV 36.61, RELIANCE PCR 0.7030 IV 26.07).
+
+### Par HISTORICAL OI kahin nahi mila
+
+| source | result |
+|---|---|
+| `archives fo{DD}{MON}{YYYY}bhav.csv.zip` | 404 (dono hosts, 3 dates) |
+| `BhavCopy_NSE_FO_0_0_0_{DDMMYYYY}_F_0000.csv` (naya naming) | 404 |
+| `fo_participant_{DDMMYYYY}.csv` (FII/DII OI) | 404 |
+| `/api/historical-oi`, `/api/oi-history`, `/api/fo-quote-history` + 9 aur | 404/403 |
+
+**Bina OI history ke OI signal backtest nahi ho sakta.** Isliye `tools/study_oi_signal.py`
+do modes me hai: `--collect` real OI history banata hai (roz chalaao), aur default mode
+ek **reachable proxy** (futures volume) par abhi study karta hai.
+
+### Proxy study ka result — is session ka pehla signal jo controls survive karta hai
+
+Signal: `fv_ratio = futures_volume / spot_volume` (F&O participation intensity),
+27 symbols × 1200 bars = 31,617 symbol-days. Outcome bar `t+h`, signal bar `t`.
+
+| horizon | gross | net (0.146% futures cost) | t | accuracy |
+|---|---|---|---|---|
+| 1d | +0.041% | −0.105% | +1.32 | 50.52% |
+| 3d | +0.229% | +0.083% | +3.70 | 51.63% |
+| **5d** | **+0.416%** | **+0.271%** | **+4.89** | **52.21%** |
+
+**Charo controls (FIX-57 ka lesson — headline par ruka nahi):**
+
+| control | result |
+|---|---|
+| Momentum (past5+past20) | R² 0.00133 → 0.00409 (Δ+0.0028), coeff +0.163 → **survives** |
+| Out-of-sample split | 1st half **+0.312%**, 2nd half **+0.494%** → dono positive, **decay nahi** |
+| **Long-only framing** | high +0.458% vs universe +0.206% → excess +0.253% → **net +0.107%** |
+| Per-symbol consistency | **24/26 positive**, median +0.318% |
+
+**Ye FIX-57 ke futures-basis se fundamentally alag hai** — wo tradable leg par negative
+tha aur decay karta tha. Ye dono halves me positive hai aur long-only me bhi cost ke baad
+bachta hai.
+
+### ⚠️ Maine apne hi control me look-ahead bug banaya, aur pakda
+
+Pehle momentum control me `r5.shift(1).rolling(5).sum()` use kiya — par `r5` khud
+**forward** return hai, isliye control me future data leak ho raha tha. **Control hi leaky
+ho to wo control nahi.** Fix: `past5` / `past20` = pure backward-looking returns. Clean
+control ke baad bhi result survive kiya (Δ+0.0028), to conclusion wahi hai — par number
+badla, isliye record kar raha hoon.
+
+### Honest caveats (ye "edge mil gaya" NAHI hai)
+
+1. **R² sirf 0.004** — fv_ratio 0.4% variance explain karta hai. Bahut weak.
+2. **Ye PROXY hai, asli OI nahi.** OI genuinely independent data hai; futures volume uska
+   substitute nahi.
+3. **In-sample + split-half** — proper purged walk-forward abhi nahi hua.
+4. **Multiple-testing:** 2 signals × 4 horizons = 8 combinations test kiye. Best-of-8
+   upward-biased hota hai (t=+4.89 phir bhi strong hai).
+5. **+0.107% net long-only** chhota hai — mera cost estimate off ho to gayab ho sakta hai.
+
+Isliye verdict: **POSSIBLE EDGE — purged walk-forward + REAL OI collector se verify karo.**
+Dashboard me abhi kuch plumb nahi kiya.
+
+### Verify
+
+`--collect NIFTY,TCS,RELIANCE` live chala — teeno ka asli OI/PCR/IV `reports/oi_history/`
+me save hua. Proxy study 27 symbols par chali. `verify_live_quote.py` 275 → **291 checks** ·
+regression **932 passed, 0 failed**.
+
+---
+
 ## FIX-60 addendum — 2026-10-02 (`research/` module ka poora audit)
 
 User ne poochha ki `research/` ke baaki files bhi deeply audit karun (FIX-59 wahi se
@@ -2325,6 +2427,7 @@ nifty_scanner_v3_6.py
 | M-10 | Unknown symbol ~15 s | ✅ Solved (FIX-14 cache) |
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
+| — | "OI/PCR/IV reachable nahi" — mera claim galat tha | ✅ **Corrected (FIX-61)** — teen galtiyan thi: path move ho gaya tha (`option-chain-indices` → **`option-chain-v3`**), `expiry` param **required** hai (bina uske NSE `{}` deta hai, maine wahi dekh kar "khaali" maan liya tha), aur cookie handshake + `Accept-Encoding: identity` chahiye. Sahi recipe se **248,963 B JSON, 116 strikes** mila; PCR(OI) **0.6852**, call-wall **23000**, put-wall **22000** compute kiya (niftytrader.in se levels exact match). **Par HISTORICAL OI kahin nahi mila** (bhavcopy/fo_participant/9 API paths sab 404) — bina history ke OI backtest namumkin. Isliye `tools/study_oi_signal.py`: `--collect` se real OI history banti hai, aur default mode reachable proxy (futures volume) par study karta hai. Result: 5d gross **+0.416%**, net **+0.271%**, t **+4.89** — aur **charo controls survive kiye** (momentum Δ+0.0028, OOS dono halves positive +0.312/+0.494, long-only net **+0.107%**, 24/26 symbols positive). Ye session ka pehla aisa signal hai. **Maine apne hi control me look-ahead bug banaya** (`r5.shift(1).rolling(5)`) aur pakda — clean control ke baad bhi survive kiya. Verdict **POSSIBLE EDGE**, dashboard me kuch plumb nahi kiya. `verify_live_quote.py` 275 → **291**, regression **932/0**. |
 | — | `research/` module ka koi verifier coverage nahi tha; 3 bugs chhupe the | ✅ **Solved (FIX-60)** — poora audit kiya (`backtest`/`features`/`ml_lab`/`run_study`/`data`/`analyze`, 1129 lines). **Bug 1:** `TRADING_DAYS = 252` (US convention) jabki measured NSE avg **247.0** (2022=248, 2023=245, 2024=246, 2025=249) → annualisation **+2.02% overstate**, Sharpe/Sortino bhi. **Bug 2:** `research/data.py` Tier-2 me `n_bars=520` hardcoded tha, `period` pass hi nahi hota tha — measured: `period='5y'` → 520 bars, aur wo `RELIANCE_5y.csv` me cache hokar 12 ghante "5 saal" bankar serve hote the (study ~3.7x patli, kisi ko pata nahi). Ab period honour hota hai (5y→**1235 bars** verified) aur cache sirf 80%+ depth par likhta hai. **Bug 3:** risk-free 0.065 **teen** jagah hardcoded (`app.py`/`deep_analyzer.py`/`backtest.py`) — wahi FIX-59 wali class; `research/` deliberately independent hai isliye drift-guard test lagaya. **Jo clean nikla:** `exec_lag=1` look-ahead guard + 5/5 invariants, purged walk-forward + permutation null + train-only scaler, `embargo` horizon se set. **Mera `PROB_THRESHOLD` shaq galat tha** — 0.55 (0-1) aur 55 (0-100) equivalent hain. `verify_live_quote.py` 260 → **275**, regression **916/0**. |
 | — | Do cost model the jo aapas me DISAGREE karte the (FIX-57 ka apna dict vs `research/costs.py`) | ✅ **Solved (FIX-59)** — `research/` audit karte waqt mila: `research/costs.py` me pehle se notional-aware model tha, aur FIX-57 ke rates galat the. Delivery STT maine sirf sell par lagaya (sahi: **dono taraf** 0.1%) → 0.10pp understate; delivery stamp 0.003% (wo **intraday** rate hai, sahi **0.015%**) → 0.012pp understate; intraday STT ×2 (sahi: **sirf sell**, buy nil) → 0.025pp overstate. Net: intraday 0.2310% vs sahi **0.1832%** (OVERSTATE), delivery 0.2810% vs sahi **0.3702%** (UNDERSTATE) — dono directions me galat. **Aur mera brokerage-cap hypothesis measurement ne reject kiya** (≤0.01pp, sirf ₹66,667+ par bind karta hai). Delegate karne ke baad bhi 0.0008pp gap tha — do jagah do `exch_pct` default; ab `.env` set ho tabhi override. Cost ab **notional-aware** (₹25k capital → break-even ₹4.29, ₹10L → ₹2.92) aur statutory rates ka override hataya (wahi FIX-57 ka bug tha). app vs research **10/10 exact match**. `verify_live_quote.py` 246 → **260**, regression **901/0**. |
 | — | Header har stock ke liye "NSE / BSE" bolta tha — actual exchange kabhi nahi batata tha | ✅ **Solved (FIX-58)** — live `/api/stock` se measured: TCS `?ex=NSE` (frame NSE), TCS `?ex=BSE` (frame **BSE**), DHOOTIN `?ex=NSE` (frame **BSE**, `on_nse_master` **false**) — chaaron me header identical `SYM — NSE / BSE` tha. DHOOTIN NSE par listed hi nahi. Ab `frame_exchange`/`requested_exchange`/`on_nse_master` (FIX-53/54/55 se payload me already the) use hote hain: `TCS — BSE`, `TCS — BSE — aapne NSE maanga tha`, `DHOOTIN — BSE only — NSE par listed nahi`, `XYZ — exchange unknown`. **Aur mera flagged concern galat nikla:** `deep_analyzer.py`/`nifty_scanner.py`/`research/data.py` me silent BSE fallback NAHI hai — `exchange='NSE'` hardcoded hai, aur teeno jagah sahi (Nifty NSE-only, calibration NSE-fitted, deep_analyzer app.py se reachable nahi). Us reasoning ko 4 guard tests me pin kiya. `verify_live_quote.py` 230 → **246**, regression **887/0**. |

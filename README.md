@@ -499,6 +499,65 @@ duplicate-logging guards.
 
 ---
 
+### FIX-61 · OI/PCR/IV are reachable after all — and I was wrong before
+
+You asked whether we'd have to add OI/PCR/IV. I had earlier said "NSE API 404, not
+reachable". **That was wrong.** Three mistakes:
+
+| my mistake | the truth |
+|---|---|
+| used `option-chain-indices` | the path **moved** to **`option-chain-v3`** |
+| omitted `expiry` | `expiry` is **required** — without it NSE returns `{}` (2 B) |
+| plain request | needs a cookie handshake + **`Accept-Encoding: identity`** |
+
+With the correct recipe: **248,963 B of JSON, 116 strikes**, with `openInterest`,
+`changeinOpenInterest`, `impliedVolatility`, `lastPrice`, `totalTradedVolume`. Computed for
+NIFTY (expiry 06-Oct-2026): **PCR(OI) 0.6852**, call wall **23,000**, put wall **22,000**,
+ATM IV 20.30. Cross-checked against niftytrader.in — levels match exactly. Stock-level works
+too (TCS PCR 0.8072 / IV 36.61, RELIANCE PCR 0.7030 / IV 26.07).
+
+**But there is no historical OI anywhere.** FO bhavcopy, the new-format bhavcopy,
+`fo_participant` (FII/DII OI), and 12 candidate API paths all return 404/403. **Without OI
+history you cannot backtest an OI signal.** So `tools/study_oi_signal.py` has two modes:
+`--collect SYMBOL` appends a live snapshot to `reports/oi_history/<SYM>.csv` (run it daily —
+real history accumulates), and the default mode studies a **reachable proxy**: futures
+volume, which does have 1,200 bars of history.
+
+**Proxy result — the first signal this session that survived its controls.**
+`fv_ratio = futures_volume / spot_volume`, 27 symbols × 1200 bars = 31,617 symbol-days:
+
+| horizon | gross | net (0.146% cost) | t | accuracy |
+|---|---|---|---|---|
+| 1d | +0.041% | −0.105% | +1.32 | 50.52% |
+| 3d | +0.229% | +0.083% | +3.70 | 51.63% |
+| **5d** | **+0.416%** | **+0.271%** | **+4.89** | **52.21%** |
+
+| control | result |
+|---|---|
+| Momentum (past5 + past20) | R² 0.00133 → 0.00409, coeff +0.163 → survives |
+| Out-of-sample split | +0.312% then +0.494% → both positive, **no decay** |
+| **Long-only** | high +0.458% vs universe +0.206% → **net +0.107%** after cost |
+| Per-symbol | **24/26 positive**, median +0.318% |
+
+This is fundamentally different from FIX-57's futures-basis, which was negative on the
+tradable leg and decayed out-of-sample.
+
+**I also built a look-ahead bug into my own control and caught it:** I first used
+`r5.shift(1).rolling(5).sum()` as the momentum control — but `r5` is itself a forward
+return, so the control leaked future data. A leaky control isn't a control. Fixed to use
+pure backward-looking `past5`/`past20`; the result still survived (Δ+0.0028), but the
+numbers changed, so it's recorded.
+
+**Honest caveats — this is not "edge found":** R² is only 0.004 (0.4% of variance); it's a
+**proxy**, not real OI; this is in-sample plus a split-half, not a purged walk-forward; I
+tested 2 signals × 4 horizons, so best-of-8 is upward-biased; and +0.107% net long-only is
+small enough that a cost-estimate error erases it. Verdict: **POSSIBLE EDGE — verify with a
+purged walk-forward and the real OI collector.** Nothing was plumbed into the Dashboard.
+
+`verify_live_quote.py` 275 → **291 checks**; regression **932 passed, 0 failed**.
+
+---
+
 ### FIX-60 · The `research/` module had no test coverage, and three bugs
 
 Audited all 1,129 lines of `research/` (`backtest`, `features`, `ml_lab`, `run_study`,
