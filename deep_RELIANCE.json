@@ -1,81 +1,81 @@
 {
   "symbol": "RELIANCE",
-  "price": 1192.7,
-  "timestamp": "2026-09-30T06:45:35.749457",
+  "price": 1167.7,
+  "timestamp": "2026-10-03T12:27:55.095707",
   "ml": {
-    "walk_forward_accuracy": 53.9,
-    "walk_forward_stability": 9.8,
+    "walk_forward_accuracy": 50.8,
+    "walk_forward_stability": 9.2,
     "walk_forward_windows": 18,
     "baseline_accuracy": 55.0,
     "pos_rate": 45.0,
     "models": {
       "GradientBoosting": {
-        "accuracy": 52.0,
-        "edge": -3.0,
-        "precision": 47.7,
-        "recall": 68.9,
-        "f1": 56.4,
-        "prob_up": 53.1
-      },
-      "RandomForest": {
         "accuracy": 53.0,
         "edge": -2.0,
         "precision": 48.5,
-        "recall": 71.1,
-        "f1": 57.7,
-        "prob_up": 53.5
+        "recall": 73.3,
+        "f1": 58.4,
+        "prob_up": 72.1
+      },
+      "RandomForest": {
+        "accuracy": 52.0,
+        "edge": -3.0,
+        "precision": 47.9,
+        "recall": 77.8,
+        "f1": 59.3,
+        "prob_up": 58.3
       },
       "LogisticRegression": {
-        "accuracy": 60.0,
-        "edge": 5.0,
-        "precision": 53.7,
+        "accuracy": 63.0,
+        "edge": 8.0,
+        "precision": 56.2,
         "recall": 80.0,
-        "f1": 64.3,
-        "prob_up": 39.7
+        "f1": 66.1,
+        "prob_up": 53.0
       },
       "XGBoost": {
-        "accuracy": 51.0,
-        "edge": -4.0,
-        "precision": 47.0,
+        "accuracy": 47.0,
+        "edge": -8.0,
+        "precision": 44.3,
         "recall": 68.9,
-        "f1": 55.9,
-        "prob_up": 54.1
+        "f1": 53.9,
+        "prob_up": 47.3
       }
     },
-    "ensemble_prob": 51.4,
-    "prediction": "NEUTRAL",
-    "confidence": "LOW",
+    "ensemble_prob": 59.6,
+    "prediction": "UP",
+    "confidence": "MEDIUM",
     "top_features": [
       {
-        "name": "vol_change",
+        "name": "close_pos",
         "importance": 8.8
       },
       {
-        "name": "obv_slope",
-        "importance": 6.6
+        "name": "vol_change",
+        "importance": 8.2
       },
       {
-        "name": "close_pos",
+        "name": "obv_slope",
         "importance": 6.5
+      },
+      {
+        "name": "ret_3",
+        "importance": 5.6
+      },
+      {
+        "name": "vwap_dist",
+        "importance": 5.2
       },
       {
         "name": "atr_pct",
         "importance": 5.2
       },
       {
-        "name": "vwap_dist",
-        "importance": 5.0
-      },
-      {
-        "name": "adx",
-        "importance": 4.9
-      },
-      {
-        "name": "vol_5",
-        "importance": 4.9
-      },
-      {
         "name": "ret_5",
+        "importance": 4.9
+      },
+      {
+        "name": "hl_range",
         "importance": 4.6
       }
     ],
@@ -84,34 +84,34 @@
     "total_features": 28
   },
   "risk": {
-    "annual_return": -9.1,
-    "annual_volatility": 21.2,
-    "sharpe_ratio": -0.74,
-    "sortino_ratio": -1.17,
-    "max_drawdown": -25.8,
-    "calmar_ratio": -0.35,
+    "annual_return": -10.3,
+    "annual_volatility": 21.3,
+    "sharpe_ratio": -0.79,
+    "sortino_ratio": -1.26,
+    "max_drawdown": -26.7,
+    "calmar_ratio": -0.39,
     "var_95": -2.12,
-    "win_rate": 49.3,
-    "profit_factor": 0.93,
+    "win_rate": 49.1,
+    "profit_factor": 0.92,
     "rating": "POOR"
   },
   "sector": {
-    "stock_return_6m": -12.9,
-    "nifty_return_6m": 0.1,
-    "relative_strength": -13.0,
-    "correlation": 0.624,
-    "beta": 1.053,
+    "stock_return_6m": -14.7,
+    "nifty_return_6m": -1.3,
+    "relative_strength": -13.4,
+    "correlation": 0.63,
+    "beta": 1.058,
     "vs_nifty": "UNDERPERFORM",
     "beta_type": "Market",
     "aligned_sessions": 124,
-    "stock_span_days": 182,
+    "stock_span_days": 183,
     "nifty_span_days": 182
   },
   "fundamentals": {
-    "pe": 21.84621,
+    "pe": 21.142494,
     "roe": null,
-    "mcap": 16109054984192,
-    "debt_equity": 36.653,
-    "div_yield": 0.5
+    "mcap": 15801867304960,
+    "debt_equity": 46.278,
+    "div_yield": 0.51
   }
 }

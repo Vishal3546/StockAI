@@ -294,10 +294,12 @@ def controls(panel: pd.DataFrame, signal: str = 'fv_ratio', horizon: int = 5) ->
     }
 
 
-def run_proxy(n_bars: int) -> dict:
-    print('=== fetching futures + spot (tvDatafeed) ...')
-    panel = load_proxy(n_bars)
-    if panel.empty:
+def run_proxy(n_bars: int, panel: pd.DataFrame | None = None,
+              walk_forward: dict | None = None) -> dict:
+    if panel is None:
+        print('=== fetching futures + spot (tvDatafeed) ...')
+        panel = load_proxy(n_bars)
+    if panel is None or panel.empty:
         return {'verdict': 'NO DATA', 'detail': 'tvDatafeed se data nahi mila — koi verdict nahi'}
     res = {
         'asof': str(pd.Timestamp.now().date()),
@@ -345,12 +347,40 @@ def run_proxy(n_bars: int) -> dict:
     _lo_ok = bool(_lo) and _lo.get('net_after_cost_pct', -9) > 0
     _ps = ctl.get('per_symbol', {})
     _ps_ok = bool(_ps) and _ps.get('total', 0) > 0 and _ps['positive'] / _ps['total'] >= 0.7
-    res['checks'] = {'out_of_sample_both_positive': _oos_ok,
-                     'long_only_net_positive': _lo_ok,
-                     'per_symbol_70pct_positive': _ps_ok}
-    # Sirf tab "possible" jab chaaron controls pass — warna FIX-57 wali galti dohraayenge.
-    res['verdict'] = ('POSSIBLE EDGE — purged walk-forward + REAL OI collector se verify karo'
-                      if (_oos_ok and _lo_ok and _ps_ok) else 'NO TRADEABLE EDGE')
+    res['in_sample_checks'] = {'out_of_sample_both_positive': _oos_ok,
+                               'long_only_net_positive': _lo_ok,
+                               'per_symbol_70pct_positive': _ps_ok}
+
+    # ── VERDICT: purged walk-forward DECISIVE hai, in-sample controls nahi ──
+    # Ye line FIX-62 me add hui aur isne mera apna "POSSIBLE EDGE" verdict
+    # REFUTE kiya. Pehle verdict sirf char in-sample/split-half controls se
+    # banta tha — aur wo sab pass ho gaye the. Par jab repo ka tested
+    # `ml_lab.purged_walk_forward` chalaya to:
+    #     mean accuracy        50.97%
+    #     mean BASELINE        53.62%   <- accuracy MAJORITY CLASS se bhi NEECHE
+    #     shuffled ceiling     52.18%
+    #     symbols beating null 5/27
+    # Matlab: +0.107% long-only "edge" purged walk-forward par SURVIVE NAHI
+    # karta. Wajah: split-half me boundary par overlapping 5-day labels leak
+    # karte hain, aur pooled cross-sectional t-stat autocorrelated observations
+    # se inflate hota hai.
+    if walk_forward:
+        res['walk_forward'] = walk_forward
+    _wf = res.get('walk_forward') or {}
+    if _wf and 'error' not in _wf:
+        _acc, _base = _wf['mean_accuracy_pct'], _wf['mean_baseline_pct']
+        _nb, _nt = (int(x) for x in str(_wf['symbols_beating_shuffled']).split('/'))
+        _wf_ok = _acc > _base and _acc > _wf['mean_shuffled_ceiling_pct'] and _nb >= _nt / 2
+        res['walk_forward_verdict'] = ('SURVIVES' if _wf_ok else
+                                       'FAILS — accuracy baseline se neeche')
+        res['verdict'] = ('POSSIBLE EDGE — real OI collector se verify karo'
+                          if _wf_ok else 'NO TRADEABLE EDGE')
+    else:
+        # Walk-forward nahi chala to honest raho — "possible" bolne ka haq nahi.
+        res['walk_forward_verdict'] = 'NOT RUN — isliye edge CLAIM nahi ho sakta'
+        res['verdict'] = ('NO TRADEABLE EDGE (walk-forward chalao: --walk-forward)'
+                          if not (_oos_ok and _lo_ok and _ps_ok)
+                          else 'UNCONFIRMED — in-sample pass, purged walk-forward REQUIRED')
     res['verdict_detail'] = (
         f'best net-after-cost = {best_net:+.3f}%/trade, best accuracy = {best_acc:.2f}% '
         f'(coin flip 50%). '
@@ -363,10 +393,80 @@ def run_proxy(n_bars: int) -> dict:
     return res
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  PURGED WALK-FORWARD — split-half se aage ka honest test
+#
+# Split-half sirf ek cut hai. Ye expanding-window purged walk-forward hai, aur
+# naya code NAHI likha — repo ka apna TESTED `research/ml_lab.purged_walk_forward`
+# use kiya hai (wahi jo ml_edge_study chalata hai):
+#   • train kabhi test ke aage nahi jaata
+#   • train/test ke beech `embargo = horizon` bars ka gap (overlapping labels
+#     leakage banate hain — r5 5 din overlap karta hai)
+#   • PERMUTATION NULL: train labels shuffle karke wahi pipeline — jo accuracy
+#     shuffle ke baad bhi mile wahi "no-skill" floor hai
+# ══════════════════════════════════════════════════════════════════════════
+def walk_forward(panel: pd.DataFrame, signal: str = 'fv_ratio', horizon: int = 5,
+                 n_folds: int = 5, warmup: int = 252, n_perm: int = 3) -> dict:
+    sys.path.insert(0, str(ROOT))
+    from research.ml_lab import purged_walk_forward
+
+    per_symbol, skipped = [], 0
+    for sym, g in panel.groupby('sym'):
+        g = g.dropna(subset=[signal, 'past5', 'past20', f'r{horizon}']).copy()
+        if len(g) < warmup + n_folds * 20:
+            skipped += 1
+            continue
+        X = g[[signal, 'past5', 'past20']].copy()
+        y = (g[f'r{horizon}'] > 0).astype(int)
+        try:
+            real = purged_walk_forward(X, y, n_folds=n_folds, warmup=warmup,
+                                       embargo=horizon)
+            nulls = [purged_walk_forward(X, y, n_folds=n_folds, warmup=warmup,
+                                         embargo=horizon, shuffle_train_labels=True,
+                                         seed=sd).accuracy * 100
+                     for sd in range(n_perm)]
+        except Exception as e:
+            skipped += 1
+            print(f'  {sym:<12} skip ({type(e).__name__})')
+            continue
+        per_symbol.append({
+            'sym': sym, 'accuracy_pct': round(real.accuracy * 100, 2),
+            'baseline_pct': round(real.baseline * 100, 2),
+            'edge_pp': round(real.edge_pp, 2),
+            'shuffled_ceiling_pct': round(max(nulls), 2),
+            'beats_shuffled': bool(real.accuracy * 100 > max(nulls)),
+            'n_oos': real.n_oos,
+        })
+        r = per_symbol[-1]
+        print(f"  {sym:<12} acc {r['accuracy_pct']:.2f}%  baseline {r['baseline_pct']:.2f}%  "
+              f"edge {r['edge_pp']:+.2f}pp  shuffled-ceiling {r['shuffled_ceiling_pct']:.2f}%  "
+              f"{'BEATS' if r['beats_shuffled'] else 'no'}  n_oos={r['n_oos']}")
+
+    if not per_symbol:
+        return {'error': 'koi symbol walk-forward ke layak nahi tha', 'skipped': skipped}
+    accs = np.array([r['accuracy_pct'] for r in per_symbol])
+    base = np.array([r['baseline_pct'] for r in per_symbol])
+    ceil = np.array([r['shuffled_ceiling_pct'] for r in per_symbol])
+    beats = int(sum(r['beats_shuffled'] for r in per_symbol))
+    return {
+        'method': 'research.ml_lab.purged_walk_forward (expanding window, '
+                  f'warmup={warmup}, embargo={horizon}, folds={n_folds}, perm={n_perm})',
+        'n_symbols_tested': len(per_symbol), 'n_symbols_skipped': skipped,
+        'mean_accuracy_pct': round(float(accs.mean()), 2),
+        'mean_baseline_pct': round(float(base.mean()), 2),
+        'mean_edge_pp': round(float((accs - base).mean()), 2),
+        'mean_shuffled_ceiling_pct': round(float(ceil.mean()), 2),
+        'symbols_beating_shuffled': f'{beats}/{len(per_symbol)}',
+        'per_symbol': per_symbol,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--collect', default='', help='symbol ka live OI snapshot save karo')
     ap.add_argument('--bars', type=int, default=1200)
+    ap.add_argument('--walk-forward', action='store_true',
+                    help='purged walk-forward chalao (split-half se zyada honest)')
     ap.add_argument('--json', default='tools/oi_signal_study.json')
     a = ap.parse_args()
 
@@ -379,7 +479,21 @@ def main() -> int:
                 time.sleep(2)          # Akamai rate-limit se bachna
         return bad
 
-    res = run_proxy(a.bars)
+    panel = load_proxy(a.bars)
+    if panel.empty:
+        print('koi data nahi mila'); return 1
+    if a.walk_forward:
+        print('\n=== PURGED WALK-FORWARD (repo ka tested ml_lab) ===')
+        wf_res = walk_forward(panel)
+        if 'error' not in wf_res:
+            print(f"\n  mean acc {wf_res['mean_accuracy_pct']:.2f}% vs baseline "
+                  f"{wf_res['mean_baseline_pct']:.2f}% vs shuffled-ceiling "
+                  f"{wf_res['mean_shuffled_ceiling_pct']:.2f}%")
+            print(f"  symbols beating shuffled null: {wf_res['symbols_beating_shuffled']}")
+    else:
+        wf_res = None
+    # walk-forward result run_proxy me bhejo taaki verdict isi se bane
+    res = run_proxy(a.bars, panel=panel, walk_forward=wf_res)
     print(f'\n=== VERDICT: {res["verdict"]}')
     print(f'  {res["verdict_detail"]}')
     pathlib.Path(a.json).write_text(json.dumps(res, indent=2, ensure_ascii=False),

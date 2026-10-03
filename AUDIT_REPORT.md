@@ -2,6 +2,98 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-62 addendum — 2026-10-03 (exchange-unknown bug + do aur corrections)
+
+### Bug 1: "LGEINDIA — exchange unknown" (user ne dashboard par dekha)
+
+`frame_exchange` sirf TradingView ke `'(NSE)'` / `'(BSE)'` format ko dekhta tha. Par **char
+alag source formats** hain:
+
+| source string | kaun banata hai | purana result |
+|---|---|---|
+| `TradingView Direct (NSE)` | Tier-1 tvDatafeed | ✅ NSE |
+| **`NSE Direct`** | Tier-2 NSE scraper — **user ka actual case** | ❌ **None** |
+| `yahoo.ns` / `yahoo.bo` | Yahoo (app.py L640) | ❌ None |
+| `NSE:TCS` / `TCS.NS` | symbol formats | ❌ None |
+
+**LGEINDIA NSE master me maujood hai** — `archives.nseindia.com/content/equities/EQUITY_L.csv`
+par verified: *"LG Electronics India Limited"*. Fir bhi "exchange unknown" dikh raha tha.
+Ye LGEINDIA-specific nahi tha — **har us stock par hota tha jiska analysis frame TradingView
+ke alawa kisi source se aaya ho.**
+
+Fix: `exchange_from_source(src)` helper — saare formats ek jagah, aur aakhir me
+**word-boundary** `\b(NSE|BSE)\b` match. Plain substring jaan-boojh kar nahi kiya
+(`'consuNSer'` par galat exchange ban jaata). **15/15 cases pass**, live verified:
+Tier-1 force-fail karne par `data_source='NSE Direct'` → `frame_exchange='NSE'`.
+
+### Bug 2: mera "POSSIBLE EDGE" verdict galat tha — walk-forward ne refute kiya
+
+FIX-61 me maine `fv_ratio` proxy par **POSSIBLE EDGE** bola tha, sirf char in-sample /
+split-half controls se. Aapne purged walk-forward maanga. Repo ka **tested**
+`research/ml_lab.purged_walk_forward` chalaya (naya code nahi likha), `embargo=5` ke saath:
+
+| metric | value |
+|---|---|
+| mean accuracy | **50.97%** |
+| mean **baseline** (majority class) | **53.62%** ← accuracy isse **NEECHE** |
+| shuffled-label ceiling | 52.18% |
+| symbols beating null | **5/27** |
+
+**+0.107% long-only edge purged walk-forward par SURVIVE NAHI karta.** Model majority class
+se bhi bekaar chalta hai. Wajah samajh me aati hai:
+
+1. Split-half me boundary par **overlapping 5-day labels leak** karte hain — `r5` paanch din
+   overlap karta hai, to cut ke aas-paas train/test same information dekhte hain.
+2. Pooled cross-sectional t-stat **autocorrelated observations** se inflate hota hai.
+3. Tercile spread ek *cross-sectional* measure hai; walk-forward *predictive accuracy* test
+   karta hai — aur wahi tradeable sawaal hai.
+
+Verdict logic ab **walk-forward decisive** hai: agar wo na chale to code edge CLAIM hi nahi
+karta (`UNCONFIRMED — purged walk-forward REQUIRED`). Final verdict: **NO TRADEABLE EDGE**.
+
+### Bug 3: "historical OI kahin nahi mila" — ye bhi GALAT tha
+
+Maine sirf `archives.nseindia.com` / `nsearchives.nseindia.com` ke paths try kiye the.
+**GitHub par scraped+hosted historical OI maujood hai, aur maine download karke verify kiya:**
+
+| source | coverage | format |
+|---|---|---|
+| **`AvilPage/historical-option-chain-data`** | **138 dates, 2025-01-01 → 2026-10-01**, 282 symbols | naya SEBI bhavcopy format, `OpnIntrst` + `ChngInOpnIntrst` |
+| **`sajal101agrawal/nse-options-last-5-years`** | **1,246 files, Apr-2021 → Oct-2024** | classic `OPEN_INT` + `CHG_IN_OI` |
+
+Download karke check kiya (guess nahi):
+
+```
+sajal101 fo01APR2025bhav.csv  3,207,648 B  30,076 rows
+  columns: INSTRUMENT SYMBOL EXPIRY_DT STRIKE_PR OPTION_TYP OPEN_INT CHG_IN_OI ...
+  RELIANCE OPTSTK 24-Apr-2025 strike 1460 PE  OPEN_INT = 141500   ✅
+
+AvilPage data/fo/2025-01-02/NIFTY.csv  1568 rows
+  OpnIntrst total 598,825,425   call 263,401,525 / put 321,707,900   PCR 1.2214
+
+AvilPage NIFTY time series (PCR underlying ke saath):
+  2025-01-02  underlying 24188.65   PCR 1.2214
+  2026-06-01  underlying 23382.60   PCR 0.6929
+  2026-10-01  underlying 22421.95   PCR 0.7732
+```
+
+**Cross-validation:** AvilPage ka 2026-10-01 NIFTY underlying **22421.95** — bilkul wahi
+number jo mere live `option-chain-v3` fetch ne diya tha. Dono sources agree karte hain.
+
+**Coverage gap:** `LGEINDIA` AvilPage me nahi hai (282 symbols me sirf F&O-listed names),
+aur dono sources 2024-10 ke aas-paas overlap karte hain. Combined: **~5.5 saal ka
+contract-level OI (Apr-2021 → Oct-2026).**
+
+**Matlab: FIX-61 ka "bina OI history ke backtest namumkin" conclusion galat tha.** Asli OI
+study ab possible hai.
+
+### Verify
+
+`verify_live_quote.py` 291 → **321 checks** · regression **962 passed, 0 failed** ·
+`exchange_from_source` 15/15 · walk-forward 27 symbols × 920 OOS bars each.
+
+---
+
 ## FIX-61 addendum — 2026-10-03 (OI/PCR/IV: reachable hai, aur mera pichhla claim galat tha)
 
 User ne poochha: *"OI / PCR / IV / delivery nahi hai to add karna padega kya"*
@@ -2428,6 +2520,9 @@ nifty_scanner_v3_6.py
 | M-11 | `CORS(*)`, no auth/rate limit | ✅ Solved (FIX-35) — CORS allowlist, optional token auth, per-IP rate limit, security headers + CSP |
 | M-12 | Search results via `innerHTML` | ✅ Solved (FIX-35) — `safeHtml\`\`` auto-escaping + DOM-API search list; jsdom injection test 14/14 |
 | — | "OI/PCR/IV reachable nahi" — mera claim galat tha | ✅ **Corrected (FIX-61)** — teen galtiyan thi: path move ho gaya tha (`option-chain-indices` → **`option-chain-v3`**), `expiry` param **required** hai (bina uske NSE `{}` deta hai, maine wahi dekh kar "khaali" maan liya tha), aur cookie handshake + `Accept-Encoding: identity` chahiye. Sahi recipe se **248,963 B JSON, 116 strikes** mila; PCR(OI) **0.6852**, call-wall **23000**, put-wall **22000** compute kiya (niftytrader.in se levels exact match). **Par HISTORICAL OI kahin nahi mila** (bhavcopy/fo_participant/9 API paths sab 404) — bina history ke OI backtest namumkin. Isliye `tools/study_oi_signal.py`: `--collect` se real OI history banti hai, aur default mode reachable proxy (futures volume) par study karta hai. Result: 5d gross **+0.416%**, net **+0.271%**, t **+4.89** — aur **charo controls survive kiye** (momentum Δ+0.0028, OOS dono halves positive +0.312/+0.494, long-only net **+0.107%**, 24/26 symbols positive). Ye session ka pehla aisa signal hai. **Maine apne hi control me look-ahead bug banaya** (`r5.shift(1).rolling(5)`) aur pakda — clean control ke baad bhi survive kiya. Verdict **POSSIBLE EDGE**, dashboard me kuch plumb nahi kiya. `verify_live_quote.py` 275 → **291**, regression **932/0**. |
+| — | "LGEINDIA — exchange unknown" | ✅ **FIX-62** — `frame_exchange` sirf TradingView ka `(NSE)`/`(BSE)` format dekhta tha. **User ka actual case `NSE Direct` tha** (Tier-2 scraper), aur `yahoo.ns`/`yahoo.bo` bhi fail hote the. LGEINDIA NSE master me maujood hai (EQUITY_L.csv par verified: "LG Electronics India Limited") fir bhi unknown dikhta tha. Fix: `exchange_from_source()` helper + word-boundary `\b(NSE|BSE)\b`. **15/15 cases**, live verified. |
+| — | Mera FIX-61 "POSSIBLE EDGE" verdict | ❌ **REFUTED (FIX-62)** — aapne purged walk-forward maanga, repo ke tested `ml_lab.purged_walk_forward` se (`embargo=5`): mean acc **50.97%** vs **baseline 53.62%** (majority class se bhi neeche), shuffled-ceiling 52.18%, **5/27** symbols beat null. **+0.107% SURVIVE NAHI karta.** Wajah: split-half boundary par overlapping 5-day labels leak karte hain, aur pooled t-stat autocorrelation se inflate hota hai. Verdict logic ab walk-forward decisive; final **NO TRADEABLE EDGE**. |
+| — | Mera FIX-61 "historical OI kahin nahi mila" | ❌ **GALAT (FIX-62)** — maine sirf NSE archives ke paths try kiye the. GitHub par maujood hai aur download karke verify kiya: **`AvilPage/historical-option-chain-data`** (138 dates, 2025-01-01→2026-10-01, 282 symbols, `OpnIntrst`+`ChngInOpnIntrst`) aur **`sajal101agrawal/nse-options-last-5-years`** (1,246 files, Apr-2021→Oct-2024, `OPEN_INT`+`CHG_IN_OI`). Combined ~5.5 saal. Cross-validation: AvilPage ka 2026-10-01 NIFTY underlying **22421.95** = bilkul wahi jo live `option-chain-v3` ne diya. Matlab FIX-61 ka "OI backtest namumkin" conclusion galat tha. |
 | — | `research/` module ka koi verifier coverage nahi tha; 3 bugs chhupe the | ✅ **Solved (FIX-60)** — poora audit kiya (`backtest`/`features`/`ml_lab`/`run_study`/`data`/`analyze`, 1129 lines). **Bug 1:** `TRADING_DAYS = 252` (US convention) jabki measured NSE avg **247.0** (2022=248, 2023=245, 2024=246, 2025=249) → annualisation **+2.02% overstate**, Sharpe/Sortino bhi. **Bug 2:** `research/data.py` Tier-2 me `n_bars=520` hardcoded tha, `period` pass hi nahi hota tha — measured: `period='5y'` → 520 bars, aur wo `RELIANCE_5y.csv` me cache hokar 12 ghante "5 saal" bankar serve hote the (study ~3.7x patli, kisi ko pata nahi). Ab period honour hota hai (5y→**1235 bars** verified) aur cache sirf 80%+ depth par likhta hai. **Bug 3:** risk-free 0.065 **teen** jagah hardcoded (`app.py`/`deep_analyzer.py`/`backtest.py`) — wahi FIX-59 wali class; `research/` deliberately independent hai isliye drift-guard test lagaya. **Jo clean nikla:** `exec_lag=1` look-ahead guard + 5/5 invariants, purged walk-forward + permutation null + train-only scaler, `embargo` horizon se set. **Mera `PROB_THRESHOLD` shaq galat tha** — 0.55 (0-1) aur 55 (0-100) equivalent hain. `verify_live_quote.py` 260 → **275**, regression **916/0**. |
 | — | Do cost model the jo aapas me DISAGREE karte the (FIX-57 ka apna dict vs `research/costs.py`) | ✅ **Solved (FIX-59)** — `research/` audit karte waqt mila: `research/costs.py` me pehle se notional-aware model tha, aur FIX-57 ke rates galat the. Delivery STT maine sirf sell par lagaya (sahi: **dono taraf** 0.1%) → 0.10pp understate; delivery stamp 0.003% (wo **intraday** rate hai, sahi **0.015%**) → 0.012pp understate; intraday STT ×2 (sahi: **sirf sell**, buy nil) → 0.025pp overstate. Net: intraday 0.2310% vs sahi **0.1832%** (OVERSTATE), delivery 0.2810% vs sahi **0.3702%** (UNDERSTATE) — dono directions me galat. **Aur mera brokerage-cap hypothesis measurement ne reject kiya** (≤0.01pp, sirf ₹66,667+ par bind karta hai). Delegate karne ke baad bhi 0.0008pp gap tha — do jagah do `exch_pct` default; ab `.env` set ho tabhi override. Cost ab **notional-aware** (₹25k capital → break-even ₹4.29, ₹10L → ₹2.92) aur statutory rates ka override hataya (wahi FIX-57 ka bug tha). app vs research **10/10 exact match**. `verify_live_quote.py` 246 → **260**, regression **901/0**. |
 | — | Header har stock ke liye "NSE / BSE" bolta tha — actual exchange kabhi nahi batata tha | ✅ **Solved (FIX-58)** — live `/api/stock` se measured: TCS `?ex=NSE` (frame NSE), TCS `?ex=BSE` (frame **BSE**), DHOOTIN `?ex=NSE` (frame **BSE**, `on_nse_master` **false**) — chaaron me header identical `SYM — NSE / BSE` tha. DHOOTIN NSE par listed hi nahi. Ab `frame_exchange`/`requested_exchange`/`on_nse_master` (FIX-53/54/55 se payload me already the) use hote hain: `TCS — BSE`, `TCS — BSE — aapne NSE maanga tha`, `DHOOTIN — BSE only — NSE par listed nahi`, `XYZ — exchange unknown`. **Aur mera flagged concern galat nikla:** `deep_analyzer.py`/`nifty_scanner.py`/`research/data.py` me silent BSE fallback NAHI hai — `exchange='NSE'` hardcoded hai, aur teeno jagah sahi (Nifty NSE-only, calibration NSE-fitted, deep_analyzer app.py se reachable nahi). Us reasoning ko 4 guard tests me pin kiya. `verify_live_quote.py` 230 → **246**, regression **887/0**. |

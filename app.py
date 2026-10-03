@@ -575,6 +575,63 @@ def fetch_nse_live_ltp(symbol):
     return None
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# FIX-62: source string se exchange nikalna — har provider ka format alag hai
+#
+# BUG (user ne LGEINDIA par dekha): frame_exchange sirf TradingView ke format
+# '(NSE)' / '(BSE)' dekhta tha. Par Yahoo path (L640) source
+# `f'yahoo{suffix.lower()}'` banata hai -> 'yahoo.ns' / 'yahoo.bo' — parentheses
+# NAHI. Natija: har us stock par "exchange unknown" jismein analysis frame
+# Yahoo se aaya tha. LGEINDIA NSE master me maujood hai ("LG Electronics India
+# Limited") — fir bhi unknown dikh raha tha.
+#
+# Har format ko ek jagah handle karo, aur jo pehchana na ja sake uske liye
+# JHOOTH exchange mat banao — None do (UI "exchange unknown" dikhayega, jo
+# imaandaar hai).
+# ══════════════════════════════════════════════════════════════════════════
+_SOURCE_EXCHANGE_PATTERNS = (
+    ('(BSE)', 'BSE'), ('(NSE)', 'NSE'),      # TradingView display label
+    ('BSE:', 'BSE'), ('NSE:', 'NSE'),        # TradingView symbol prefix
+    ('.BO', 'BSE'), ('.NS', 'NSE'),          # yfinance suffix (yahoo.bo / yahoo.ns)
+    ('-BO', 'BSE'), ('-NS', 'NSE'),          # kuch feeds dash use karti hain
+)
+
+# FIX-62b: upar wale patterns 'NSE Direct' / 'BSE Direct' jaise labels par FAIL
+# hote hain — usme na parentheses hain, na ':', na '.', na '-'. Aur wahi user ke
+# screenshot wala case tha: source 'NSE Direct', par "exchange unknown".
+# Isliye aakhir me word-boundary token match — 'NSE'/'BSE' ek ALAG word ke roop
+# me aaye tabhi. Substring match jaan-boojh kar nahi kiya: 'consuNSEr' jaisi
+# cheez par galat exchange ban jaata.
+_BARE_EXCHANGE_RE = __import__('re').compile(r'\b(NSE|BSE)\b')
+
+
+def exchange_from_source(src) -> str | None:
+    """Source/label string se exchange nikalo. Na pehchan sake to None.
+
+    >>> exchange_from_source('yahoo.ns')
+    'NSE'
+    >>> exchange_from_source('yahoo.bo')
+    'BSE'
+    >>> exchange_from_source('TCS (NSE)')
+    'NSE'
+    >>> exchange_from_source('NSE:TCS')
+    'NSE'
+    >>> exchange_from_source('TCS.NS')
+    'NSE'
+    >>> exchange_from_source('NSE Direct')    # FIX-62b — user ka actual case
+    'NSE'
+    >>> exchange_from_source('kuch aur')      # jhooth nahi banayenge
+    """
+    u = str(src or '').upper()
+    if not u:
+        return None
+    for needle, exch in _SOURCE_EXCHANGE_PATTERNS:
+        if needle in u:
+            return exch
+    m = _BARE_EXCHANGE_RE.search(u)
+    return m.group(1) if m else None
+
+
 def fetch_yahoo_live_ltp(symbol, prefer_exch='NSE'):
     """
     FIX-23: Yahoo Finance v8 chart se LIVE LTP (measured 2026-09-30, market hours).
@@ -4095,8 +4152,10 @@ def stock_api(symbol):
             # frame par percentile ranks technically NSE distribution se compare
             # ho rahe hote hain. Chhupana nahi, batana.
             'requested_exchange': req_exch,
-            'frame_exchange': ('BSE' if '(BSE)' in str(daily_source)
-                               else 'NSE' if '(NSE)' in str(daily_source) else None),
+            # FIX-62: pehle sirf '(NSE)'/'(BSE)' (TradingView) match hota tha —
+            # Yahoo 'yahoo.ns'/'yahoo.bo' deta hai, isliye LGEINDIA jaise NSE
+            # stocks par bhi "exchange unknown" dikh raha tha.
+            'frame_exchange': exchange_from_source(daily_source),
             # FIX-54: 'NSE feed khaali tha' aur 'ye stock NSE par listed hi nahi'
             # do alag baatein hain. DHOOTIN (Dhoot Industrial Finance) NSE master
             # me hai hi nahi — uska NSE symbol DHOOTTRANS nahi, wo ALAG company

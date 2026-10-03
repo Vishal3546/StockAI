@@ -1283,6 +1283,72 @@ if _art.exists():
     check('momentum control me look-ahead-free note hai',
           'backward' in str(_c.get('momentum', {}).get('controls_used', '')).lower())
 
+# ── FIX-62: "LGEINDIA — exchange unknown" bug ─────────────────────────────
+# User ne dashboard par dekha: source 'NSE Direct' par bhi "exchange unknown".
+# Wajah: frame_exchange sirf TradingView ke '(NSE)'/'(BSE)' format ko dekhta tha.
+# Par teen aur source formats hain:
+#   'NSE Direct' / 'BSE Direct'   <- NSE tier-2 scraper (user ka ACTUAL case)
+#   'yahoo.ns' / 'yahoo.bo'       <- Yahoo path (app.py L640)
+#   'NSE:TCS' / 'TCS.NS'          <- symbol formats
+# LGEINDIA NSE master me maujood hai ("LG Electronics India Limited") — verified
+# against archives.nseindia.com EQUITY_L.csv — fir bhi unknown dikh raha tha.
+
+print('\n-- FIX-62: exchange_from_source() helper maujood aur tested')
+check('exchange_from_source helper define hai', 'def exchange_from_source(' in app_src)
+check('frame_exchange ab helper se banta hai (inline string-match nahi)',
+      "'frame_exchange': exchange_from_source(daily_source)" in app_src)
+check('purana buggy inline logic gaya',
+      "'BSE' if '(BSE)' in str(daily_source)" not in _py_code(app_src))
+check('bare NSE/BSE token match hai (word boundary)', '_BARE_EXCHANGE_RE' in app_src)
+check('word-boundary regex hai, plain substring nahi (consuNSer se bachne ke liye)',
+      r'\b(NSE|BSE)\b' in app_src)
+
+print('\n-- FIX-62: helper ka behaviour (live import karke)')
+import app as _app62
+_cases62 = [('yahoo.ns', 'NSE'), ('yahoo.bo', 'BSE'),
+            ('NSE Direct', 'NSE'), ('BSE Direct', 'BSE'),
+            ('TradingView Direct (NSE)', 'NSE'), ('TradingView Direct (BSE)', 'BSE'),
+            ('NSE:TCS', 'NSE'), ('BSE:TCS', 'BSE'),
+            ('TCS.NS', 'NSE'), ('TCS.BO', 'BSE'),
+            ('consumer goods feed', None), ('consuNSer', None),
+            ('kuch aur', None), ('', None), (None, None)]
+for _src, _exp in _cases62:
+    _got = _app62.exchange_from_source(_src)
+    check(f'exchange_from_source({_src!r}) == {_exp!r}', _got == _exp)
+
+# ── FIX-62: walk-forward ne proxy edge ko REFUTE kiya ─────────────────────
+# Maine "POSSIBLE EDGE" kaha tha sirf in-sample controls se. Repo ka tested
+# ml_lab.purged_walk_forward chalane par: mean acc 50.97% vs BASELINE 53.62%
+# (accuracy majority class se bhi neeche), sirf 5/27 shuffled null se aage.
+# Matlab +0.107% SURVIVE NAHI karta. Verdict logic ab walk-forward decisive hai.
+
+print('\n-- FIX-62: verdict walk-forward se decide hota hai (in-sample se nahi)')
+_oi = (ROOT / 'tools' / 'study_oi_signal.py').read_text(encoding='utf-8')
+check('walk_forward() repo ka TESTED ml_lab use karta hai (naya nahi banaya)',
+      'from research.ml_lab import purged_walk_forward' in _oi)
+check('embargo = horizon pass hota hai (overlapping-label leakage se bachne ke liye)',
+      'embargo=horizon' in _oi)
+check('permutation null chalaya jaata hai', 'shuffle_train_labels=True' in _oi)
+check('verdict me walk-forward DECISIVE hai',
+      "res['verdict'] = ('POSSIBLE EDGE — real OI collector se verify karo'" in _oi
+      and "'NO TRADEABLE EDGE'" in _oi)
+check('walk-forward na chale to edge CLAIM nahi hota',
+      'walk-forward REQUIRED' in _oi)
+_art2 = ROOT / 'tools' / 'oi_signal_study.json'
+if _art2.exists():
+    _j2 = json.loads(_art2.read_text(encoding='utf-8'))
+    _w = _j2.get('walk_forward', {})
+    check('walk_forward result artifact me saved hai', bool(_w))
+    if _w:
+        check('walk-forward verdict FAILS record hai (accuracy baseline se neeche)',
+              _j2.get('walk_forward_verdict', '').startswith('FAILS'))
+        check('final verdict NO TRADEABLE EDGE hai',
+              _j2.get('verdict') == 'NO TRADEABLE EDGE')
+        check('walk-forward ne baseline report kiya (honest benchmark)',
+              'mean_baseline_pct' in _w and 'mean_shuffled_ceiling_pct' in _w)
+        check('accuracy baseline se NEECHE hai (edge nahi)',
+              _w['mean_accuracy_pct'] < _w['mean_baseline_pct'])
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

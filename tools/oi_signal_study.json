@@ -1,7 +1,7 @@
 {
   "asof": "2026-10-03",
-  "symbols": 26,
-  "symbol_days": 30550,
+  "symbols": 28,
+  "symbol_days": 32900,
   "proxy_signals": [
     "fv_ratio = futures_vol / spot_vol",
     "fv_rvol = fut_vol / 20d_avg"
@@ -10,103 +10,368 @@
   "results": {
     "fv_ratio": {
       "1d": {
-        "gross_spread_pct": 0.0438,
-        "net_after_cost_pct": -0.1022,
-        "cross_symbol_t": 1.52,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 50.62
+        "gross_spread_pct": 0.0426,
+        "net_after_cost_pct": -0.1034,
+        "cross_symbol_t": 1.49,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 50.67
       },
       "2d": {
-        "gross_spread_pct": 0.1407,
-        "net_after_cost_pct": -0.0053,
-        "cross_symbol_t": 4.05,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 51.39
+        "gross_spread_pct": 0.1462,
+        "net_after_cost_pct": 0.0002,
+        "cross_symbol_t": 4.11,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 51.5
       },
       "3d": {
-        "gross_spread_pct": 0.2321,
-        "net_after_cost_pct": 0.0861,
-        "cross_symbol_t": 4.18,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 51.67
+        "gross_spread_pct": 0.2326,
+        "net_after_cost_pct": 0.0866,
+        "cross_symbol_t": 4.11,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 51.79
       },
       "5d": {
-        "gross_spread_pct": 0.4195,
-        "net_after_cost_pct": 0.2735,
-        "cross_symbol_t": 5.11,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 52.21
+        "gross_spread_pct": 0.4132,
+        "net_after_cost_pct": 0.2672,
+        "cross_symbol_t": 5.28,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 52.38
       }
     },
     "fv_rvol": {
       "1d": {
-        "gross_spread_pct": 0.047,
-        "net_after_cost_pct": -0.099,
-        "cross_symbol_t": 2.04,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 50.62
+        "gross_spread_pct": 0.0503,
+        "net_after_cost_pct": -0.0957,
+        "cross_symbol_t": 2.29,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 50.78
       },
       "2d": {
-        "gross_spread_pct": 0.1056,
-        "net_after_cost_pct": -0.0404,
-        "cross_symbol_t": 2.8,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 51.3
+        "gross_spread_pct": 0.1128,
+        "net_after_cost_pct": -0.0332,
+        "cross_symbol_t": 3.15,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 51.34
       },
       "3d": {
-        "gross_spread_pct": 0.1572,
-        "net_after_cost_pct": 0.0112,
-        "cross_symbol_t": 3.1,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 50.94
+        "gross_spread_pct": 0.1636,
+        "net_after_cost_pct": 0.0176,
+        "cross_symbol_t": 3.44,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 51.0
       },
       "5d": {
-        "gross_spread_pct": 0.2912,
-        "net_after_cost_pct": 0.1452,
-        "cross_symbol_t": 4.33,
-        "n_symbols": 26,
-        "directional_accuracy_pct": 51.16
+        "gross_spread_pct": 0.2984,
+        "net_after_cost_pct": 0.1524,
+        "cross_symbol_t": 4.71,
+        "n_symbols": 28,
+        "directional_accuracy_pct": 51.24
       }
     }
   },
   "controls_fv_ratio_5d": {
     "momentum": {
       "controls_used": "past5 + past20 (pure backward-looking)",
-      "r2_momentum_only": 0.00133,
-      "r2_with_signal": 0.00409,
-      "r2_delta": 0.002761,
-      "signal_coeff_after_momentum": 0.163071
+      "r2_momentum_only": 0.001345,
+      "r2_with_signal": 0.004045,
+      "r2_delta": 0.0027,
+      "signal_coeff_after_momentum": 0.160432
     },
     "out_of_sample": {
       "first_half": {
-        "gross_pct": 0.3118,
-        "n_symbols": 13
+        "gross_pct": 0.2923,
+        "n_symbols": 14
       },
       "second_half": {
-        "gross_pct": 0.494,
-        "n_symbols": 13
+        "gross_pct": 0.5273,
+        "n_symbols": 14
       }
     },
     "long_only": {
-      "universe_mean_pct": 0.2056,
-      "high_tercile_mean_pct": 0.4582,
-      "low_tercile_mean_pct": 0.0387,
-      "excess_vs_universe_pct": 0.2526,
-      "net_after_cost_pct": 0.1066
+      "universe_mean_pct": 0.2015,
+      "high_tercile_mean_pct": 0.4421,
+      "low_tercile_mean_pct": 0.0289,
+      "excess_vs_universe_pct": 0.2407,
+      "net_after_cost_pct": 0.0947
     },
     "per_symbol": {
-      "positive": 24,
-      "total": 26,
-      "median_pct": 0.3184,
-      "worst_pct": -0.4026,
-      "best_pct": 1.3095
+      "positive": 26,
+      "total": 28,
+      "median_pct": 0.3399,
+      "worst_pct": -0.4611,
+      "best_pct": 1.4599
     }
   },
-  "checks": {
+  "in_sample_checks": {
     "out_of_sample_both_positive": true,
     "long_only_net_positive": true,
     "per_symbol_70pct_positive": true
   },
-  "verdict": "POSSIBLE EDGE — purged walk-forward + REAL OI collector se verify karo",
-  "verdict_detail": "best net-after-cost = +0.274%/trade, best accuracy = 52.21% (coin flip 50%). Cost ke baad positive hai — par ye sirf proxy hai, asli OI nahi."
+  "walk_forward": {
+    "method": "research.ml_lab.purged_walk_forward (expanding window, warmup=252, embargo=5, folds=5, perm=3)",
+    "n_symbols_tested": 28,
+    "n_symbols_skipped": 0,
+    "mean_accuracy_pct": 50.92,
+    "mean_baseline_pct": 53.65,
+    "mean_edge_pp": -2.73,
+    "mean_shuffled_ceiling_pct": 52.2,
+    "symbols_beating_shuffled": "5/28",
+    "per_symbol": [
+      {
+        "sym": "ASIANPAINT",
+        "accuracy_pct": 51.63,
+        "baseline_pct": 50.65,
+        "edge_pp": 0.98,
+        "shuffled_ceiling_pct": 50.0,
+        "beats_shuffled": true,
+        "n_oos": 920
+      },
+      {
+        "sym": "AXISBANK",
+        "accuracy_pct": 50.98,
+        "baseline_pct": 52.17,
+        "edge_pp": -1.2,
+        "shuffled_ceiling_pct": 51.63,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "BAJFINANCE",
+        "accuracy_pct": 50.98,
+        "baseline_pct": 51.96,
+        "edge_pp": -0.98,
+        "shuffled_ceiling_pct": 52.61,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "BHARTIARTL",
+        "accuracy_pct": 52.72,
+        "baseline_pct": 55.65,
+        "edge_pp": -2.93,
+        "shuffled_ceiling_pct": 52.72,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "CIPLA",
+        "accuracy_pct": 47.39,
+        "baseline_pct": 52.93,
+        "edge_pp": -5.54,
+        "shuffled_ceiling_pct": 52.61,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "COALINDIA",
+        "accuracy_pct": 51.74,
+        "baseline_pct": 52.07,
+        "edge_pp": -0.33,
+        "shuffled_ceiling_pct": 52.17,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "GRASIM",
+        "accuracy_pct": 52.93,
+        "baseline_pct": 54.24,
+        "edge_pp": -1.3,
+        "shuffled_ceiling_pct": 52.28,
+        "beats_shuffled": true,
+        "n_oos": 920
+      },
+      {
+        "sym": "HDFCBANK",
+        "accuracy_pct": 48.04,
+        "baseline_pct": 52.72,
+        "edge_pp": -4.67,
+        "shuffled_ceiling_pct": 50.98,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "HINDALCO",
+        "accuracy_pct": 55.54,
+        "baseline_pct": 59.46,
+        "edge_pp": -3.91,
+        "shuffled_ceiling_pct": 56.74,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "HINDUNILVR",
+        "accuracy_pct": 49.35,
+        "baseline_pct": 56.41,
+        "edge_pp": -7.07,
+        "shuffled_ceiling_pct": 51.52,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "ICICIBANK",
+        "accuracy_pct": 51.74,
+        "baseline_pct": 51.96,
+        "edge_pp": -0.22,
+        "shuffled_ceiling_pct": 51.96,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "INFY",
+        "accuracy_pct": 49.78,
+        "baseline_pct": 51.74,
+        "edge_pp": -1.96,
+        "shuffled_ceiling_pct": 52.39,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "ITC",
+        "accuracy_pct": 50.54,
+        "baseline_pct": 50.22,
+        "edge_pp": 0.33,
+        "shuffled_ceiling_pct": 51.3,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "JSWSTEEL",
+        "accuracy_pct": 53.15,
+        "baseline_pct": 56.63,
+        "edge_pp": -3.48,
+        "shuffled_ceiling_pct": 54.02,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "KOTAKBANK",
+        "accuracy_pct": 48.37,
+        "baseline_pct": 50.11,
+        "edge_pp": -1.74,
+        "shuffled_ceiling_pct": 49.57,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "LT",
+        "accuracy_pct": 49.67,
+        "baseline_pct": 55.98,
+        "edge_pp": -6.3,
+        "shuffled_ceiling_pct": 53.48,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "MARUTI",
+        "accuracy_pct": 50.22,
+        "baseline_pct": 51.09,
+        "edge_pp": -0.87,
+        "shuffled_ceiling_pct": 52.07,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "NTPC",
+        "accuracy_pct": 51.41,
+        "baseline_pct": 52.39,
+        "edge_pp": -0.98,
+        "shuffled_ceiling_pct": 52.83,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "ONGC",
+        "accuracy_pct": 52.39,
+        "baseline_pct": 53.7,
+        "edge_pp": -1.3,
+        "shuffled_ceiling_pct": 51.41,
+        "beats_shuffled": true,
+        "n_oos": 920
+      },
+      {
+        "sym": "POWERGRID",
+        "accuracy_pct": 46.41,
+        "baseline_pct": 54.13,
+        "edge_pp": -7.72,
+        "shuffled_ceiling_pct": 48.26,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "RELIANCE",
+        "accuracy_pct": 49.46,
+        "baseline_pct": 52.72,
+        "edge_pp": -3.26,
+        "shuffled_ceiling_pct": 52.5,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "SBIN",
+        "accuracy_pct": 54.35,
+        "baseline_pct": 56.09,
+        "edge_pp": -1.74,
+        "shuffled_ceiling_pct": 54.57,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "SUNPHARMA",
+        "accuracy_pct": 53.04,
+        "baseline_pct": 57.5,
+        "edge_pp": -4.46,
+        "shuffled_ceiling_pct": 53.59,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "TATASTEEL",
+        "accuracy_pct": 50.43,
+        "baseline_pct": 54.02,
+        "edge_pp": -3.59,
+        "shuffled_ceiling_pct": 52.5,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "TCS",
+        "accuracy_pct": 49.67,
+        "baseline_pct": 54.35,
+        "edge_pp": -4.67,
+        "shuffled_ceiling_pct": 52.61,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "TITAN",
+        "accuracy_pct": 50.43,
+        "baseline_pct": 56.85,
+        "edge_pp": -6.41,
+        "shuffled_ceiling_pct": 53.26,
+        "beats_shuffled": false,
+        "n_oos": 920
+      },
+      {
+        "sym": "ULTRACEMCO",
+        "accuracy_pct": 52.28,
+        "baseline_pct": 54.46,
+        "edge_pp": -2.17,
+        "shuffled_ceiling_pct": 51.85,
+        "beats_shuffled": true,
+        "n_oos": 920
+      },
+      {
+        "sym": "WIPRO",
+        "accuracy_pct": 51.09,
+        "baseline_pct": 50.0,
+        "edge_pp": 1.09,
+        "shuffled_ceiling_pct": 50.11,
+        "beats_shuffled": true,
+        "n_oos": 920
+      }
+    ]
+  },
+  "walk_forward_verdict": "FAILS — accuracy baseline se neeche",
+  "verdict": "NO TRADEABLE EDGE",
+  "verdict_detail": "best net-after-cost = +0.267%/trade, best accuracy = 52.38% (coin flip 50%). Cost ke baad positive hai — par ye sirf proxy hai, asli OI nahi."
 }
