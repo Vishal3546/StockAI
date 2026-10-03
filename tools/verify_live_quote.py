@@ -1349,6 +1349,41 @@ if _art2.exists():
         check('accuracy baseline se NEECHE hai (edge nahi)',
               _w['mean_accuracy_pct'] < _w['mean_baseline_pct'])
 
+# ── FIX-63: real OI history + study ────────────────────────────────────────
+# User ne poochha: historical OI kahan milega, git repo/api? Maine do GitHub
+# repos verify karke download kiya (koi API key nahi):
+#   AvilPage/historical-option-chain-data  -> per-symbol files, 282 symbols
+#   sajal101agrawal/nse-options-last-5-years -> per-date bhavcopy (894 MB, tarball namumkin)
+# Data CLUSTERED nikla: 2025-01 ke 8 din, 356-din ka hole, phir 2026-01->10 daily.
+
+print('\n-- FIX-63: downloader + study maujood')
+_dl = ROOT / 'tools' / 'fetch_oi_history.py'
+_st = ROOT / 'tools' / 'study_real_oi.py'
+check('fetch_oi_history.py maujood hai', _dl.exists())
+check('study_real_oi.py maujood hai', _st.exists())
+_ds = _dl.read_text(encoding='utf-8') if _dl.exists() else ''
+_rs = _st.read_text(encoding='utf-8') if _st.exists() else ''
+check('downloader dono sources use karta hai', 'AvilPage' in _ds and 'sajal101' in _ds)
+check('downloader resume karta hai (drop_duplicates)', 'drop_duplicates' in _ds)
+check('study REAL OI par purged walk-forward chalata hai', 'purged walk-forward' in _rs.lower())
+check('study me purge/embargo hai', 'embargo_days' in _rs)
+check('study me permutation null hai', 'shuffle' in _rs)
+
+print('\n-- FIX-63: real OI verdict recorded (NO EDGE)')
+_art = ROOT / 'tools' / 'real_oi_study.json'
+check('real_oi_study.json maujood hai', _art.exists())
+if _art.exists():
+    _j = json.loads(_art.read_text(encoding='utf-8'))
+    check('verdict recorded hai', 'verdict' in _j)
+    check('verdict NO TRADEABLE EDGE hai', _j.get('verdict') == 'NO TRADEABLE EDGE')
+    _w = _j.get('walk_forward', {})
+    check('walk-forward ne baseline report kiya', 'baseline_pct' in _w)
+    check('accuracy baseline se neeche hai (edge nahi)',
+          _w.get('accuracy_pct', 99) < _w.get('baseline_pct', 0))
+    check('beats_shuffled False hai', _w.get('beats_shuffled') is False)
+    check('data-limitation note recorded hai (clustered/9 mahine)',
+          'clustered' in str(_j.get('note', '')).lower() or '9' in str(_j.get('note', '')))
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

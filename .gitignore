@@ -38,3 +38,6 @@ nse_master_cache.json.tmp
 
 # FIX-61: OI collector ka generated data — roz append hota hai, commit nahi karna
 reports/oi_history/
+
+# FIX-63: real OI downloader ka generated data (roz badhega), commit nahi
+reports/oi_history_real/

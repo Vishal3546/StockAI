@@ -499,6 +499,47 @@ duplicate-logging guards.
 
 ---
 
+### FIX-63 · Real OI downloaded from GitHub + real-OI study says NO EDGE
+
+You asked to start #1 (real OI downloader) + #2 (real OI study). Done.
+
+`tools/fetch_oi_history.py` (no API key) downloads contract-level OI from two verified
+GitHub repos and normalizes it to `reports/oi_history_real/<SYM>.csv`:
+
+| source | notes |
+|---|---|
+| `AvilPage/historical-option-chain-data` (170 MB) | per-symbol files; downloaded 29 symbols × 138 dates ≈ 4,000 rows |
+| `sajal101agrawal/nse-options-last-5-years` (894 MB) | per-date, 3 MB/file; tarball infeasible, weekly-sample only |
+
+**The data is clustered:** 8 days of 2025-01, then a 356-day hole (all of 2025 missing),
+then 2026-01 → 2026-10 daily. So real daily OI is only ~9 months.
+
+`tools/study_real_oi.py` builds past-only OI features (PCR, PCR z-score, OI change,
+call/put wall distance) and runs the honest battery. Result:
+
+| test | result |
+|---|---|
+| tercile 5d | gross +0.802%, net +0.656%, t +1.77 |
+| momentum Δ R² | +0.010 |
+| OOS split | +0.901 / +0.558 |
+| **pooled purged walk-forward** (n_oos=2320) | **51.59%** vs baseline **56.98%** vs shuffled 54.57% → beats=False |
+
+**Verdict: NO TRADEABLE EDGE — on real OI too.** The in-sample controls look positive
+(as they did for the proxy), but the purged walk-forward puts accuracy *below* the
+majority baseline. This confirms the proxy result with genuine OI data.
+
+One technical note: the repo's `ml_lab.purged_walk_forward` has a 150-train-row minimum
+(built for 1200-bar single-series ML) and rejects the ~114-row OI series ("no valid
+folds"). So the study uses a pooled cross-sectional purged walk-forward (date-ordered,
+7-day embargo, permutation null) — same honest gate, smaller-sample friendly.
+
+Caveats: ~9-month window → indicative, not definitive; 6 features × 4 horizons → multiple
+testing. This is "no OOS edge in this window with these features", not "OI is useless".
+
+`verify_live_quote.py` 321 → **335**; regression **976 passed, 0 failed**.
+
+---
+
 ### FIX-61 · OI/PCR/IV are reachable after all — and I was wrong before
 
 You asked whether we'd have to add OI/PCR/IV. I had earlier said "NSE API 404, not

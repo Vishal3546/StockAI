@@ -2,6 +2,72 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-63 addendum — 2026-10-03 (real OI history download + REAL OI study = NO EDGE)
+
+User ne kaha: *"#1 + #2 shuru kar kardo"* — (1) GitHub se real OI downloader, (2) real OI
+par purged walk-forward.
+
+### #1: Downloader — `tools/fetch_oi_history.py` (koi API key nahi)
+
+Do verified GitHub sources:
+
+| source | size | format | download strategy |
+|---|---|---|---|
+| `AvilPage/historical-option-chain-data` | 170 MB | **per-symbol** `data/fo/{date}/{SYM}.csv` | sirf apna universe (~20 KB/file) |
+| `sajal101agrawal/nse-options-last-5-years` | **894 MB** | per-date (sab symbols, 3 MB/file) | tarball namumkin; weekly-sample hi feasible |
+
+Run kiya: **29 symbols × 138 dates ≈ 4,000 real OI rows** `reports/oi_history_real/` me
+(gitignore). Resume built-in (drop_duplicates date par).
+
+### ⚠️ Data CLUSTERED nikla — ye important hai
+
+```
+NIFTY dates: 2025-01-01..01-10 (8 din) -> 356-DIN KA HOLE (poora 2025 missing)
+             -> 2026-01-01..2026-10-01 daily
+gap stats: mean 4.7d  median 1d  MAX 356d
+```
+
+Matlab AvilPage ka real daily OI **sirf ~9 mahine (2026)** hai. 2021-2024 wala hissa
+(sajal101) per-date 3 MB files hai — 1,246 × 3 MB ≈ 3.7 GB, is environment me feasible
+nahi. Isliye real study 2026 window par hai.
+
+### #2: Real OI study — `tools/study_real_oi.py`
+
+Features (past-only): `pcr_oi`, `pcr_z`, `d_pcr`, `oi_chg_pct`, `call_wall_d`, `put_wall_d`.
+Outcome: underlying ka forward h-din return, `shift(-h)`.
+
+| test | result |
+|---|---|
+| tercile 5d (pcr_z) | gross +0.802%, net +0.656%, t +1.77, 17/29 symbols |
+| momentum | R2 0.00238 → 0.01235 (Δ+0.010) |
+| OOS split | +0.901 / +0.558 (dono positive) |
+| long-only net | +0.412% |
+| **pooled purged walk-forward** (n_oos=2320) | acc **51.59%** vs base **56.98%** vs shuffled 54.57% — **beats=False** |
+
+**Verdict: `NO TRADEABLE EDGE`.** In-sample controls positive dikhte hain (jaise proxy me
+the), par purged walk-forward par accuracy majority-baseline se bhi neeche hai. **Proxy wala
+NO-EDGE result real OI se confirm hua.**
+
+### Ek technical finding: repo ka `ml_lab.purged_walk_forward` real OI par fit nahi hua
+
+Usme `train_end < 150` ka hard minimum hai (1200-bar single-series ML ke liye bana tha).
+Real OI me ~114 rows/symbol → "no valid folds". Isliye study me **pooled cross-sectional
+purged walk-forward** likha (date-ordered, sab symbols ek saath, embargo 7-din +
+permutation null) — wahi honest gate, chhote sample ke liye.
+
+### Honest caveats
+
+1. Real OI window sirf ~9 mahine (2026) — verdict **indicative**, definitive nahi.
+2. 6 features × 4 horizons = multiple-testing; best-of upward-biased.
+3. Ye "OI bekaar hai" ka saboot nahi — sirf "is window me, in features se, OOS edge nahi mila".
+
+### Verify
+
+`verify_live_quote.py` 321 → **335** · regression **976 passed, 0 failed** ·
+`reports/oi_history_real/` gitignore · walk-forward n_oos=2320.
+
+---
+
 ## FIX-62 addendum — 2026-10-03 (exchange-unknown bug + do aur corrections)
 
 ### Bug 1: "LGEINDIA — exchange unknown" (user ne dashboard par dekha)
@@ -2522,6 +2588,7 @@ nifty_scanner_v3_6.py
 | — | "OI/PCR/IV reachable nahi" — mera claim galat tha | ✅ **Corrected (FIX-61)** — teen galtiyan thi: path move ho gaya tha (`option-chain-indices` → **`option-chain-v3`**), `expiry` param **required** hai (bina uske NSE `{}` deta hai, maine wahi dekh kar "khaali" maan liya tha), aur cookie handshake + `Accept-Encoding: identity` chahiye. Sahi recipe se **248,963 B JSON, 116 strikes** mila; PCR(OI) **0.6852**, call-wall **23000**, put-wall **22000** compute kiya (niftytrader.in se levels exact match). **Par HISTORICAL OI kahin nahi mila** (bhavcopy/fo_participant/9 API paths sab 404) — bina history ke OI backtest namumkin. Isliye `tools/study_oi_signal.py`: `--collect` se real OI history banti hai, aur default mode reachable proxy (futures volume) par study karta hai. Result: 5d gross **+0.416%**, net **+0.271%**, t **+4.89** — aur **charo controls survive kiye** (momentum Δ+0.0028, OOS dono halves positive +0.312/+0.494, long-only net **+0.107%**, 24/26 symbols positive). Ye session ka pehla aisa signal hai. **Maine apne hi control me look-ahead bug banaya** (`r5.shift(1).rolling(5)`) aur pakda — clean control ke baad bhi survive kiya. Verdict **POSSIBLE EDGE**, dashboard me kuch plumb nahi kiya. `verify_live_quote.py` 275 → **291**, regression **932/0**. |
 | — | "LGEINDIA — exchange unknown" | ✅ **FIX-62** — `frame_exchange` sirf TradingView ka `(NSE)`/`(BSE)` format dekhta tha. **User ka actual case `NSE Direct` tha** (Tier-2 scraper), aur `yahoo.ns`/`yahoo.bo` bhi fail hote the. LGEINDIA NSE master me maujood hai (EQUITY_L.csv par verified: "LG Electronics India Limited") fir bhi unknown dikhta tha. Fix: `exchange_from_source()` helper + word-boundary `\b(NSE|BSE)\b`. **15/15 cases**, live verified. |
 | — | Mera FIX-61 "POSSIBLE EDGE" verdict | ❌ **REFUTED (FIX-62)** — aapne purged walk-forward maanga, repo ke tested `ml_lab.purged_walk_forward` se (`embargo=5`): mean acc **50.97%** vs **baseline 53.62%** (majority class se bhi neeche), shuffled-ceiling 52.18%, **5/27** symbols beat null. **+0.107% SURVIVE NAHI karta.** Wajah: split-half boundary par overlapping 5-day labels leak karte hain, aur pooled t-stat autocorrelation se inflate hota hai. Verdict logic ab walk-forward decisive; final **NO TRADEABLE EDGE**. |
+| — | "historical OI kahan milega, git repo/api?" | ✅ **FIX-63** — `tools/fetch_oi_history.py` (koi key nahi): AvilPage (per-symbol) + sajal101 (894 MB, tarball namumkin). **29 symbols × 138 dates ≈ 4,000 real OI rows** download. ⚠️ Data CLUSTERED: 2025-01 ke 8 din, 356-din ka hole, phir 2026-01→10 daily — matlab real daily OI sirf ~9 mahine. `study_real_oi.py` ne pooled purged walk-forward chalaya (repo ka `ml_lab` 150-train-rows minimum ki wajah se fit nahi hua): **acc 51.59% vs base 56.98% vs shuffled 54.57% — NO TRADEABLE EDGE.** Proxy wala NO-EDGE real OI se confirm. Verdict indicative (chhota sample). `verify_live_quote.py` 321 → **335**, regression **976/0**. |
 | — | Mera FIX-61 "historical OI kahin nahi mila" | ❌ **GALAT (FIX-62)** — maine sirf NSE archives ke paths try kiye the. GitHub par maujood hai aur download karke verify kiya: **`AvilPage/historical-option-chain-data`** (138 dates, 2025-01-01→2026-10-01, 282 symbols, `OpnIntrst`+`ChngInOpnIntrst`) aur **`sajal101agrawal/nse-options-last-5-years`** (1,246 files, Apr-2021→Oct-2024, `OPEN_INT`+`CHG_IN_OI`). Combined ~5.5 saal. Cross-validation: AvilPage ka 2026-10-01 NIFTY underlying **22421.95** = bilkul wahi jo live `option-chain-v3` ne diya. Matlab FIX-61 ka "OI backtest namumkin" conclusion galat tha. |
 | — | `research/` module ka koi verifier coverage nahi tha; 3 bugs chhupe the | ✅ **Solved (FIX-60)** — poora audit kiya (`backtest`/`features`/`ml_lab`/`run_study`/`data`/`analyze`, 1129 lines). **Bug 1:** `TRADING_DAYS = 252` (US convention) jabki measured NSE avg **247.0** (2022=248, 2023=245, 2024=246, 2025=249) → annualisation **+2.02% overstate**, Sharpe/Sortino bhi. **Bug 2:** `research/data.py` Tier-2 me `n_bars=520` hardcoded tha, `period` pass hi nahi hota tha — measured: `period='5y'` → 520 bars, aur wo `RELIANCE_5y.csv` me cache hokar 12 ghante "5 saal" bankar serve hote the (study ~3.7x patli, kisi ko pata nahi). Ab period honour hota hai (5y→**1235 bars** verified) aur cache sirf 80%+ depth par likhta hai. **Bug 3:** risk-free 0.065 **teen** jagah hardcoded (`app.py`/`deep_analyzer.py`/`backtest.py`) — wahi FIX-59 wali class; `research/` deliberately independent hai isliye drift-guard test lagaya. **Jo clean nikla:** `exec_lag=1` look-ahead guard + 5/5 invariants, purged walk-forward + permutation null + train-only scaler, `embargo` horizon se set. **Mera `PROB_THRESHOLD` shaq galat tha** — 0.55 (0-1) aur 55 (0-100) equivalent hain. `verify_live_quote.py` 260 → **275**, regression **916/0**. |
 | — | Do cost model the jo aapas me DISAGREE karte the (FIX-57 ka apna dict vs `research/costs.py`) | ✅ **Solved (FIX-59)** — `research/` audit karte waqt mila: `research/costs.py` me pehle se notional-aware model tha, aur FIX-57 ke rates galat the. Delivery STT maine sirf sell par lagaya (sahi: **dono taraf** 0.1%) → 0.10pp understate; delivery stamp 0.003% (wo **intraday** rate hai, sahi **0.015%**) → 0.012pp understate; intraday STT ×2 (sahi: **sirf sell**, buy nil) → 0.025pp overstate. Net: intraday 0.2310% vs sahi **0.1832%** (OVERSTATE), delivery 0.2810% vs sahi **0.3702%** (UNDERSTATE) — dono directions me galat. **Aur mera brokerage-cap hypothesis measurement ne reject kiya** (≤0.01pp, sirf ₹66,667+ par bind karta hai). Delegate karne ke baad bhi 0.0008pp gap tha — do jagah do `exch_pct` default; ab `.env` set ho tabhi override. Cost ab **notional-aware** (₹25k capital → break-even ₹4.29, ₹10L → ₹2.92) aur statutory rates ka override hataya (wahi FIX-57 ka bug tha). app vs research **10/10 exact match**. `verify_live_quote.py` 246 → **260**, regression **901/0**. |
