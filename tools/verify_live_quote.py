@@ -813,6 +813,10 @@ check('terminal warning ab neutral hai ("NSE feed khaali tha" nahi)',
       and 'par data nahi mila' in app_src)
 check('priceGapWarn me galat CAS explanation nahi bacha (comments me theek hai)',
       'Closing Auction 15:15' not in _CODE_ONLY)
+# FIX-67: Dashboard.html audit — gap-warning ki wording ab asli wajah batati hai
+# (live market me daily frame = pichhla close), sirf "thin/illiquid" nahi.
+check('priceGapWarn ab live-market wajah batata hai (sirf thin/illiquid nahi)',
+      'market khula ho to ye dono alag hote hain' in _HTML)
 
 # ── FIX-55: NSE/BSE toggle — user ka original request, ab properly bana ────
 # Pehle maine kaha tha "BSE ka multi-year historical reliable source se nahi

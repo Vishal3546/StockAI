@@ -759,8 +759,9 @@ function checkPriceGap(tickerPrice) {
     + ` (${analysisBasis || 'daily frame close'}) me ${diff > 0 ? '+' : '−'}`
     + `₹${Math.abs(diff).toFixed(2)} (${pct.toFixed(2)}%) ka fark. SL/Target/indicators`
     + ` analysis price se bane hain. Wajah: live quote ek point-in-time snapshot hai`
-    + ` (uska apna timestamp hota hai), aur daily frame ka close session ka final close —`
-    + ` thin/illiquid stocks par ye dono kaafi alag ho sakte hain.`;
+    + ` (uska apna timestamp hota hai), aur daily frame ka close pichhle completed`
+    + ` session ka final close hai — market khula ho to ye dono alag hote hain`
+    + ` (thin/illiquid stocks par fark aur bada ho sakta hai).`;
 }
 let liveTickerInterval = null;
 
