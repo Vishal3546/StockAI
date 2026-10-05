@@ -18,6 +18,12 @@ import math
 # FIX-A/B: requested window + date-normalised index
 _SPAN_DAYS = {'1mo': 31, '3mo': 92, '6mo': 183, '1y': 365, '2y': 735, '5y': 1826}
 
+# FIX-65: measured NSE trading days/year = 247 (FIX-60 ke measurement se:
+# 2022=248, 2023=245, 2024=246, 2025=249 -> avg 247.0). Purana 252 US-style
+# constant annualised return/vol ko ~+2% overstate karta tha — research/backtest.py
+# me ye FIX-60 me theek hua tha, deep_analyzer me abhi 252 bacha tha.
+TRADING_DAYS = 247
+
 
 def _normalise(df, period):
     """
@@ -324,13 +330,13 @@ def advanced_risk_metrics(df):
     c = df['Close'].astype(float)
     returns = c.pct_change().dropna()
 
-    ann_ret = float(returns.mean() * 252)
-    ann_vol = float(returns.std() * np.sqrt(252))
+    ann_ret = float(returns.mean() * TRADING_DAYS)
+    ann_vol = float(returns.std() * np.sqrt(TRADING_DAYS))
 
     rf_rate = 0.065 # India 10Y Yield
     sharpe = (ann_ret - rf_rate) / (ann_vol + 1e-10)
 
-    downside = float(returns[returns < 0].std() * np.sqrt(252))
+    downside = float(returns[returns < 0].std() * np.sqrt(TRADING_DAYS))
     sortino = (ann_ret - rf_rate) / (downside + 1e-10)
 
     cummax = c.cummax()

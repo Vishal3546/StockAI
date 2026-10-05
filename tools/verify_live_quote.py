@@ -1429,6 +1429,25 @@ _rg = _app64.engine_market_regime()
 check('regime VIX ab real value deta hai (0/UNKNOWN nahi)',
       (_rg.get('vix') or 0) > 0 and _rg.get('vix_status') != 'UNKNOWN')
 
+# ── FIX-65: deep_analyzer annualization consistency ─────────────────────────
+# Audit (deep_analyzer + nifty_scanner + score_calibration) me sirf ek real
+# inconsistency nikla: deep_analyzer advanced_risk_metrics me 252 (3 jagah) jabki
+# FIX-60 ne measure karke poore project me 247 kiya tha. 252 annualised return/vol
+# ko ~+2% overstate karta tha. nifty_scanner + score_calibration clean nikle
+# (pehle se audited, fail-closed).
+
+print('\n-- FIX-65: deep_analyzer TRADING_DAYS=247')
+_da = (ROOT / 'deep_analyzer.py').read_text(encoding='utf-8')
+check('deep_analyzer me TRADING_DAYS=247 constant hai', 'TRADING_DAYS = 247' in _da)
+check('deep_analyzer annualization TRADING_DAYS use karta hai',
+      'returns.mean() * TRADING_DAYS' in _da and 'np.sqrt(TRADING_DAYS)' in _da)
+check('deep_analyzer me bare 252 (annualization) nahi bacha',
+      '* 252' not in _py_code(_da) and 'sqrt(252)' not in _py_code(_da))
+check('nifty_scanner fail-closed UNRATED rakhta hai (bands absent par)',
+      (ROOT / 'nifty_scanner.py').read_text(encoding='utf-8').count("'UNRATED'") >= 1)
+check('score_calibration CalibrationError fail-closed hai',
+      'class CalibrationError' in (ROOT / 'score_calibration.py').read_text(encoding='utf-8'))
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)
