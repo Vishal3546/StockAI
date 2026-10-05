@@ -2866,7 +2866,11 @@ def engine_market_regime():
 
     try:
         n, nsrc = DATA_MANAGER.smart_fetch('^NSEI', period='2y')     # EMA-200 ke liye 2y chahiye
-        vd, _ = DATA_MANAGER.smart_fetch('^INDIAVIX', period='1mo')
+        # FIX-64: pehle period='1mo' tha — Yahoo ^INDIAVIX par ~19 daily bars deta
+        # hai, aur fetch_yahoo ka `len(df) >= 20` minimum use None bana deta tha
+        # ("All 3 engines failed for ^INDIAVIX" → VIX: 0 UNKNOWN). VIX ko sirf last
+        # value chahiye, isliye lamba window harmless hai aur threshold cross karta hai.
+        vd, _ = DATA_MANAGER.smart_fetch('^INDIAVIX', period='6mo')
 
         have = 0 if n is None else len(n)
         if have < 200:
@@ -3901,6 +3905,14 @@ def stock_api(symbol):
             pChange = (round(change / _prev_close * 100, 2)
                        if change is not None and _prev_close and _prev_close > 0 else None)
 
+        # FIX-64: top feed-badge sirf `live_nse` (NSE Direct) se chalta tha. Jab NSE
+        # Direct block/fail ho (403) par Yahoo live FRESH ho, badge "DELAYED (age
+        # unknown)" dikhaega jabki price-chip "LIVE" — bilkul wahi do-badge conflict
+        # jo FIX-51 ne theek kiya tha, ab `live_nse` variable se laut aaya tha.
+        # Feed-state ke liye NSE live use karo; na ho to Yahoo live (jo header chip
+        # ko chalata hai) — taaki dono badges ek hi source se agree karein.
+        _feed_live = live_nse or fetch_yahoo_live_ltp(resolved, prefer_exch=req_exch)
+
         # FIX-32: ATR missing ho to 2% of price fallback — par ab ye DISCLOSE hota hai
         # (pehle chup-chaap hota tha aur risk plan 'ATR-based' lagta tha)
         _atr_raw = sfx(L.get('ATR'))
@@ -4129,9 +4141,11 @@ def stock_api(symbol):
             # FIX-51: top badge pehle `/NSE/i.test(data_source)` se liveness nikalta tha
             # — yaani source ke NAAM se, bilkul wahi bug jo FIX-50 ne backend me theek
             # kiya tha. Ab server state bhejta hai; UI guess nahi karta.
-            'feed_state': feed_state(bool(live_nse and live_nse.get('is_realtime'))),
-            'feed_label': feed_label(feed_state(bool(live_nse and live_nse.get('is_realtime'))),
-                                     (live_nse or {}).get('quote_age_min')),
+            # FIX-64: `_feed_live` = NSE live ya (fallback) Yahoo live — taaki top
+            # badge aur price-chip dono ek hi freshness se agree karein.
+            'feed_state': feed_state(bool(_feed_live and _feed_live.get('is_realtime'))),
+            'feed_label': feed_label(feed_state(bool(_feed_live and _feed_live.get('is_realtime'))),
+                                     (_feed_live or {}).get('quote_age_min')),
             'market_open': is_market_open(exchange=req_exch),
             'market_holiday': is_market_holiday(),
             # FIX-52: analysis kis price se bani aur frame ka close kya tha — ye

@@ -2,6 +2,49 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-64 addendum — 2026-10-05 (user ke live log se do bugs)
+
+User ne 05-Oct (Monday, market OPEN, 09:30 IST) ka live log + dashboard paste kiya aur
+kaha *"ok he kya sab deeply scan karo"*. Scan se do real bugs nikle:
+
+### Bug 1: top badge `DELAYED (age unknown)` jabki price-chip `LIVE`
+
+Log me Yahoo quote fresh tha (`yahoo.ns · 09:30:28`, `is_realtime=True, age 0.0`) aur
+price-chip `LIVE` dikha, par top badge `DELAYED (age unknown)`.
+
+Wajah: `/api/stock` ka `feed_state` **sirf `live_nse` (NSE Direct)** se chalta tha.
+`fetch_nse_live_ltp` block/fail tha (verified: `None`), jabki `fetch_yahoo_live_ltp`
+fresh tha. `live_nse=None` → `feed_state(False)` = DELAYED, age None → "age unknown".
+
+**Ye wahi do-badge conflict tha jo FIX-51 ne theek kiya tha** — tab source-NAAM se
+liveness nikalti thi; ab `live_nse` variable se laut aaya tha.
+
+Fix: `_feed_live = live_nse or fetch_yahoo_live_ltp(...)` — feed-state NSE live se, na ho
+to Yahoo live se (jo header chip ko chalata hai). Verified: NSE force-fail + Yahoo fresh →
+`feed_state=LIVE`, `feed_label=LIVE`.
+
+### Bug 2: `All 3 engines failed for ^INDIAVIX` → `VIX: 0 (UNKNOWN)`
+
+`fetch_yahoo` me `if len(df) >= 20: return df`. `^INDIAVIX` ke liye `period='1mo'` Yahoo
+se **~19 daily bars** deta hai — 20 se ek kam → None → teeno tiers fail → VIX 0/UNKNOWN.
+Direct `yfinance` 19 rows deta tha jo threshold cross nahi karta tha.
+
+Fix: VIX window `1mo` → `6mo` (~125 bars). VIX ko sirf last value chahiye, lamba window
+harmless hai. Verified: `smart_fetch('^INDIAVIX','6mo')` = OK 125 bars, last = 14.39;
+`engine_market_regime()` → `vix=14.41, status=LOW, regime=WEAK BEAR` (0/UNKNOWN nahi).
+
+### Note: ye dono graceful-degrade paths the, crash nahi
+
+VIX fail par regime trend-only fallback karta tha (fake 15.0 nahi) — wo imaandari thi.
+Badge conflict cosmetic tha. Dono ab theek.
+
+### Verify
+
+`verify_live_quote.py` 335 → **343** · regression **984 passed, 0 failed** ·
+live: NSE-fail par feed LIVE, VIX 14.41 LOW.
+
+---
+
 ## FIX-63 addendum — 2026-10-03 (real OI history download + REAL OI study = NO EDGE)
 
 User ne kaha: *"#1 + #2 shuru kar kardo"* — (1) GitHub se real OI downloader, (2) real OI
@@ -2588,6 +2631,7 @@ nifty_scanner_v3_6.py
 | — | "OI/PCR/IV reachable nahi" — mera claim galat tha | ✅ **Corrected (FIX-61)** — teen galtiyan thi: path move ho gaya tha (`option-chain-indices` → **`option-chain-v3`**), `expiry` param **required** hai (bina uske NSE `{}` deta hai, maine wahi dekh kar "khaali" maan liya tha), aur cookie handshake + `Accept-Encoding: identity` chahiye. Sahi recipe se **248,963 B JSON, 116 strikes** mila; PCR(OI) **0.6852**, call-wall **23000**, put-wall **22000** compute kiya (niftytrader.in se levels exact match). **Par HISTORICAL OI kahin nahi mila** (bhavcopy/fo_participant/9 API paths sab 404) — bina history ke OI backtest namumkin. Isliye `tools/study_oi_signal.py`: `--collect` se real OI history banti hai, aur default mode reachable proxy (futures volume) par study karta hai. Result: 5d gross **+0.416%**, net **+0.271%**, t **+4.89** — aur **charo controls survive kiye** (momentum Δ+0.0028, OOS dono halves positive +0.312/+0.494, long-only net **+0.107%**, 24/26 symbols positive). Ye session ka pehla aisa signal hai. **Maine apne hi control me look-ahead bug banaya** (`r5.shift(1).rolling(5)`) aur pakda — clean control ke baad bhi survive kiya. Verdict **POSSIBLE EDGE**, dashboard me kuch plumb nahi kiya. `verify_live_quote.py` 275 → **291**, regression **932/0**. |
 | — | "LGEINDIA — exchange unknown" | ✅ **FIX-62** — `frame_exchange` sirf TradingView ka `(NSE)`/`(BSE)` format dekhta tha. **User ka actual case `NSE Direct` tha** (Tier-2 scraper), aur `yahoo.ns`/`yahoo.bo` bhi fail hote the. LGEINDIA NSE master me maujood hai (EQUITY_L.csv par verified: "LG Electronics India Limited") fir bhi unknown dikhta tha. Fix: `exchange_from_source()` helper + word-boundary `\b(NSE|BSE)\b`. **15/15 cases**, live verified. |
 | — | Mera FIX-61 "POSSIBLE EDGE" verdict | ❌ **REFUTED (FIX-62)** — aapne purged walk-forward maanga, repo ke tested `ml_lab.purged_walk_forward` se (`embargo=5`): mean acc **50.97%** vs **baseline 53.62%** (majority class se bhi neeche), shuffled-ceiling 52.18%, **5/27** symbols beat null. **+0.107% SURVIVE NAHI karta.** Wajah: split-half boundary par overlapping 5-day labels leak karte hain, aur pooled t-stat autocorrelation se inflate hota hai. Verdict logic ab walk-forward decisive; final **NO TRADEABLE EDGE**. |
+| — | Live log: top badge `DELAYED (age unknown)` jabki chip `LIVE`; aur `^INDIAVIX` all-3-engines fail → `VIX: 0` | ✅ **FIX-64** — (1) `feed_state` sirf `live_nse` (NSE Direct) se chalta tha jo block tha, jabki Yahoo fresh tha → `_feed_live = live_nse or fetch_yahoo_live_ltp` fallback; NSE-fail par ab `LIVE`. (2) `fetch_yahoo` ka `len>=20` minimum + VIX `period='1mo'` (~19 bars) → None; VIX ab `6mo` (~125 bars) → `vix=14.41 LOW`. `verify_live_quote.py` 335 → **343**, regression **984/0**. |
 | — | "historical OI kahan milega, git repo/api?" | ✅ **FIX-63** — `tools/fetch_oi_history.py` (koi key nahi): AvilPage (per-symbol) + sajal101 (894 MB, tarball namumkin). **29 symbols × 138 dates ≈ 4,000 real OI rows** download. ⚠️ Data CLUSTERED: 2025-01 ke 8 din, 356-din ka hole, phir 2026-01→10 daily — matlab real daily OI sirf ~9 mahine. `study_real_oi.py` ne pooled purged walk-forward chalaya (repo ka `ml_lab` 150-train-rows minimum ki wajah se fit nahi hua): **acc 51.59% vs base 56.98% vs shuffled 54.57% — NO TRADEABLE EDGE.** Proxy wala NO-EDGE real OI se confirm. Verdict indicative (chhota sample). `verify_live_quote.py` 321 → **335**, regression **976/0**. |
 | — | Mera FIX-61 "historical OI kahin nahi mila" | ❌ **GALAT (FIX-62)** — maine sirf NSE archives ke paths try kiye the. GitHub par maujood hai aur download karke verify kiya: **`AvilPage/historical-option-chain-data`** (138 dates, 2025-01-01→2026-10-01, 282 symbols, `OpnIntrst`+`ChngInOpnIntrst`) aur **`sajal101agrawal/nse-options-last-5-years`** (1,246 files, Apr-2021→Oct-2024, `OPEN_INT`+`CHG_IN_OI`). Combined ~5.5 saal. Cross-validation: AvilPage ka 2026-10-01 NIFTY underlying **22421.95** = bilkul wahi jo live `option-chain-v3` ne diya. Matlab FIX-61 ka "OI backtest namumkin" conclusion galat tha. |
 | — | `research/` module ka koi verifier coverage nahi tha; 3 bugs chhupe the | ✅ **Solved (FIX-60)** — poora audit kiya (`backtest`/`features`/`ml_lab`/`run_study`/`data`/`analyze`, 1129 lines). **Bug 1:** `TRADING_DAYS = 252` (US convention) jabki measured NSE avg **247.0** (2022=248, 2023=245, 2024=246, 2025=249) → annualisation **+2.02% overstate**, Sharpe/Sortino bhi. **Bug 2:** `research/data.py` Tier-2 me `n_bars=520` hardcoded tha, `period` pass hi nahi hota tha — measured: `period='5y'` → 520 bars, aur wo `RELIANCE_5y.csv` me cache hokar 12 ghante "5 saal" bankar serve hote the (study ~3.7x patli, kisi ko pata nahi). Ab period honour hota hai (5y→**1235 bars** verified) aur cache sirf 80%+ depth par likhta hai. **Bug 3:** risk-free 0.065 **teen** jagah hardcoded (`app.py`/`deep_analyzer.py`/`backtest.py`) — wahi FIX-59 wali class; `research/` deliberately independent hai isliye drift-guard test lagaya. **Jo clean nikla:** `exec_lag=1` look-ahead guard + 5/5 invariants, purged walk-forward + permutation null + train-only scaler, `embargo` horizon se set. **Mera `PROB_THRESHOLD` shaq galat tha** — 0.55 (0-1) aur 55 (0-100) equivalent hain. `verify_live_quote.py` 260 → **275**, regression **916/0**. |

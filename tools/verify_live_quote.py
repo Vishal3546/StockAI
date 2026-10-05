@@ -1384,6 +1384,51 @@ if _art.exists():
     check('data-limitation note recorded hai (clustered/9 mahine)',
           'clustered' in str(_j.get('note', '')).lower() or '9' in str(_j.get('note', '')))
 
+# ── FIX-64: do live-log bugs (badge mismatch + VIX fail) ───────────────────
+# User ke 05-Oct live log se:
+#   (1) market OPEN, price-chip LIVE (yahoo.ns fresh), par top badge
+#       "DELAYED (age unknown)" — kyunki feed_state sirf `live_nse` (NSE Direct)
+#       se chalta tha jo block/fail tha. Wahi do-badge conflict jo FIX-51 ne theek
+#       kiya tha, `live_nse` variable se laut aaya tha.
+#   (2) "All 3 engines failed for ^INDIAVIX" -> VIX: 0 (UNKNOWN) — kyunki
+#       period='1mo' par Yahoo ~19 bars deta hai aur fetch_yahoo ka
+#       `len(df) >= 20` minimum use None bana deta tha (19 < 20).
+
+print('\n-- FIX-64: feed-state fallback (NSE live ya Yahoo live)')
+check('_feed_live fallback maujood hai (NSE live ya Yahoo live)',
+      '_feed_live = live_nse or fetch_yahoo_live_ltp(' in app_src)
+check('feed_state ab _feed_live se banta hai (sirf live_nse se nahi)',
+      "feed_state(bool(_feed_live and _feed_live.get('is_realtime')))" in app_src)
+check('feed_label me _feed_live ka age use hota hai',
+      "(_feed_live or {}).get('quote_age_min')" in app_src)
+
+print('\n-- FIX-64: VIX window threshold-cross')
+check('VIX ab 6mo window use karta hai (1mo nahi jo 19 bars deta tha)',
+      "smart_fetch('^INDIAVIX', period='6mo')" in app_src)
+# NOTE: `'1mo'` kahin aur (L2974, 1h intraday ~100 bars) LEGIT hai — isliye check
+# sirf INDIAVIX line par lagao, poore file par nahi.
+check("INDIAVIX ka purana '1mo' call gaya", "'^INDIAVIX', period='1mo'" not in app_src)
+
+print('\n-- FIX-64: live behaviour (NSE force-fail karke)')
+_app64 = sys.modules.get('app')
+if _app64 is None:
+    import app as _app64
+_orig_nse = _app64.fetch_nse_live_ltp
+_app64.fetch_nse_live_ltp = lambda sym, **k: None
+try:
+    _cl = _app64.app.test_client()
+    _d = _cl.get('/api/stock/TCS?ex=NSE').get_json()
+    check('NSE fail + Yahoo fresh par feed_state LIVE hai (DELAYED nahi)',
+          _d.get('feed_state') == 'LIVE')
+    check('feed_label LIVE hai (age unknown nahi)',
+          _d.get('feed_label') == 'LIVE')
+finally:
+    _app64.fetch_nse_live_ltp = _orig_nse
+
+_rg = _app64.engine_market_regime()
+check('regime VIX ab real value deta hai (0/UNKNOWN nahi)',
+      (_rg.get('vix') or 0) > 0 and _rg.get('vix_status') != 'UNKNOWN')
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)
