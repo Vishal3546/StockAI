@@ -1418,21 +1418,30 @@ class MultiTechDataSourceManager:
 
         return None
 
-    def fetch_yahoo(self, symbol, period='2y', interval='1d'):
-        """Tier 3 Fetch: Yahoo Finance Universal Backup"""
+    def fetch_yahoo(self, symbol, period='2y', interval='1d', prefer_exch='NSE'):
+        """Tier 3 Fetch: Yahoo Finance Universal Backup.
+
+        FIX-68: ab `(df, exchange)` lautata hai aur requested exchange ka suffix
+        PEHLE try karta hai — NSE maangne par `.NS` jab tak mile; `.BO` sirf fallback.
+        Pehle hamesha `.NS`-first tha aur exchange report hi nahi hota tha, isliye
+        smart_fetch Yahoo-BSE ko NSE samajh baithta.
+        """
         try:
             import yfinance as yf
-            target = symbol
-            if not symbol.startswith('^') and not (symbol.endswith('.NS') or symbol.endswith('.BO')):
-                target = f"{symbol}.NS"
+            clean = symbol.replace('.NS', '').replace('.BO', '')
+            if symbol.startswith('^'):
+                order = [(symbol, 'NSE')]                       # indices NSE
+            else:
+                first = '.BO' if str(prefer_exch).upper() == 'BSE' else '.NS'
+                second = '.NS' if first == '.BO' else '.BO'
+                order = [(f"{clean}{first}", 'BSE' if first == '.BO' else 'NSE'),
+                         (f"{clean}{second}", 'BSE' if second == '.BO' else 'NSE')]
 
-            df = yf.download(target, period=period, interval=interval, progress=False, threads=False)
-
-            if (df is None or df.empty) and not symbol.startswith('^'):
-                clean = symbol.replace('.NS', '').replace('.BO', '')
-                df = yf.download(f"{clean}.BO", period=period, interval=interval, progress=False, threads=False)
-
-            if df is not None and not df.empty:
+            for target, exch in order:
+                df = yf.download(target, period=period, interval=interval,
+                                 progress=False, threads=False)
+                if df is None or df.empty:
+                    continue
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
                 for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
@@ -1440,11 +1449,11 @@ class MultiTechDataSourceManager:
                         df[col] = pd.to_numeric(df[col], errors='coerce')
                 df = df.dropna(subset=['Close'])
                 if len(df) >= 20:
-                    return df
+                    return df, exch
         except Exception:
             pass
-            
-        return None
+
+        return None, None
 
     def smart_fetch(self, symbol, period='2y', interval='1d', n_bars=500, _now=None,
                     prefer_exch='NSE'):
@@ -1457,7 +1466,29 @@ class MultiTechDataSourceManager:
         stale ho to sabse fresh ko clearly "STALE" label ke saath return karte hain.
         """
         clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
+        prefer = str(prefer_exch).upper()
         stale_candidates = []          # (age_min, df, source)
+        fresh_fallback = None          # (df, src) — fresh, par requested exchange nahi
+
+        # FIX-68: requested exchange ko tier-order me prefer karo. Doosre exchange ka
+        # fresh frame turant return NAHI hota — pehle requested exchange ke baaki
+        # sources (NSE Direct / Yahoo .NS) try hote hain; sirf agar koi preferred
+        # fresh na mile tabhi doosre-exchange fresh frame use hota hai (disclosed).
+        def _consider(df, src, exch):
+            nonlocal fresh_fallback
+            fresh, why = frame_is_fresh(df, interval, now=_now)
+            if fresh:
+                if exch == prefer:
+                    return 'return', why
+                if fresh_fallback is None:
+                    fresh_fallback = (df, src)
+                print(f"⚠️  [{src}] fresh hai par {exch} se — aapne {prefer} maanga; "
+                      f"pehle {prefer} ke baaki sources try honge")
+                return 'hold', why
+            a = frame_age_minutes(df, _now)
+            stale_candidates.append((a if a is not None else 1e9, df, src))
+            print(f"⚠️  [{src} REJECTED] {clean_sym} ({interval}) — {why}, agla tier try kar rahe hain")
+            return 'stale', why
 
         # ── TIER 1: TradingView Direct (0-Second Delay Live Stream) ──
         if not symbol.startswith('^'):
@@ -1468,36 +1499,36 @@ class MultiTechDataSourceManager:
                 # FIX-53: exchange label me — 'TradingView Direct' akela ye nahi
                 # batata tha ki data NSE se aaya ya BSE fallback se.
                 _tv_src = f'TradingView Direct ({tv_exch})' if tv_exch else 'TradingView Direct'
-                fresh, why = frame_is_fresh(df_tv, interval, now=_now)
-                if fresh:
+                act, why = _consider(df_tv, _tv_src, tv_exch or prefer)
+                if act == 'return':
                     print(f"🔥 [{_tv_src}] {clean_sym} ({interval}) · {len(df_tv)} bars · {why}")
                     return df_tv, _tv_src
-                a = frame_age_minutes(df_tv, _now)
-                stale_candidates.append((a if a is not None else 1e9, df_tv, _tv_src))
-                print(f"⚠️  [TradingView REJECTED] {clean_sym} ({interval}) — {why}, agla tier try kar rahe hain")
 
         # ── TIER 2: NSE Official Direct Scraper ──
         if interval == '1d' and not symbol.startswith('^'):
             df_nse = self.fetch_nse_direct(clean_sym, days=500)
             if df_nse is not None:
-                fresh, why = frame_is_fresh(df_nse, interval, now=_now)
-                if fresh:
+                act, why = _consider(df_nse, 'NSE Direct', 'NSE')
+                if act == 'return':
                     print(f"⚡ [NSE Official Direct] {clean_sym} — Official Exchange Data · {len(df_nse)} bars · {why}")
                     return df_nse, 'NSE Direct'
-                a = frame_age_minutes(df_nse, _now)
-                stale_candidates.append((a if a is not None else 1e9, df_nse, 'NSE Direct'))
-                print(f"⚠️  [NSE Direct REJECTED] {clean_sym} — {why}")
 
         # ── TIER 3: Yahoo Finance Universal Backup ──
-        df_yf = self.fetch_yahoo(symbol, period=period, interval=interval)
+        df_yf, yf_exch = self.fetch_yahoo(symbol, period=period, interval=interval,
+                                          prefer_exch=prefer_exch)
         if df_yf is not None:
-            fresh, why = frame_is_fresh(df_yf, interval, now=_now)
-            if fresh:
+            _yf_src = f'Yahoo Finance ({yf_exch})' if yf_exch else 'Yahoo Finance'
+            act, why = _consider(df_yf, _yf_src, yf_exch or prefer)
+            if act == 'return':
                 print(f"🌐 [Yahoo] {symbol} ({interval}) · {len(df_yf)} bars · {why}")
-                return df_yf, 'Yahoo Finance'
-            a = frame_age_minutes(df_yf, _now)
-            stale_candidates.append((a if a is not None else 1e9, df_yf, 'Yahoo Finance'))
-            print(f"⚠️  [Yahoo REJECTED] {symbol} — {why}")
+                return df_yf, _yf_src
+
+        # FIX-68: requested exchange ka koi fresh source nahi mila — doosre exchange
+        # ka held fresh frame use karo (frame_exchange se disclosed rahega).
+        if fresh_fallback is not None:
+            df, src = fresh_fallback
+            print(f"ℹ️  {prefer} ka koi fresh source nahi mila — fallback [{src}] use ho raha hai")
+            return df, src
 
         # ── Last resort: sabse fresh stale frame (honest label ke saath) ──
         # FIX-47: message ab session-date batata hai, sirf minutes nahi. Aur agar sab

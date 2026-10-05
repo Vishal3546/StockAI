@@ -206,7 +206,7 @@ try:
     # FIX-53: fetch_tradingview ab (df, exchange) return karta hai
     A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: (mk(now_open - _dt.timedelta(days=9)), 'NSE')
     A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: mk(now_open)
-    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: None
+    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: (None, None)   # FIX-68: (df, exch)
     df_out, src_out = A.DATA_MANAGER.smart_fetch('TESTY', interval='1d', _now=now_open)
     A.DATA_MANAGER.fetch_tradingview, A.DATA_MANAGER.fetch_nse_direct, A.DATA_MANAGER.fetch_yahoo = orig_tv, orig_nse, orig_yf
     check('stale tier-1 → fresh tier-2 par fallback', src_out == 'NSE Direct', f'source={src_out}')
@@ -214,7 +214,8 @@ try:
     # sab stale → honest STALE label
     A.DATA_MANAGER.fetch_tradingview = lambda *a, **k: (mk(now_open - _dt.timedelta(days=9)), 'NSE')
     A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: None
-    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: mk(now_open - _dt.timedelta(days=30))
+    # FIX-68: fetch_yahoo ab (df, exch) return karta hai
+    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: (mk(now_open - _dt.timedelta(days=30)), 'NSE')
     _, src2 = A.DATA_MANAGER.smart_fetch('TESTZ', interval='1d', _now=now_open)
     A.DATA_MANAGER.fetch_tradingview, A.DATA_MANAGER.fetch_nse_direct, A.DATA_MANAGER.fetch_yahoo = orig_tv, orig_nse, orig_yf
     check('sab stale → "STALE" label (silent stale nahi)', 'STALE' in src2, f'source={src2}')
@@ -1418,7 +1419,14 @@ _app64 = sys.modules.get('app')
 if _app64 is None:
     import app as _app64
 _orig_nse = _app64.fetch_nse_live_ltp
+_orig_open = _app64.is_market_open
+_orig_ylive = _app64.fetch_yahoo_live_ltp
 _app64.fetch_nse_live_ltp = lambda sym, **k: None
+# FIX-68: deterministic — real clock/quote par depend na kare. Market-open aur
+# Yahoo-live-fresh assume karo, taaki ye check kabhi flaky na ho.
+_app64.is_market_open = lambda *a, **k: True
+_app64.fetch_yahoo_live_ltp = lambda *a, **k: {'price': 2100.0, 'is_realtime': True,
+                                               'quote_age_min': 0.0, 'source': 'yahoo.ns'}
 try:
     _cl = _app64.app.test_client()
     _d = _cl.get('/api/stock/TCS?ex=NSE').get_json()
@@ -1428,6 +1436,8 @@ try:
           _d.get('feed_label') == 'LIVE')
 finally:
     _app64.fetch_nse_live_ltp = _orig_nse
+    _app64.is_market_open = _orig_open
+    _app64.fetch_yahoo_live_ltp = _orig_ylive
 
 _rg = _app64.engine_market_regime()
 check('regime VIX ab real value deta hai (0/UNKNOWN nahi)',
@@ -1486,6 +1496,40 @@ _cod._last_date = lambda sym: '2020-01-01'
 _sys66.argv = ['x', '--syms', 'NIFTY,RELIANCE']
 _cod.main()
 check('purana snapshot hone par collect hota hai (2 calls)', len(_calls2) == 2)
+
+# ── FIX-68: requested-exchange preference across tiers ────────────────────
+# User ka sawaal: "Ye frame BSE se aaya (NSE feed khaali tha)" kyun? Wajah tha ki
+# Tier-1 ka BSE-fallback, Tier-2/3 ke NSE sources se PEHLE accept ho jata tha —
+# transient TV-NSE fail par BSE frame chun liya jata tha jabki Yahoo-NSE available
+# tha. Ab requested exchange (NSE) ka koi bhi fresh source, doosre exchange ke fast
+# source par prefer hota hai; BSE sirf last fresh resort (disclosed).
+
+print('\n-- FIX-68: exchange preference')
+check('fetch_yahoo ab (df, exchange) return karta hai', 'return None, None' in app_src)
+check('smart_fetch fresh_fallback hold karke preferred exchange dhoondhta hai',
+      'fresh_fallback' in app_src and 'def _consider' in app_src)
+check('Yahoo source label me exchange hai (frame_exchange sahi map ho)',
+      "Yahoo Finance ({yf_exch})" in app_src)
+
+# behavioral: TV-BSE fresh + Yahoo-NSE fresh -> NSE prefer
+import pandas as _pd68
+def _mk68(last, n=100):
+    idx = _pd68.date_range(end=last, periods=n, freq='D')
+    return _pd68.DataFrame({'Open':100,'High':101,'Low':99,'Close':100,'Volume':1000}, index=idx)
+_now68 = _pd68.Timestamp.now().normalize() + _pd68.Timedelta(hours=10)
+_M68 = A.DATA_MANAGER
+_o68 = (_M68.fetch_tradingview, _M68.fetch_nse_direct, _M68.fetch_yahoo)
+try:
+    _M68.fetch_tradingview = lambda *a, **k: (_mk68(_now68), 'BSE')
+    _M68.fetch_nse_direct = lambda *a, **k: None
+    _M68.fetch_yahoo = lambda *a, **k: (_mk68(_now68), 'NSE')
+    _, _s68 = _M68.smart_fetch('TESTY', interval='1d', _now=_now68, prefer_exch='NSE')
+    check('TV-BSE fresh hone par bhi Yahoo-NSE prefer hota hai', _s68 == 'Yahoo Finance (NSE)', _s68)
+    _M68.fetch_yahoo = lambda *a, **k: (None, None)
+    _, _s68b = _M68.smart_fetch('TESTY', interval='1d', _now=_now68, prefer_exch='NSE')
+    check('NSE na milne par BSE fallback (disclosed) use hota hai', _s68b == 'TradingView Direct (BSE)', _s68b)
+finally:
+    _M68.fetch_tradingview, _M68.fetch_nse_direct, _M68.fetch_yahoo = _o68
 
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)

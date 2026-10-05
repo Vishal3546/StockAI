@@ -2,6 +2,45 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-68 addendum — 2026-10-05 (requested-exchange preference across tiers)
+
+User ne poochha: *"Ye frame BSE se aaya hai (NSE feed khaali tha)"* warning kyun?
+
+Root cause: `smart_fetch` ke **Tier-1 ke andar** `fetch_tradingview` NSE→BSE fallback
+karta tha, aur Tier-1 ka **fresh BSE frame turant accept** ho jata tha — Tier-2
+(NSE Direct) / Tier-3 (Yahoo `.NS`) ke **NSE** sources try hone se PEHLE. Yani
+transient TV-NSE fail par BSE frame chun liya jata tha jabki Yahoo-NSE available tha.
+(App NSE universe par calibrated hai, isliye BSE frame par rank indicative — warning
+honest thi, par selection-order behtar ho sakta tha.)
+
+### FIX-68: requested exchange ko tier-order me prefer karo
+
+- `fetch_yahoo` ab `(df, exchange)` return karta hai aur requested exchange ka suffix
+  pehle try karta hai (`.NS` first for NSE).
+- `smart_fetch` me `_consider()`: preferred-exchange fresh → return; doosre-exchange
+  fresh → **hold as `fresh_fallback`**, preferred ke baaki sources dhoondo; sirf agar
+  koi preferred fresh na mile tabhi fallback use karo (disclosed via `frame_exchange`).
+- Yahoo source label ab `Yahoo Finance (NSE)/(BSE)` — `exchange_from_source` sahi map
+  karta hai (`(NSE)`/`(BSE)` pattern), isliye `frame_exchange` kabhi galat NSE nahi kehta.
+
+Behavioral verify (monkeypatch):
+  • TV-BSE fresh + Yahoo-NSE fresh → **Yahoo Finance (NSE)** (preferred jeeta)
+  • TV-NSE fresh → TradingView Direct (NSE)
+  • sirf BSE fresh → TradingView Direct (BSE) fallback (disclosed)
+
+### Side-fix: FIX-64 ka live-badge check flaky tha
+
+Wo real market-hours par depend karta tha — market-close ke baad sandbox me
+`feed_state=CLOSED` ho jata tha. Ab deterministic: `is_market_open` +
+`fetch_yahoo_live_ltp` stub karke market-open/fresh assume.
+
+### Verify
+
+`verify_live_quote.py` 356 → **361** · regression **1002 passed, 0 failed** ·
+3-case behavioral exchange-preference test.
+
+---
+
 ## FIX-66 addendum — 2026-10-05 (daily real-OI collector — future definitive study)
 
 User ne chuna: OI collection setup. Real-OI study (study_real_oi.py) abhi sirf ~9 mahine
@@ -2705,6 +2744,7 @@ nifty_scanner_v3_6.py
 | — | "OI/PCR/IV reachable nahi" — mera claim galat tha | ✅ **Corrected (FIX-61)** — teen galtiyan thi: path move ho gaya tha (`option-chain-indices` → **`option-chain-v3`**), `expiry` param **required** hai (bina uske NSE `{}` deta hai, maine wahi dekh kar "khaali" maan liya tha), aur cookie handshake + `Accept-Encoding: identity` chahiye. Sahi recipe se **248,963 B JSON, 116 strikes** mila; PCR(OI) **0.6852**, call-wall **23000**, put-wall **22000** compute kiya (niftytrader.in se levels exact match). **Par HISTORICAL OI kahin nahi mila** (bhavcopy/fo_participant/9 API paths sab 404) — bina history ke OI backtest namumkin. Isliye `tools/study_oi_signal.py`: `--collect` se real OI history banti hai, aur default mode reachable proxy (futures volume) par study karta hai. Result: 5d gross **+0.416%**, net **+0.271%**, t **+4.89** — aur **charo controls survive kiye** (momentum Δ+0.0028, OOS dono halves positive +0.312/+0.494, long-only net **+0.107%**, 24/26 symbols positive). Ye session ka pehla aisa signal hai. **Maine apne hi control me look-ahead bug banaya** (`r5.shift(1).rolling(5)`) aur pakda — clean control ke baad bhi survive kiya. Verdict **POSSIBLE EDGE**, dashboard me kuch plumb nahi kiya. `verify_live_quote.py` 275 → **291**, regression **932/0**. |
 | — | "LGEINDIA — exchange unknown" | ✅ **FIX-62** — `frame_exchange` sirf TradingView ka `(NSE)`/`(BSE)` format dekhta tha. **User ka actual case `NSE Direct` tha** (Tier-2 scraper), aur `yahoo.ns`/`yahoo.bo` bhi fail hote the. LGEINDIA NSE master me maujood hai (EQUITY_L.csv par verified: "LG Electronics India Limited") fir bhi unknown dikhta tha. Fix: `exchange_from_source()` helper + word-boundary `\b(NSE|BSE)\b`. **15/15 cases**, live verified. |
 | — | Mera FIX-61 "POSSIBLE EDGE" verdict | ❌ **REFUTED (FIX-62)** — aapne purged walk-forward maanga, repo ke tested `ml_lab.purged_walk_forward` se (`embargo=5`): mean acc **50.97%** vs **baseline 53.62%** (majority class se bhi neeche), shuffled-ceiling 52.18%, **5/27** symbols beat null. **+0.107% SURVIVE NAHI karta.** Wajah: split-half boundary par overlapping 5-day labels leak karte hain, aur pooled t-stat autocorrelation se inflate hota hai. Verdict logic ab walk-forward decisive; final **NO TRADEABLE EDGE**. |
+| — | "Ye frame BSE se aaya (NSE feed khaali tha)" — BSE frame NSE sources se pehle accept | ✅ **FIX-68** — Tier-1 ka BSE-fallback ab Tier-2/3 ke NSE sources se pehle accept NAHI hota; `fetch_yahoo` ab `(df, exchange)` return karta hai + requested suffix pehle; `smart_fetch` preferred-exchange fresh prefer karta hai, BSE sirf last fresh resort (disclosed). FIX-64 live-badge check deterministic banaya (flaky market-hours dependency). `verify_live_quote.py` 356 → **361**, regression **1002/0**. |
 | — | Future definitive OI study ke liye daily data | ✅ **FIX-66** — `tools/collect_oi_daily.py` (koi key nahi): roz live NSE option-chain se OI snapshot, idempotent + rate-limit safe, `reports/oi_history/` me append; Windows `.bat` Task Scheduler ke liye. Sandbox se NSE block (datacentre IP) — aapke residential machine par chalta hai. 6-12 mahine baad `study_real_oi.py` definitive WF chala sakta hai. `verify_live_quote.py` 348 → **355**, regression **996/0**. |
 | — | Bache hue modules (deep_analyzer/nifty_scanner/score_calibration) ka audit | ✅ **FIX-65** — nifty_scanner + score_calibration **clean** (pehle se audited, fail-closed). deep_analyzer me `advanced_risk_metrics` `252` use karta tha (3 jagah) jabki FIX-60 ne measure karke `247` kiya tha → annualised return/vol ~+2% overstate. Ab `TRADING_DAYS=247`. `rf 0.065` wahi (shared, drift-guard covered). deep_analyzer ML diagnostic-only (app ka asli verdict `ml_lab` se). `verify_live_quote.py` 343 → **348**, regression **989/0**. |
 | — | Live log: top badge `DELAYED (age unknown)` jabki chip `LIVE`; aur `^INDIAVIX` all-3-engines fail → `VIX: 0` | ✅ **FIX-64** — (1) `feed_state` sirf `live_nse` (NSE Direct) se chalta tha jo block tha, jabki Yahoo fresh tha → `_feed_live = live_nse or fetch_yahoo_live_ltp` fallback; NSE-fail par ab `LIVE`. (2) `fetch_yahoo` ka `len>=20` minimum + VIX `period='1mo'` (~19 bars) → None; VIX ab `6mo` (~125 bars) → `vix=14.41 LOW`. `verify_live_quote.py` 335 → **343**, regression **984/0**. |
