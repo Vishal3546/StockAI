@@ -1448,6 +1448,41 @@ check('nifty_scanner fail-closed UNRATED rakhta hai (bands absent par)',
 check('score_calibration CalibrationError fail-closed hai',
       'class CalibrationError' in (ROOT / 'score_calibration.py').read_text(encoding='utf-8'))
 
+# ── FIX-66: daily real-OI collector (future definitive study) ──────────────
+# Real-OI study abhi ~9 mahine ke GitHub data par INDICATIVE hai. Asli jawaab ke
+# liye roz-ka OI chahiye. collect_oi_daily.py roz live NSE option-chain se snapshot
+# leta hai (koi key nahi), idempotent + rate-limit safe. Sandbox se NSE block hai
+# (datacentre IP) — ye aapke residential machine par chalta hai.
+
+print('\n-- FIX-66: daily OI collector')
+_cod_f = ROOT / 'tools' / 'collect_oi_daily.py'
+_bat_f = ROOT / 'tools' / 'collect_oi_daily.bat'
+check('collect_oi_daily.py maujood hai', _cod_f.exists())
+check('Windows .bat maujood hai (Task Scheduler ke liye)', _bat_f.exists())
+_cs = _cod_f.read_text(encoding='utf-8') if _cod_f.exists() else ''
+check('existing collect() reuse karta hai (study_oi_signal se)', 'from tools.study_oi_signal import collect' in _cs)
+check('idempotent skip (aaj ka snapshot ho to dobara nahi)', '_last_date(sym) == today' in _cs)
+check('rate-limit safe (symbols ke beech sleep)', 'time.sleep(a.sleep)' in _cs)
+
+# behavioral: aaj ka snapshot -> collect nahi; purana -> collect
+import importlib.util as _iu
+_spec = _iu.spec_from_file_location('cod', str(_cod_f))
+_cod = _iu.module_from_spec(_spec); _spec.loader.exec_module(_cod)
+_calls = []
+_cod.collect = lambda sym, outdir=None: _calls.append(sym) or 0
+_today = _cod.datetime.now(_cod.IST).date().isoformat()
+_cod._last_date = lambda sym: _today
+import sys as _sys66
+_sys66.argv = ['x', '--syms', 'NIFTY,RELIANCE']
+_cod.main()
+check('aaj ka snapshot hone par collect skip hota hai (0 calls)', len(_calls) == 0)
+_calls2 = []
+_cod.collect = lambda sym, outdir=None: _calls2.append(sym) or 0
+_cod._last_date = lambda sym: '2020-01-01'
+_sys66.argv = ['x', '--syms', 'NIFTY,RELIANCE']
+_cod.main()
+check('purana snapshot hone par collect hota hai (2 calls)', len(_calls2) == 2)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

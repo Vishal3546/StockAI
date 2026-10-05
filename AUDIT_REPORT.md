@@ -2,6 +2,46 @@
 **Audit date:** 2026-09-30 · **Auditor:** Arena Agent · **Method:** static review **+ live execution**
 **Environment:** Python 3.13.14 · pandas 2.2.3 · numpy 1.26.4 · scikit-learn 1.6.1 · xgboost 3.4.1 · yfinance 1.7.0 · `tradingview-datafeed 2.1.1` · live NSE/TradingView/Yahoo network access
 
+## FIX-66 addendum — 2026-10-05 (daily real-OI collector — future definitive study)
+
+User ne chuna: OI collection setup. Real-OI study (study_real_oi.py) abhi sirf ~9 mahine
+ke GitHub data par **indicative** hai; asli jawaab ke liye roz-ka OI chahiye.
+
+### `tools/collect_oi_daily.py` — roz ek snapshot, koi API key nahi
+
+- Live NSE option-chain (`option-chain-v3`, FIX-61 wala verified recipe) se per-symbol
+  OI summary: `pcr_oi`, total call/put OI, call/put wall, ATM IV, spot.
+- Wahi schema jo `study_oi_signal.collect()` likhta hai → `reports/oi_history/<SYM>.csv`.
+- **Idempotent:** aaj ka snapshot already ho to symbol skip (verified: 0 calls); purana
+  ho to collect (verified: 2 calls).
+- **Rate-limit safe:** symbols ke beech 2s sleep (Akamai).
+- Universe: NIFTY, BANKNIFTY + 30 liquid F&O stocks (score_calibration se aligned).
+- `--status` se dekha ja sakta hai kitne din ka data hai per symbol.
+
+### `tools/collect_oi_daily.bat` — Windows Task Scheduler ke liye
+
+Market close ke baad (>=15:40 IST) roz chalao. Task Scheduler me ye .bat point karo, ya
+roz manually: `python tools\collect_oi_daily.py`.
+
+### Sandbox limitation (imaandari)
+
+Is sandbox se NSE option-chain **block** hai (datacentre IP → 403). Isliye yahan collect
+"option chain nahi mila" deta hai. Ye collector **aapke residential machine** par chalne
+ke liye hai — wahan live option-chain FIX-61 me verify ho chuka tha. Existing
+`reports/oi_history` ke 2026-10-03 snapshots isi collector ne banaye the.
+
+### 6-12 mahine baad
+
+Jab roz-ka data jama ho jaye, `tools/study_real_oi.py` isi par definitive purged
+walk-forward chala sakta hai. Abhi ye sirf data jama kar raha hai — koi edge claim nahi.
+
+### Verify
+
+`verify_live_quote.py` 348 → **355** · regression **996 passed, 0 failed** ·
+idempotency behavioral test (0 calls aaj / 2 calls purana).
+
+---
+
 ## FIX-65 addendum — 2026-10-05 (bache hue 3 modules ka audit)
 
 User ne audit chuna: `deep_analyzer.py` + `nifty_scanner.py` + `score_calibration.py`.
@@ -2665,6 +2705,7 @@ nifty_scanner_v3_6.py
 | — | "OI/PCR/IV reachable nahi" — mera claim galat tha | ✅ **Corrected (FIX-61)** — teen galtiyan thi: path move ho gaya tha (`option-chain-indices` → **`option-chain-v3`**), `expiry` param **required** hai (bina uske NSE `{}` deta hai, maine wahi dekh kar "khaali" maan liya tha), aur cookie handshake + `Accept-Encoding: identity` chahiye. Sahi recipe se **248,963 B JSON, 116 strikes** mila; PCR(OI) **0.6852**, call-wall **23000**, put-wall **22000** compute kiya (niftytrader.in se levels exact match). **Par HISTORICAL OI kahin nahi mila** (bhavcopy/fo_participant/9 API paths sab 404) — bina history ke OI backtest namumkin. Isliye `tools/study_oi_signal.py`: `--collect` se real OI history banti hai, aur default mode reachable proxy (futures volume) par study karta hai. Result: 5d gross **+0.416%**, net **+0.271%**, t **+4.89** — aur **charo controls survive kiye** (momentum Δ+0.0028, OOS dono halves positive +0.312/+0.494, long-only net **+0.107%**, 24/26 symbols positive). Ye session ka pehla aisa signal hai. **Maine apne hi control me look-ahead bug banaya** (`r5.shift(1).rolling(5)`) aur pakda — clean control ke baad bhi survive kiya. Verdict **POSSIBLE EDGE**, dashboard me kuch plumb nahi kiya. `verify_live_quote.py` 275 → **291**, regression **932/0**. |
 | — | "LGEINDIA — exchange unknown" | ✅ **FIX-62** — `frame_exchange` sirf TradingView ka `(NSE)`/`(BSE)` format dekhta tha. **User ka actual case `NSE Direct` tha** (Tier-2 scraper), aur `yahoo.ns`/`yahoo.bo` bhi fail hote the. LGEINDIA NSE master me maujood hai (EQUITY_L.csv par verified: "LG Electronics India Limited") fir bhi unknown dikhta tha. Fix: `exchange_from_source()` helper + word-boundary `\b(NSE|BSE)\b`. **15/15 cases**, live verified. |
 | — | Mera FIX-61 "POSSIBLE EDGE" verdict | ❌ **REFUTED (FIX-62)** — aapne purged walk-forward maanga, repo ke tested `ml_lab.purged_walk_forward` se (`embargo=5`): mean acc **50.97%** vs **baseline 53.62%** (majority class se bhi neeche), shuffled-ceiling 52.18%, **5/27** symbols beat null. **+0.107% SURVIVE NAHI karta.** Wajah: split-half boundary par overlapping 5-day labels leak karte hain, aur pooled t-stat autocorrelation se inflate hota hai. Verdict logic ab walk-forward decisive; final **NO TRADEABLE EDGE**. |
+| — | Future definitive OI study ke liye daily data | ✅ **FIX-66** — `tools/collect_oi_daily.py` (koi key nahi): roz live NSE option-chain se OI snapshot, idempotent + rate-limit safe, `reports/oi_history/` me append; Windows `.bat` Task Scheduler ke liye. Sandbox se NSE block (datacentre IP) — aapke residential machine par chalta hai. 6-12 mahine baad `study_real_oi.py` definitive WF chala sakta hai. `verify_live_quote.py` 348 → **355**, regression **996/0**. |
 | — | Bache hue modules (deep_analyzer/nifty_scanner/score_calibration) ka audit | ✅ **FIX-65** — nifty_scanner + score_calibration **clean** (pehle se audited, fail-closed). deep_analyzer me `advanced_risk_metrics` `252` use karta tha (3 jagah) jabki FIX-60 ne measure karke `247` kiya tha → annualised return/vol ~+2% overstate. Ab `TRADING_DAYS=247`. `rf 0.065` wahi (shared, drift-guard covered). deep_analyzer ML diagnostic-only (app ka asli verdict `ml_lab` se). `verify_live_quote.py` 343 → **348**, regression **989/0**. |
 | — | Live log: top badge `DELAYED (age unknown)` jabki chip `LIVE`; aur `^INDIAVIX` all-3-engines fail → `VIX: 0` | ✅ **FIX-64** — (1) `feed_state` sirf `live_nse` (NSE Direct) se chalta tha jo block tha, jabki Yahoo fresh tha → `_feed_live = live_nse or fetch_yahoo_live_ltp` fallback; NSE-fail par ab `LIVE`. (2) `fetch_yahoo` ka `len>=20` minimum + VIX `period='1mo'` (~19 bars) → None; VIX ab `6mo` (~125 bars) → `vix=14.41 LOW`. `verify_live_quote.py` 335 → **343**, regression **984/0**. |
 | — | "historical OI kahan milega, git repo/api?" | ✅ **FIX-63** — `tools/fetch_oi_history.py` (koi key nahi): AvilPage (per-symbol) + sajal101 (894 MB, tarball namumkin). **29 symbols × 138 dates ≈ 4,000 real OI rows** download. ⚠️ Data CLUSTERED: 2025-01 ke 8 din, 356-din ka hole, phir 2026-01→10 daily — matlab real daily OI sirf ~9 mahine. `study_real_oi.py` ne pooled purged walk-forward chalaya (repo ka `ml_lab` 150-train-rows minimum ki wajah se fit nahi hua): **acc 51.59% vs base 56.98% vs shuffled 54.57% — NO TRADEABLE EDGE.** Proxy wala NO-EDGE real OI se confirm. Verdict indicative (chhota sample). `verify_live_quote.py` 321 → **335**, regression **976/0**. |
