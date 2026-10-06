@@ -41,3 +41,6 @@ reports/oi_history/
 
 # FIX-63: real OI downloader ka generated data (roz badhega), commit nahi
 reports/oi_history_real/
+
+# Node (JS render tests — npm i jsdom)
+node_modules/

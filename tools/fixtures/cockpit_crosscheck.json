@@ -1,0 +1,413 @@
+{
+ "note": "NSE side = real /api/allIndices response captured 06-Oct-2026 10:24 IST; Yahoo side = live fetch at captured_utc. Sampling gap ki wajah se LTP exact match nahi, isliye tolerance + day-range check hai.",
+ "captured_utc": "2026-10-06T05:28:22.409632+00:00",
+ "payload": {
+  "timestamp": "06-Oct-2026 10:24",
+  "data": [
+   {
+    "key": "BROAD MARKET INDICES",
+    "index": "NIFTY 50",
+    "indexSymbol": "NIFTY 50",
+    "last": 22652.85,
+    "variation": 97.1,
+    "percentChange": 0.43,
+    "previousClose": 22555.75,
+    "yearHigh": 26373.2,
+    "yearLow": 22182.55
+   },
+   {
+    "key": "SECTORAL INDICES",
+    "index": "NIFTY BANK",
+    "indexSymbol": "NIFTY BANK",
+    "last": 54994.35,
+    "variation": 280.25,
+    "percentChange": 0.51,
+    "previousClose": 54714.1,
+    "yearHigh": 61764.85,
+    "yearLow": 49954.85
+   },
+   {
+    "key": "BROAD MARKET INDICES",
+    "index": "INDIA VIX",
+    "indexSymbol": "INDIA VIX",
+    "last": 14.18,
+    "variation": -0.6,
+    "percentChange": -4.04,
+    "previousClose": 14.78,
+    "yearHigh": 28.91,
+    "yearLow": 8.72
+   }
+  ]
+ },
+ "yahoo": {
+  "%5ENSEI": {
+   "meta": {
+    "currency": "INR",
+    "symbol": "^NSEI",
+    "exchangeName": "NSI",
+    "fullExchangeName": "NSE",
+    "instrumentType": "INDEX",
+    "firstTradeDate": 1190000700,
+    "regularMarketTime": 1791264501,
+    "hasPrePostMarketData": false,
+    "gmtoffset": 19800,
+    "timezone": "IST",
+    "exchangeTimezoneName": "Asia/Kolkata",
+    "regularMarketPrice": 22656.85,
+    "regularMarketChangePercent": 0.448,
+    "fulldayPrice": 22656.85,
+    "fulldayChange": 101.1,
+    "fulldayChangePercent": 0.448,
+    "fiftyTwoWeekHigh": 26373.2,
+    "fiftyTwoWeekLow": 22182.55,
+    "regularMarketDayHigh": 22677.95,
+    "regularMarketDayLow": 22561.6,
+    "regularMarketVolume": 0,
+    "longName": "NIFTY 50",
+    "shortName": "NIFTY 50",
+    "chartPreviousClose": 22620.45,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+     "pre": {
+      "timezone": "IST",
+      "start": 1791258300,
+      "end": 1791258300,
+      "gmtoffset": 19800
+     },
+     "regular": {
+      "timezone": "IST",
+      "start": 1791258300,
+      "end": 1791280800,
+      "gmtoffset": 19800
+     },
+     "post": {
+      "timezone": "IST",
+      "start": 1791280800,
+      "end": 1791280800,
+      "gmtoffset": 19800
+     }
+    },
+    "dataGranularity": "1d",
+    "range": "5d",
+    "validRanges": [
+     "1d",
+     "5d",
+     "1mo",
+     "3mo",
+     "6mo",
+     "1y",
+     "2y",
+     "5y",
+     "10y",
+     "ytd",
+     "max"
+    ]
+   },
+   "timestamp": [
+    1790739900,
+    1790826300,
+    1790912700,
+    1791171900,
+    1791258300
+   ],
+   "indicators": {
+    "quote": [
+     {
+      "open": [
+       22665.0,
+       22543.69921875,
+       null,
+       22532.400390625,
+       22603.25
+      ],
+      "high": [
+       22809.349609375,
+       22610.599609375,
+       null,
+       22621.80078125,
+       22677.94921875
+      ],
+      "low": [
+       22595.19921875,
+       22217.30078125,
+       null,
+       22397.099609375,
+       22561.599609375
+      ],
+      "close": [
+       22620.44921875,
+       22421.94921875,
+       null,
+       22555.75,
+       22656.849609375
+      ],
+      "volume": [
+       379000,
+       463600,
+       null,
+       436700,
+       0
+      ]
+     }
+    ],
+    "adjclose": [
+     {
+      "adjclose": [
+       22620.44921875,
+       22421.94921875,
+       null,
+       22555.75,
+       22656.849609375
+      ]
+     }
+    ]
+   }
+  },
+  "%5EINDIAVIX": {
+   "meta": {
+    "currency": "INR",
+    "symbol": "^INDIAVIX",
+    "exchangeName": "NSI",
+    "fullExchangeName": "NSE",
+    "instrumentType": "INDEX",
+    "firstTradeDate": 1204515900,
+    "regularMarketTime": 1791264501,
+    "hasPrePostMarketData": false,
+    "gmtoffset": 19800,
+    "timezone": "IST",
+    "exchangeTimezoneName": "Asia/Kolkata",
+    "regularMarketPrice": 14.102,
+    "regularMarketChangePercent": -4.552,
+    "fulldayPrice": 14.102,
+    "fulldayChange": -0.672,
+    "fulldayChangePercent": -4.552,
+    "fiftyTwoWeekHigh": 28.91,
+    "fiftyTwoWeekLow": 8.86,
+    "regularMarketDayHigh": 14.775,
+    "regularMarketDayLow": 14.075,
+    "regularMarketVolume": 0,
+    "longName": "INDIA VIX",
+    "shortName": "INDIA VIX",
+    "chartPreviousClose": 13.49,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+     "pre": {
+      "timezone": "IST",
+      "start": 1791258300,
+      "end": 1791258300,
+      "gmtoffset": 19800
+     },
+     "regular": {
+      "timezone": "IST",
+      "start": 1791258300,
+      "end": 1791280800,
+      "gmtoffset": 19800
+     },
+     "post": {
+      "timezone": "IST",
+      "start": 1791280800,
+      "end": 1791280800,
+      "gmtoffset": 19800
+     }
+    },
+    "dataGranularity": "1d",
+    "range": "5d",
+    "validRanges": [
+     "1d",
+     "5d",
+     "1mo",
+     "3mo",
+     "6mo",
+     "1y",
+     "2y",
+     "5y",
+     "10y",
+     "ytd",
+     "max"
+    ]
+   },
+   "timestamp": [
+    1790739900,
+    1790826300,
+    1790912700,
+    1791171900,
+    1791258300
+   ],
+   "indicators": {
+    "quote": [
+     {
+      "open": [
+       13.40999984741211,
+       13.489999771118164,
+       null,
+       14.460000038146973,
+       14.774999618530273
+      ],
+      "high": [
+       13.859999656677246,
+       15.6899995803833,
+       null,
+       15.350000381469727,
+       14.774999618530273
+      ],
+      "low": [
+       12.770000457763672,
+       13.489999771118164,
+       null,
+       13.5,
+       14.074999809265137
+      ],
+      "close": [
+       13.489999771118164,
+       14.460000038146973,
+       null,
+       14.779999732971191,
+       14.102499961853027
+      ],
+      "volume": [
+       0,
+       0,
+       null,
+       0,
+       0
+      ]
+     }
+    ],
+    "adjclose": [
+     {
+      "adjclose": [
+       13.489999771118164,
+       14.460000038146973,
+       null,
+       14.779999732971191,
+       14.102499961853027
+      ]
+     }
+    ]
+   }
+  },
+  "%5ENSEBANK": {
+   "meta": {
+    "currency": "INR",
+    "symbol": "^NSEBANK",
+    "exchangeName": "NSI",
+    "fullExchangeName": "NSE",
+    "instrumentType": "INDEX",
+    "firstTradeDate": 1190000700,
+    "regularMarketTime": 1791264501,
+    "hasPrePostMarketData": false,
+    "gmtoffset": 19800,
+    "timezone": "IST",
+    "exchangeTimezoneName": "Asia/Kolkata",
+    "regularMarketPrice": 54985.25,
+    "regularMarketChangePercent": 0.496,
+    "fulldayPrice": 54985.25,
+    "fulldayChange": 271.148,
+    "fulldayChangePercent": 0.496,
+    "fiftyTwoWeekHigh": 61764.85,
+    "fiftyTwoWeekLow": 49954.85,
+    "regularMarketDayHigh": 55074.45,
+    "regularMarketDayLow": 54834.75,
+    "regularMarketVolume": 0,
+    "longName": "NIFTY BANK",
+    "shortName": "NIFTY BANK",
+    "chartPreviousClose": 54633.05,
+    "priceHint": 2,
+    "currentTradingPeriod": {
+     "pre": {
+      "timezone": "IST",
+      "start": 1791258300,
+      "end": 1791258300,
+      "gmtoffset": 19800
+     },
+     "regular": {
+      "timezone": "IST",
+      "start": 1791258300,
+      "end": 1791280800,
+      "gmtoffset": 19800
+     },
+     "post": {
+      "timezone": "IST",
+      "start": 1791280800,
+      "end": 1791280800,
+      "gmtoffset": 19800
+     }
+    },
+    "dataGranularity": "1d",
+    "range": "5d",
+    "validRanges": [
+     "1d",
+     "5d",
+     "1mo",
+     "3mo",
+     "6mo",
+     "1y",
+     "2y",
+     "5y",
+     "10y",
+     "ytd",
+     "max"
+    ]
+   },
+   "timestamp": [
+    1790739900,
+    1790826300,
+    1790912700,
+    1791171900,
+    1791258300
+   ],
+   "indicators": {
+    "quote": [
+     {
+      "volume": [
+       282600,
+       304400,
+       null,
+       263100,
+       0
+      ],
+      "close": [
+       54633.05078125,
+       54450.75,
+       null,
+       54714.1015625,
+       54985.25
+      ],
+      "low": [
+       54174.30078125,
+       54066.6015625,
+       null,
+       54370.6015625,
+       54834.75
+      ],
+      "high": [
+       55135.5,
+       55091.44921875,
+       null,
+       55192.6484375,
+       55074.44921875
+      ],
+      "open": [
+       54175.8984375,
+       54583.05078125,
+       null,
+       54840.6484375,
+       54901.30078125
+      ]
+     }
+    ],
+    "adjclose": [
+     {
+      "adjclose": [
+       54633.05078125,
+       54450.75,
+       null,
+       54714.1015625,
+       54985.25
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
