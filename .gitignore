@@ -42,5 +42,9 @@ reports/oi_history/
 # FIX-63: real OI downloader ka generated data (roz badhega), commit nahi
 reports/oi_history_real/
 
+# FIX-75: FII/DII collector ka generated data — roz append hota hai, per-machine
+# hai, isliye commit nahi karna (warna har machine par merge conflict)
+reports/fidii_history.csv
+
 # Node (JS render tests — npm i jsdom)
 node_modules/

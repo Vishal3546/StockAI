@@ -4427,6 +4427,94 @@ def calculators_page():
                                'Calculators.html')
 
 
+# FIX-75: FII/DII ACTIVITY — /fidii page + /api/fidii
+# Do alag NSE endpoints hain (NSE-only vs NSE+BSE+MSEI) — fidii.py ke docstring
+# me measured numbers + authoritative labels hain. Dono dikhate hain, label ke saath.
+import fidii as _fid
+
+_FID_CACHE = {'ts': None, 'data': None}
+_FID_TTL = 900          # 15 min. Ye data din me EK baar publish hota hai (close ke baad).
+_FID_HIST = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'reports', 'fidii_history.csv')
+
+
+def _fid_get(path):
+    """NSE FII/DII endpoint. _opt_session() ka cookie jar reuse karta hai, par
+    Referer fii-dii page ka bhejta hai — _opt_get() option-chain ka referer
+    hardcode karta hai, isliye wo yahan use nahi kiya."""
+    global _OPT_SESS
+    if _OPT_SESS is None:
+        _OPT_SESS = _opt_session()
+    try:
+        r = _OPT_SESS.get('https://www.nseindia.com/api/' + path, timeout=25, headers={
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': 'https://www.nseindia.com/reports/fii-dii',
+            'Accept-Encoding': 'identity'})
+        if r.status_code == 200 and r.text and r.text[:1] in '{[':
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+
+def _fid_history(limit=20, scope='all'):
+    """Locally accumulated history (tools/collect_fidii_daily.py). Nahi hai to [].
+
+    CSV me DONO scopes hote hain ('all' = NSE+BSE+MSEI, 'nse' = NSE only) aur unke
+    numbers alag hote hain. Bina filter ke dono rows mix ho jaate — bilkul wahi
+    confusion jo is fix ka reason hai. Isliye default sirf 'all' deta hai (jo
+    third-party sites publish karte hain) aur caller ko scope batata hai.
+    """
+    try:
+        if not os.path.exists(_FID_HIST):
+            return []
+        rows = []
+        with open(_FID_HIST, encoding='utf-8') as fh:
+            hdr = fh.readline().strip().split(',')
+            if 'fii_net' not in hdr:
+                return []
+            for ln in fh:
+                p = ln.strip().split(',')
+                if len(p) != len(hdr):
+                    continue
+                r = dict(zip(hdr, p))
+                if scope and r.get('scope', 'all') != scope:
+                    continue
+                rows.append(r)
+        return rows[-limit:][::-1]
+    except Exception:
+        return []
+
+
+@app.route('/api/fidii')
+def api_fidii():
+    all_rows = _fid_get('fiidiiTradeReact')
+    nse_rows = _fid_get('fiidiiTradeNse')
+    snap = _fid.snapshot(all_rows, nse_rows)
+    live = bool(snap['ok'])
+    now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    if live:
+        _FID_CACHE['ts'] = now
+        _FID_CACHE['data'] = snap
+    else:
+        # NSE block/403 ho sakta hai (intermittent). Purana cache fake number se
+        # behtar hai — par `live: False` ke saath, chhupa kar nahi.
+        snap = _FID_CACHE['data'] or snap
+    snap['live'] = live
+    snap['fetched_at'] = _FID_CACHE['ts']
+    snap['history'] = _fid_history()
+    snap['history_scope'] = 'all'
+    snap['streak_fii'] = _fid.streak(
+        [(h.get('date'), h.get('fii_net')) for h in reversed(snap['history'])])
+    return jsonify(snap)
+
+
+@app.route('/fidii')
+def fidii_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Fidii.html')
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')

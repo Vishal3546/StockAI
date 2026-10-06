@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · FII / DII</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .panel h2{font-size:15px;margin-bottom:2px}
+  .lab{font-size:11px;color:var(--mut);margin-bottom:10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  th{text-align:left;font-weight:500;color:var(--mut);font-size:11px;padding:4px 6px;border-bottom:1px solid var(--line)}
+  td{padding:4px 6px;border-bottom:1px solid var(--line)}
+  td:not(:first-child),th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .big{font-size:19px;font-weight:700}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}
+  .muted{color:var(--mut);font-size:11.5px}
+  .err{color:var(--red);font-size:12.5px;margin-top:8px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;border:1px solid var(--line);margin-left:6px}
+  .b-live{color:var(--green);border-color:var(--green)}
+  .b-cache{color:var(--amber);border-color:var(--amber)}
+  .b-off{color:var(--red);border-color:var(--red)}
+  .kpi{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px}
+  .kpi div span{display:block;font-size:11px;color:var(--mut)}
+  .warn{margin-top:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:8px;color:var(--amber);font-size:11.5px}
+  .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  .src{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:11.5px;color:var(--mut)}
+</style>
+</head>
+<body>
+<h1>🏦 FII / DII Activity</h1>
+<div class="sub">Institutional cash-market flows, NSE se ·
+  <a href="/">← Dashboard</a> · <a href="/cockpit">Cockpit</a> ·
+  <a href="/options">Options</a> · <a href="/calculators">Calculators</a>
+  <span id="badge" class="badge">…</span>
+</div>
+
+<div id="asof" class="muted">Data load ho raha hai…</div>
+
+<div class="grid" style="margin-top:12px">
+  <div class="panel">
+    <h2 id="all_h">All exchanges</h2>
+    <div class="lab" id="all_lab">—</div>
+    <div id="all_out" class="muted">…</div>
+  </div>
+  <div class="panel">
+    <h2 id="nse_h">NSE only</h2>
+    <div class="lab" id="nse_lab">—</div>
+    <div id="nse_out" class="muted">…</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:14px">
+  <h2>📅 History</h2>
+  <div class="lab">Sirf utna jitna aapke machine par collect hua hai —
+    <code>python tools\collect_fidii_daily.py</code> roz chalao (close ke baad).
+    <span id="hist_scope" class="mut"></span></div>
+  <div id="hist" class="muted">…</div>
+</div>
+
+<div class="src" id="src">Source: —</div>
+
+<div class="disc">
+  <strong>Padhne se pehle:</strong> Ye NSE ka <em>provisional</em> data hai jo trading day ke
+  BAAD publish hota hai (aaj ka aaj nahi). Dono tables sahi hain — scope alag hai (ek NSE-only,
+  ek NSE+BSE+MSEI), isliye numbers alag dikhte hain. Streak sirf ek <strong>count</strong> hai,
+  koi prediction ya "bullish/bearish" verdict nahi. StockAI SEBI-registered advisor nahi hai —
+  ye investment advice nahi hai.
+</div>
+
+<script>
+function n(v){ return (v===null||v===undefined) ? '—' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function cls(v){ return (v===null||v===undefined) ? 'mut' : (v>0 ? 'green' : (v<0 ? 'red' : 'mut')); }
+function sgn(v){ return (v===null||v===undefined) ? '' : (v>0 ? '+' : ''); }
+
+function block(d){
+  if(!d || !d.records || !d.records.length){ return '<div class="err">Data nahi mila.</div>'; }
+  var h = '<table><tr><th>Category</th><th>Buy</th><th>Sell</th><th>Net (₹ Cr)</th></tr>';
+  d.records.forEach(function(r){
+    h += '<tr><td>'+r.category+'</td><td>'+n(r.buy)+'</td><td>'+n(r.sell)+
+         '</td><td class="'+cls(r.net)+'">'+sgn(r.net)+n(r.net)+'</td></tr>';
+  });
+  h += '</table><div class="kpi">';
+  h += '<div><span>FII net</span><b class="'+cls(d.fii_net)+'">'+sgn(d.fii_net)+n(d.fii_net)+'</b></div>';
+  h += '<div><span>DII net</span><b class="'+cls(d.dii_net)+'">'+sgn(d.dii_net)+n(d.dii_net)+'</b></div>';
+  h += '<div><span>Total net</span><b class="'+cls(d.total_net)+'">'+sgn(d.total_net)+n(d.total_net)+'</b></div>';
+  if(d.dii_absorption_pct !== null && d.dii_absorption_pct !== undefined){
+    h += '<div><span>DII ne FII ka kitna absorb kiya</span><b>'+n(d.dii_absorption_pct)+'%</b></div>';
+  }
+  h += '</div>';
+  if(d.integrity_ok === false){
+    h += '<div class="warn">⚠ NSE ka buy−sell aur net aapas me match nahi kar raha — number use karne se pehle source check karo.</div>';
+  }
+  return h;
+}
+
+function render(j){
+  var b = document.getElementById('badge');
+  if(j.live === true){ b.textContent = 'live'; b.className = 'badge b-live'; }
+  else if(j.as_of){ b.textContent = 'cached'; b.className = 'badge b-cache'; }
+  else { b.textContent = 'unavailable'; b.className = 'badge b-off'; }
+
+  document.getElementById('asof').textContent =
+    j.as_of ? ('Data date: ' + j.as_of + (j.live ? '' : '  (NSE abhi respond nahi kar raha — purana cache)'))
+            : 'Koi data nahi mila — NSE block ya network issue.';
+  document.getElementById('all_lab').textContent = j.all_exchanges.label;
+  document.getElementById('nse_lab').textContent = j.nse_only.label;
+  document.getElementById('all_out').innerHTML = block(j.all_exchanges);
+  document.getElementById('nse_out').innerHTML = block(j.nse_only);
+  document.getElementById('src').textContent = 'Source: ' + j.source + ' · ' + j.note;
+
+  if(j.dates_match === false){
+    document.getElementById('asof').innerHTML +=
+      '<div class="warn">⚠ Dono tables ki dates alag hain — compare mat karo.</div>';
+  }
+
+  var H = j.history || [], el = document.getElementById('hist');
+  document.getElementById('hist_scope').textContent =
+    j.history_scope === 'all' ? '(scope: NSE + BSE + MSEI — upar wali pehli table se match karta hai)'
+                              : (j.history_scope ? '(scope: ' + j.history_scope + ')' : '');
+  if(!H.length){
+    el.textContent = 'Abhi koi history nahi. Collector chalao: python tools\\collect_fidii_daily.py';
+  } else {
+    var t = '<table><tr><th>Date</th><th>FII net</th><th>DII net</th><th>Total</th></tr>';
+    H.forEach(function(r){
+      var f = Number(r.fii_net), d = Number(r.dii_net), tot = Number(r.total_net);
+      t += '<tr><td>'+r.date+'</td><td class="'+cls(f)+'">'+sgn(f)+n(f)+'</td>'+
+           '<td class="'+cls(d)+'">'+sgn(d)+n(d)+'</td>'+
+           '<td class="'+cls(tot)+'">'+sgn(tot)+n(tot)+'</td></tr>';
+    });
+    t += '</table>';
+    if(j.streak_fii){
+      var k = Math.abs(j.streak_fii);
+      t += '<div class="muted" style="margin-top:8px">FII streak: '+k+' din '+
+           (j.streak_fii>0?'buying':'selling')+' (sirf count — koi verdict nahi)</div>';
+    }
+    el.innerHTML = t;
+  }
+}
+
+fetch('/api/fidii').then(function(r){
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}).then(render).catch(function(e){
+  var m = 'Load fail: '+e.message;
+  document.getElementById('asof').className = 'err';
+  document.getElementById('asof').textContent = m;
+  document.getElementById('all_out').className = 'err';
+  document.getElementById('all_out').textContent = m;
+  document.getElementById('nse_out').className = 'err';
+  document.getElementById('nse_out').textContent = m;
+  document.getElementById('badge').textContent = 'error';
+  document.getElementById('badge').className = 'badge b-off';
+});
+</script>
+</body>
+</html>
