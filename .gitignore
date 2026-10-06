@@ -46,5 +46,16 @@ reports/oi_history_real/
 # hai, isliye commit nahi karna (warna har machine par merge conflict)
 reports/fidii_history.csv
 
+# FIX-78: GENERATED data — track karne se har test-suite run ke baad git dirty
+# ho jaata tha. Specifically:
+#   • tools/verify_fixes.py:100  nifty_scanner.py chalata hai -> scan_results.json
+#   • tools/verify_fixes.py:112  deep_analyzer.py chalata hai -> deep_*.json
+# Dono files apne consumer ke missing-file path handle karte hain (screener.py
+# clear error deta hai), aur verify_screener.py exact counts ke liye committed
+# FIXTURE use karta hai (tools/fixtures/scan_results_fix76.json), live file ko
+# nahi. Isliye untrack karna safe hai.
+scan_results.json
+deep_*.json
+
 # Node (JS render tests — npm i jsdom)
 node_modules/

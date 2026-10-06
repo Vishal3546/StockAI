@@ -45,6 +45,14 @@ sys.path.insert(0, str(ROOT))
 import screener as S  # noqa: E402
 
 results = []
+skipped = []
+
+
+def skip(name, reason):
+    """Environment genuinely nahi de sakta -> SKIP (fail nahi, aur na hi
+    chhupa hua pass). Reason hamesha print hota hai."""
+    skipped.append((name, reason))
+    print(f"  ⏭  {name} — SKIP: {reason}")
 
 
 def check(name, ok, detail=''):
@@ -91,7 +99,11 @@ if SCAN.exists():
     check('sirf whitelisted fields (koi leak nahi)', not leaked, str(leaked))
     check('total_scanned parse hua', d.get('total_scanned') == 30.0, str(d.get('total_scanned')))
 else:
-    check('asli scan_results.json load hua', False, 'file nahi mila — scanner chalao')
+    # FIX-78: scan_results.json ab gitignored hai (generated data), isliye fresh
+    # clone par ye file NAHI hogi. Ye failure nahi hai — pehle yahan
+    # check(..., False) tha jo fresh clone par verifier FAIL kar deta.
+    skip('live scan_results.json par invariants',
+         'file nahi mila (gitignored). Scanner chalao: python nifty_scanner.py')
     d = {'rows': []}
 
 check('missing file -> error message me command hai',
@@ -398,6 +410,7 @@ check('collect_fidii_daily.py abhi bhi zoneinfo import nahi karta',
 
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 84)
-print(f' {passed} / {len(results)} checks passed')
+print(f' {passed} / {len(results)} checks passed' +
+      (f'  (+{len(skipped)} skipped)' if skipped else ''))
 print('=' * 84)
 sys.exit(0 if passed == len(results) else 1)
