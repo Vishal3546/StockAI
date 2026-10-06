@@ -4370,6 +4370,63 @@ def cockpit_page():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Cockpit.html')
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FIX-74: CALCULATORS HUB — /calculators page + /api/calc/*
+#   Saara arithmetic calculators.py (pure Python) me hota hai, page sirf
+#   dikhata hai — taaki numbers TESTED code se aayein, untested JS se nahi.
+#   Rates research/costs.py se (FIX-59 model + FIX-73 NSE 0.00307%).
+# ═══════════════════════════════════════════════════════════════════════════
+import calculators as _calc
+
+
+def _q(name, default=None):
+    v = request.args.get(name)
+    return default if v in (None, '') else v
+
+
+@app.route('/api/calc/trade_costs')
+def api_calc_trade_costs():
+    r = _calc.trade_costs(_q('notional', 100000), _q('mode', 'delivery'),
+                          _q('brokerage_per_order', 0), _q('brokerage_pct', 0),
+                          _q('slippage_bps', 0))
+    if r is None:
+        return jsonify({'error': 'notional 0 se bada number hona chahiye'}), 400
+    return jsonify(r)
+
+
+@app.route('/api/calc/position_size')
+def api_calc_position_size():
+    r = _calc.position_size(_q('capital'), _q('risk_pct'), _q('entry'),
+                            _q('stop'), _q('side', 'long'))
+    if r is None:
+        return jsonify({'error': 'inputs invalid — capital>0, 0<risk%<=100, '
+                                 'entry>0, stop number'}), 400
+    if 'error' in r:
+        return jsonify(r), 400
+    return jsonify(r)
+
+
+@app.route('/api/calc/sip')
+def api_calc_sip():
+    r = _calc.sip(_q('monthly'), _q('years'), _q('annual_rate_pct'))
+    if r is None:
+        return jsonify({'error': 'inputs invalid — monthly>0, years>0, rate>=0'}), 400
+    return jsonify(r)
+
+
+@app.route('/api/calc/rates')
+def api_calc_rates():
+    """Kaun se rates, kis date ke, kis source se — chhupaya hua kuch nahi."""
+    return jsonify({'as_of': _calc.RATES_AS_OF, 'source': _calc.RATES_SOURCE,
+                    'note': 'Brokerage broker-specific hai, isliye wo input hai.'})
+
+
+@app.route('/calculators')
+def calculators_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)),
+                               'Calculators.html')
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')

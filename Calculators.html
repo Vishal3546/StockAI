@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Calculators</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:16px}
+  a{color:var(--cyan);text-decoration:none}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .panel h2{font-size:15px;margin-bottom:10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px}
+  input,select{background:#0f1528;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;width:100%}
+  .fld{flex:1;min-width:105px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  td{padding:4px 6px;border-bottom:1px solid var(--line)}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .big{font-size:20px;font-weight:700;margin-top:8px}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}
+  .muted{color:var(--mut);font-size:11.5px}
+  .err{color:var(--red);font-size:12.5px;margin-top:8px}
+  .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  .rates{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:11.5px;color:var(--mut)}
+</style>
+</head>
+<body>
+<h1>🧮 Calculators</h1>
+<div class="sub">Trade costs · Position size · SIP — sab arithmetic server par hota hai ·
+  <a href="/">← Dashboard</a> · <a href="/cockpit">Cockpit</a> · <a href="/options">Options</a></div>
+
+<div class="grid">
+
+  <div class="panel">
+    <h2>💰 Trade Cost (round trip)</h2>
+    <div class="row">
+      <div class="fld"><label>Notional (₹)</label><input id="tc_n" type="number" value="100000"></div>
+      <div class="fld"><label>Mode</label>
+        <select id="tc_m"><option value="delivery">Delivery</option><option value="intraday">Intraday</option></select></div>
+    </div>
+    <div class="row">
+      <div class="fld"><label>Brokerage / order (₹)</label><input id="tc_b" type="number" value="0"></div>
+      <div class="fld"><label>Brokerage % (cap)</label><input id="tc_bp" type="number" step="0.001" value="0"></div>
+      <div class="fld"><label>Slippage (bps)</label><input id="tc_s" type="number" step="0.5" value="0"></div>
+    </div>
+    <div id="tc_out" class="muted">…</div>
+  </div>
+
+  <div class="panel">
+    <h2>🎯 Position Size (risk per trade)</h2>
+    <div class="row">
+      <div class="fld"><label>Capital (₹)</label><input id="ps_c" type="number" value="100000"></div>
+      <div class="fld"><label>Risk per trade (%)</label><input id="ps_r" type="number" step="0.1" value="1"></div>
+    </div>
+    <div class="row">
+      <div class="fld"><label>Entry (₹)</label><input id="ps_e" type="number" step="0.05" value="2075"></div>
+      <div class="fld"><label>Stop (₹)</label><input id="ps_s" type="number" step="0.05" value="2000"></div>
+      <div class="fld"><label>Side</label>
+        <select id="ps_side"><option value="long">Long</option><option value="short">Short</option></select></div>
+    </div>
+    <div id="ps_out" class="muted">…</div>
+  </div>
+
+  <div class="panel">
+    <h2>📈 SIP</h2>
+    <div class="row">
+      <div class="fld"><label>Monthly (₹)</label><input id="sip_p" type="number" value="10000"></div>
+      <div class="fld"><label>Years</label><input id="sip_y" type="number" step="0.5" value="10"></div>
+      <div class="fld"><label>Expected return (%/yr)</label><input id="sip_r" type="number" step="0.1" value="12"></div>
+    </div>
+    <div id="sip_out" class="muted">…</div>
+  </div>
+
+</div>
+
+<div class="rates" id="rates">Rates source load ho raha hai…</div>
+
+<div class="disc">⚠️ We are not SEBI registered. This is for educational purpose only —
+<b>investment advice nahi</b>. <b>Brokerage broker-specific hai</b> (yahan input hai, koi ek
+broker ka rate universal nahi). SIP ka return <b>assumed rate</b> par hai — <b>guaranteed nahi</b>,
+aur market me negative bhi ho sakta hai. Position size <b>risk management</b> hai,
+direction ka prediction nahi.</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const inr=x=>x==null?'—':'₹'+Number(x).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const qs=o=>Object.entries(o).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
+async function api(path,params){
+  const r=await fetch(path+'?'+qs(params));
+  return {ok:r.ok, body:await r.json()};
+}
+function table(rows){
+  return '<table>'+rows.map(r=>`<tr><td>${r[0]}</td><td class="${r[2]||''}">${r[1]}</td></tr>`).join('')+'</table>';
+}
+async function calcTC(){
+  const el=$('tc_out'); el.className='muted'; el.textContent='…';
+  try{
+    const {ok,body}=await api('/api/calc/trade_costs',{notional:$('tc_n').value,mode:$('tc_m').value,
+      brokerage_per_order:$('tc_b').value,brokerage_pct:$('tc_bp').value,slippage_bps:$('tc_s').value});
+    if(!ok){el.className='err';el.textContent=body.error;return;}
+    el.className='';
+    el.innerHTML=`<div class="big">${inr(body.total_charges)} <span class="muted">total round trip</span></div>`+
+      table([['Buy side',inr(body.buy.total)],['Sell side',inr(body.sell.total)],
+             ['Brokerage',inr(body.buy.brokerage+body.sell.brokerage)],
+             ['STT',inr(body.buy.stt+body.sell.stt)],
+             ['Exchange txn',inr(body.buy.exchange+body.sell.exchange)],
+             ['SEBI',inr(body.buy.sebi+body.sell.sebi)],
+             ['Stamp duty',inr(body.buy.stamp+body.sell.stamp)],
+             ['GST (18%)',inr(body.buy.gst+body.sell.gst)],
+             ['Slippage',inr(body.buy.slippage+body.sell.slippage)],
+             ['<b>Break-even move</b>',`<b>${body.breakeven_move_pct}%</b>`,'amber']])+
+      `<div class="muted">mode: ${body.mode} · rates as of ${body.rates_as_of}</div>`;
+  }catch(e){el.className='err';el.textContent='fetch fail: '+e;}
+}
+async function calcPS(){
+  const el=$('ps_out'); el.className='muted'; el.textContent='…';
+  try{
+    const {ok,body}=await api('/api/calc/position_size',{capital:$('ps_c').value,risk_pct:$('ps_r').value,
+      entry:$('ps_e').value,stop:$('ps_s').value,side:$('ps_side').value});
+    if(!ok){el.className='err';el.textContent=body.error;return;}
+    el.className='';
+    el.innerHTML=`<div class="big green">${body.qty} shares</div>`+
+      table([['Side',body.side],['Risk budget',inr(body.risk_amount)],
+             ['Per-share risk',inr(body.per_share_risk)],
+             ['Actual risk (qty × risk)',inr(body.actual_risk)],
+             ['Position value',inr(body.position_value)],
+             ['Capital used',body.capital_used_pct+'%'],
+             ['Stop distance',body.stop_distance_pct+'%']]);
+  }catch(e){el.className='err';el.textContent='fetch fail: '+e;}
+}
+async function calcSIP(){
+  const el=$('sip_out'); el.className='muted'; el.textContent='…';
+  try{
+    const {ok,body}=await api('/api/calc/sip',{monthly:$('sip_p').value,years:$('sip_y').value,annual_rate_pct:$('sip_r').value});
+    if(!ok){el.className='err';el.textContent=body.error;return;}
+    el.className='';
+    el.innerHTML=`<div class="big green">${inr(body.future_value)}</div>`+
+      table([['Invested',inr(body.invested)],['Gains',inr(body.gains),'green'],
+             ['Months',body.months],['Assumed return',body.annual_rate_pct+'% / yr'],
+             ['Convention',body.convention]])+
+      `<div class="muted">⚠️ assumed rate — guaranteed nahi</div>`;
+  }catch(e){el.className='err';el.textContent='fetch fail: '+e;}
+}
+function wire(ids,fn){ids.forEach(id=>$(id).addEventListener('input',fn));}
+wire(['tc_n','tc_m','tc_b','tc_bp','tc_s'],calcTC);
+wire(['ps_c','ps_r','ps_e','ps_s','ps_side'],calcPS);
+wire(['sip_p','sip_y','sip_r'],calcSIP);
+async function loadRates(){
+  try{
+    const {ok,body}=await api('/api/calc/rates',{});
+    if(ok) $('rates').innerHTML=`<b>Rates as of ${body.as_of}</b> — ${body.source}<br><b>${body.note}</b>`;
+    else $('rates').textContent='rates source load nahi hua';
+  }catch(e){$('rates').textContent='rates source load nahi hua: '+e;}
+}
+loadRates();
+calcTC();calcPS();calcSIP();
+</script>
+</body>
+</html>
