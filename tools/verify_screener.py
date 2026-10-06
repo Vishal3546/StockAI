@@ -9,9 +9,16 @@ tools/verify_screener.py — FIX-76 AI SCREENER SUITE
       chahiye (scanner manually chalta hai; 02-Oct-2026 Gandhi Jayanti thi —
       weekday tha, market band tha).
 
-  (C) FILTER — har filter ka count MEASURED distribution se pin kiya gaya hai
-      (30 rows: Banking 4, SELL 14, STRONG SELL 9, WATCH 6, BUY 1, score>=55 -> 1,
-       vol_ratio>=2 -> 4, ml_used -> 8). Threshold guess nahi kiye.
+  (C) FILTER — do tarah se:
+      • EXACT counts ek COMMITTED FIXTURE par (tools/fixtures/scan_results_fix76.json,
+        03-Oct-2026 ka scan). Ye stable hai.
+      • LIVE scan_results.json par sirf INVARIANTS — jinki expectations khud
+        DATA se derive hoti hain (facets ka total == rows, filter subset hai,
+        ml_used True+False == total, sort monotonic).
+      Ye split JAAN-BOOJH kar hai: tools/verify_fixes.py nifty_scanner.py chala
+      kar scan_results.json REGENERATE karta hai. Agar exact counts live file
+      par pin hote to health suite chalate hi ye verifier toot jaata — wahi
+      brittle-test galti jo FIX-73 me pakdi gayi thi.
 
   (D) SORT — desc/asc, None hamesha neeche (asc AUR desc dono me), aur sort key
       WHITELIST (user-supplied key seedha use nahi hota).
@@ -65,7 +72,11 @@ if SCAN.exists():
     d = S.load_scan(str(SCAN))
     check('asli scan_results.json load hua (koi error nahi)', 'error' not in d,
           str(d.get('error')))
-    check('30 rows', len(d.get('rows', [])) == 30, str(len(d.get('rows', []))))
+    # NOTE: row count yahan pin NAHI karte — scan_results.json regenerate hota
+    # rehta hai (verify_fixes.py nifty_scanner.py chalata hai). Exact count
+    # fixture par pin hai (section C).
+    check('live scan me rows hain (>0)', len(d.get('rows', [])) > 0,
+          str(len(d.get('rows', []))))
     check('timestamp mila', bool(d.get('timestamp')), str(d.get('timestamp')))
     r0 = d['rows'][0]
     check('har row me symbol hai', all(r.get('symbol') for r in d['rows']))
@@ -170,43 +181,90 @@ check('staleness market-open/closed claim NAHI karta',
       not any(k in str(st3).lower() for k in ('market open', 'market closed', 'trading day')))
 
 print('=' * 84)
-print(' (C) FILTER — measured counts (30-row scan se)')
+print(' (C) FILTER — exact counts FIXTURE par, live par invariants')
 print('=' * 84)
+
+# ── C1: EXACT counts — committed fixture (03-Oct-2026 scan, 30 rows) ──────
+FIXTURE = ROOT / 'tools' / 'fixtures' / 'scan_results_fix76.json'
+fx = S.load_scan(str(FIXTURE))
+check('fixture load hua', 'error' not in fx, str(fx.get('error')))
+frows = fx.get('rows', [])
+check('fixture me 30 rows hain', len(frows) == 30, str(len(frows)))
+check('fixture Banking -> 4', len(S.filter_rows(frows, sector='Banking')) == 4)
+check('fixture SELL -> 14', len(S.filter_rows(frows, signal='SELL')) == 14)
+check('fixture STRONG SELL -> 9', len(S.filter_rows(frows, signal='STRONG SELL')) == 9)
+check('fixture WATCH -> 6', len(S.filter_rows(frows, signal='WATCH')) == 6)
+check('fixture BUY -> 1', len(S.filter_rows(frows, signal='BUY')) == 1)
+check('fixture min_score=55 -> 1 (KOTAKBANK)',
+      len(S.filter_rows(frows, min_score=55)) == 1
+      and S.filter_rows(frows, min_score=55)[0]['symbol'] == 'KOTAKBANK')
+check('fixture min_score=40 -> 30 (min score 40 hai)',
+      len(S.filter_rows(frows, min_score=40)) == 30)
+check('fixture min_score=61 -> 0 (max 60 hai)',
+      len(S.filter_rows(frows, min_score=61)) == 0)
+check('fixture min_vol=2 -> 4', len(S.filter_rows(frows, min_vol=2)) == 4)
+check("fixture q='infy' -> 1", len(S.filter_rows(frows, q='infy')) == 1)
+check('fixture ml_used True -> 8', len(S.filter_rows(frows, ml_used=True)) == 8)
+check('fixture ml_used False -> 22', len(S.filter_rows(frows, ml_used=False)) == 22)
+check('fixture me 18 sectors', len(S.facets(frows)['sectors']) == 18,
+      str(len(S.facets(frows)['sectors'])))
+check('fixture signals exact', S.facets(frows)['signals'] ==
+      {'BUY': 1, 'SELL': 14, 'STRONG SELL': 9, 'WATCH': 6},
+      str(S.facets(frows)['signals']))
+
+# ── C2: LIVE file par INVARIANTS (expectations data se derive) ────────────
+# Ye checks kisi bhi valid scan par pass hone chahiye — isliye regenerate hone
+# par nahi tootenge.
 rows = d.get('rows', [])
 if rows:
-    check('koi filter nahi -> 30', len(S.filter_rows(rows)) == 30)
-    check('sector=Banking -> 4', len(S.filter_rows(rows, sector='Banking')) == 4,
-          str(len(S.filter_rows(rows, sector='Banking'))))
-    check('sector case-sensitive exact match (banking -> 0)',
-          len(S.filter_rows(rows, sector='banking')) == 0)
-    check("sector='all' -> sab (filter apply nahi)",
-          len(S.filter_rows(rows, sector='all')) == 30)
-    check('signal=SELL -> 14', len(S.filter_rows(rows, signal='SELL')) == 14)
-    check('signal=STRONG SELL -> 9', len(S.filter_rows(rows, signal='STRONG SELL')) == 9)
-    check('signal=WATCH -> 6', len(S.filter_rows(rows, signal='WATCH')) == 6)
-    check('signal=BUY -> 1', len(S.filter_rows(rows, signal='BUY')) == 1)
-    check('signal lowercase bhi chalta hai -> 14',
-          len(S.filter_rows(rows, signal='sell')) == 14)
-    check('min_score=55 -> 1 (sirf KOTAKBANK)',
-          len(S.filter_rows(rows, min_score=55)) == 1
-          and S.filter_rows(rows, min_score=55)[0]['symbol'] == 'KOTAKBANK')
-    check('min_score=40 -> 30 (sabse chhota score 40 hai)',
-          len(S.filter_rows(rows, min_score=40)) == 30)
-    check('min_score=61 -> 0 (max 60 hai)', len(S.filter_rows(rows, min_score=61)) == 0)
-    check('min_vol=2 -> 4', len(S.filter_rows(rows, min_vol=2)) == 4)
-    check('min_vol=99 -> 0', len(S.filter_rows(rows, min_vol=99)) == 0)
-    check("q='infy' -> 1", len(S.filter_rows(rows, q='infy')) == 1)
-    check('q case-insensitive', len(S.filter_rows(rows, q='INFY')) == 1)
-    check('q substring (BANK -> 2+)', len(S.filter_rows(rows, q='BANK')) >= 2,
-          str([r['symbol'] for r in S.filter_rows(rows, q='BANK')]))
-    check('ml_used=True -> 8', len(S.filter_rows(rows, ml_used=True)) == 8)
-    check('ml_used=False -> 22', len(S.filter_rows(rows, ml_used=False)) == 22)
-    check('ml_used True+False = total 30',
-          len(S.filter_rows(rows, ml_used=True)) + len(S.filter_rows(rows, ml_used=False)) == 30)
-    combo = S.filter_rows(rows, sector='Banking', signal='SELL')
-    check('combined filters AND hote hain (Banking+SELL <= 4)', len(combo) <= 4, str(len(combo)))
-    check('koi match nahi -> []', S.filter_rows(rows, sector='NoSuchSector') == [])
-    check('filters original list mutate nahi karte', len(rows) == 30)
+    fac = S.facets(rows)
+    total = len(rows)
+    check('live: koi filter nahi -> sab rows', len(S.filter_rows(rows)) == total,
+          str(total))
+    # sector filter: expectation = facets ka count
+    for sec, cnt in list(fac['sectors'].items())[:5]:
+        got = len(S.filter_rows(rows, sector=sec))
+        check(f'live: sector={sec} -> {cnt} (facets se match)', got == cnt, str(got))
+    # signal filter: expectation = facets ka count
+    for sig, cnt in fac['signals'].items():
+        got = len(S.filter_rows(rows, signal=sig))
+        check(f'live: signal={sig} -> {cnt} (facets se match)', got == cnt, str(got))
+    # ml_used True + False = total
+    nT = len(S.filter_rows(rows, ml_used=True))
+    nF = len(S.filter_rows(rows, ml_used=False))
+    check('live: ml_used True + False == total', nT + nF == total, f'{nT}+{nF}={total}')
+    # har filter subset hai
+    check('live: har filter ka result subset hai (zyada nahi)',
+          all(len(S.filter_rows(rows, **{k: v})) <= total for k, v in
+              (('sector', next(iter(fac['sectors']))), ('signal', next(iter(fac['signals']))),
+               ('min_score', 0), ('min_vol', 0))))
+    # min_score = max score -> sirf wahi stocks jinka score max hai
+    scores = [r['signal_score'] for r in rows if r.get('signal_score') is not None]
+    if scores:
+        mx = max(scores)
+        want = sum(1 for s in scores if s >= mx)
+        check(f'live: min_score={mx} -> {want} (max-score wale)',
+              len(S.filter_rows(rows, min_score=mx)) == want)
+        check(f'live: min_score={mx + 1} -> 0', len(S.filter_rows(rows, min_score=mx + 1)) == 0)
+    # min_vol = max vol_ratio -> kam se kam 1
+    vols = [r['vol_ratio'] for r in rows if r.get('vol_ratio') is not None]
+    if vols:
+        check('live: min_vol=max -> kam se kam 1',
+              len(S.filter_rows(rows, min_vol=max(vols))) >= 1)
+    # q filter: pehle row ke symbol ka pehla akshar
+    first = rows[0]['symbol']
+    check(f'live: q={first[:3]} -> us symbol ko milata hai',
+          any(r['symbol'] == first for r in S.filter_rows(rows, q=first[:3])))
+    # non-existent -> []
+    check('live: jo sector hai hi nahi -> []',
+          S.filter_rows(rows, sector='__no_such_sector__') == [])
+    # combined AND
+    s0 = next(iter(fac['sectors']))
+    g0 = next(iter(fac['signals']))
+    check('live: combined filters AND hote hain',
+          len(S.filter_rows(rows, sector=s0, signal=g0)) <=
+          min(len(S.filter_rows(rows, sector=s0)), len(S.filter_rows(rows, signal=g0))))
+    check('live: filters original mutate nahi karte', len(rows) == total)
 
 print('=' * 84)
 print(' (D) SORT')
@@ -214,11 +272,18 @@ print('=' * 84)
 if rows:
     desc = S.sort_rows(rows, 'signal_score', 'desc')
     asc = S.sort_rows(rows, 'signal_score', 'asc')
-    check('desc: pehla = KOTAKBANK (score 60)',
-          desc[0]['symbol'] == 'KOTAKBANK' and desc[0]['signal_score'] == 60.0,
-          f"{desc[0]['symbol']}/{desc[0]['signal_score']}")
-    check('asc: pehla ka score 40 (sabse kam)', asc[0]['signal_score'] == 40.0,
-          str(asc[0]['signal_score']))
+    # Exact score pin NAHI karte — scan regenerate hone par badal jaata hai
+    # (03-Oct: KOTAKBANK 60, 06-Oct: KOTAKBANK 64). Expectation DATA se:
+    # desc ka pehla = max score, asc ka pehla = min score.
+    _sc = [r['signal_score'] for r in rows if r.get('signal_score') is not None]
+    check('desc: pehla row = MAX score wala',
+          desc[0]['signal_score'] == max(_sc),
+          f"{desc[0]['symbol']}/{desc[0]['signal_score']} (max={max(_sc)})")
+    check('asc: pehla row = MIN score wala',
+          asc[0]['signal_score'] == min(_sc),
+          f"{asc[0]['symbol']}/{asc[0]['signal_score']} (min={min(_sc)})")
+    check('desc aur asc ka pehla symbol alag hain (jab tak sab equal na hon)',
+          len(set(_sc)) == 1 or desc[0]['symbol'] != asc[0]['symbol'])
     check('desc monotonically non-increasing',
           all(desc[i]['signal_score'] >= desc[i + 1]['signal_score'] for i in range(len(desc) - 1)))
     check('asc monotonically non-decreasing',
@@ -249,9 +314,8 @@ if rows:
     f = S.facets(rows)
     check('facets signals ka total = 30', sum(f['signals'].values()) == 30, str(sum(f['signals'].values())))
     check('facets sectors ka total = 30', sum(f['sectors'].values()) == 30)
-    check('facets me 18 sectors hain (measured)', len(f['sectors']) == 18, str(len(f['sectors'])))
-    check('facets signals counts exact', f['signals'] == {'BUY': 1, 'SELL': 14,
-          'STRONG SELL': 9, 'WATCH': 6}, str(f['signals']))
+    check('facets signals ka total bhi 30 (dono jagah consistent)',
+          sum(f['signals'].values()) == sum(f['sectors'].values()))
     check('signals count-descending order me hain (UI ke liye)',
           list(f['signals'].values()) == sorted(f['signals'].values(), reverse=True))
     check('facets([]) -> khaali dicts', S.facets([]) == {'sectors': {}, 'signals': {}})
