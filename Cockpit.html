@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Market Cockpit</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  button{cursor:pointer;background:var(--cyan);color:#03131a;font-weight:600;border:none;border-radius:8px;padding:8px 14px;font-size:14px}
+  .muted{color:var(--mut);font-size:12px}
+  .stale{color:var(--amber)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .card .k{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  .card .v{font-size:19px;font-weight:700;margin-top:2px}
+  .card .d{font-size:12px;margin-top:2px}
+  .green{color:var(--green)}.red{color:var(--red)}.amber{color:var(--amber)}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:16px}
+  .panel h2{font-size:14px;margin-bottom:8px}
+  .breadth{display:flex;height:22px;border-radius:6px;overflow:hidden;font-size:11px;font-weight:700}
+  .breadth div{display:flex;align-items:center;justify-content:center;color:#04121f;min-width:26px}
+  .heat{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
+  .tile{border-radius:8px;padding:8px;border:1px solid var(--line);text-align:center}
+  .tile .n{font-size:11px;opacity:.92}
+  .tile .p{font-size:15px;font-weight:700;margin-top:2px}
+  .tile .l{font-size:10.5px;opacity:.8}
+  .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-size:10.5px;text-transform:uppercase;font-weight:600}
+  td.k,th.k{text-align:left}
+</style>
+</head>
+<body>
+<h1>🛰️ Market Cockpit</h1>
+<div class="sub">NSE indices · breadth · sector heatmap · <a href="/">← Dashboard</a> · <a href="/options">Options →</a></div>
+
+<div class="bar">
+  <button id="reload">🔄 Refresh</button>
+  <span class="muted" id="meta">loading…</span>
+</div>
+
+<div class="panel" id="breadthPanel" style="display:none">
+  <h2>Market Breadth (whole market advance / decline)</h2>
+  <div class="breadth" id="breadthBar"></div>
+  <div class="muted" id="breadthNote" style="margin-top:6px"></div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="panel">
+  <h2>Sector Heatmap <span class="muted">(NSE sectoral indices, % change)</span></h2>
+  <div class="heat" id="heat"></div>
+</div>
+
+<div class="panel">
+  <h2>Best / Worst sectors</h2>
+  <table><thead><tr><th class="k">Top</th><th>%</th><th class="k">Bottom</th><th>%</th></tr></thead>
+  <tbody id="movers"></tbody></table>
+</div>
+
+<div class="disc">⚠️ We are not SEBI registered. This is for educational purpose only.
+Source: <b>NSE India</b> indices only (SENSEX/BSE indices is page par nahi hain).
+Ye sab <b>descriptive market-state</b> hai — breadth/heatmap se direction predict karne ka
+<b>koi validated edge nahi</b>. Data off-market hours me stale hota hai (timestamp dekhein).</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function fmt(x,d=2){return x==null?'—':Number(x).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function cls(p){return p==null?'':p>0?'green':p<0?'red':'';}
+function heat(p){
+  if(p==null) return '#1c2440';
+  const t=Math.min(Math.abs(p)/2,1);            // 2% par full saturation
+  return p>=0 ? `rgba(34,197,94,${0.15+t*0.6})` : `rgba(239,68,68,${0.15+t*0.6})`;
+}
+async function load(){
+  $('meta').textContent='loading…';
+  try{
+    const r=await fetch('/api/market_cockpit');
+    if(!r.ok){const e=await r.json();$('meta').textContent=e.error||('HTTP '+r.status);
+      $('cards').innerHTML='';$('heat').innerHTML='';$('movers').innerHTML='';
+      $('breadthPanel').style.display='none';return;}
+    render(await r.json());
+  }catch(e){$('meta').textContent='fetch fail: '+e;}
+}
+function render(d){
+  const age=d.age_minutes;
+  $('meta').innerHTML=`${d.source} · as of ${d.timestamp||'—'} · `+
+    (age==null?'age unknown'
+      : age<0 ? `<span class="stale">⚠️ clock skew — aapke machine ka clock NSE (IST) se ${Math.abs(age)} min peeche hai</span>`
+      : `<span class="${age>15?'stale':''}">${age} min purana</span>`);
+
+  const b=d.breadth;
+  if(b&&b.total){
+    $('breadthPanel').style.display='';
+    const seg=(v,c)=>v==null||!v?'':`<div style="width:${v/b.total*100}%;background:${c}">${v}</div>`;
+    $('breadthBar').innerHTML=seg(b.advances,'var(--green)')+seg(b.unchanged,'#8f9ac0')+seg(b.declines,'var(--red)');
+    $('breadthNote').innerHTML=`Advances <b class="green">${b.advances??'—'}</b> · Declines <b class="red">${b.declines??'—'}</b> · Unchanged <b>${b.unchanged??'—'}</b> · Total ${b.total} · A/D ratio <b>${b.ad_ratio??'—'}</b> · ${b.pct_up??'—'}% stocks up`;
+  } else $('breadthPanel').style.display='none';
+
+  const cards=[];
+  (d.indices||[]).forEach(c=>cards.push([c.name,fmt(c.last),c.pct,c.change]));
+  if(d.vix) cards.push(['INDIA VIX',fmt(d.vix.last),d.vix.pct,d.vix.change]);
+  $('cards').innerHTML=cards.map(c=>`<div class="card"><div class="k">${c[0]}</div>
+    <div class="v">${c[1]}</div>
+    <div class="d ${cls(c[2])}">${c[2]==null?'—':(c[2]>0?'+':'')+fmt(c[2])+'%'} · ${c[3]==null?'—':(c[3]>0?'+':'')+fmt(c[3])}</div></div>`).join('')
+    || '<div class="muted">koi index nahi mila</div>';
+
+  $('heat').innerHTML=(d.sectors||[]).map(s=>`<div class="tile" style="background:${heat(s.pct)}">
+    <div class="n">${s.name.replace(/^NIFTY /,'')}</div>
+    <div class="p ${cls(s.pct)}">${s.pct==null?'—':(s.pct>0?'+':'')+fmt(s.pct)+'%'}</div>
+    <div class="l">${fmt(s.last)}</div></div>`).join('')
+    || '<div class="muted">sectoral data nahi mila</div>';
+
+  const t=d.movers?.top||[], bo=d.movers?.bottom||[], n=Math.max(t.length,bo.length);
+  let rows='';
+  for(let i=0;i<n;i++){
+    rows+=`<tr><td class="k">${t[i]?.name||''}</td><td class="${cls(t[i]?.pct)}">${t[i]?fmt(t[i].pct):''}</td>
+      <td class="k">${bo[i]?.name||''}</td><td class="${cls(bo[i]?.pct)}">${bo[i]?fmt(bo[i].pct):''}</td></tr>`;
+  }
+  $('movers').innerHTML=rows||'<tr><td colspan="4" class="muted">—</td></tr>';
+}
+$('reload').onclick=load;
+load();
+setInterval(load,60000);
+</script>
+</body>
+</html>

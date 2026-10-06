@@ -4330,6 +4330,46 @@ def options_page():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Options.html')
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FIX-70: MARKET COCKPIT — /cockpit page + /api/market_cockpit
+#   NSE /api/allIndices (cookie-free endpoint) se saare indices + whole-market
+#   advance/decline + sectoral heatmap. FIX-69 ka _opt_get session hi reuse
+#   hota hai (same cookie handshake / headers).
+#   Sab kuch DESCRIPTIVE market-state hai — koi predictive claim nahi.
+# ═══════════════════════════════════════════════════════════════════════════
+import market_cockpit as _mkt
+
+_COCKPIT_HEADLINE = ['NIFTY 50', 'NIFTY BANK', 'NIFTY NEXT 50', 'NIFTY MIDCAP 50',
+                     'NIFTY FINANCIAL SERVICES 25/50']
+
+
+def _fetch_all_indices():
+    return _opt_get('https://www.nseindia.com/api/allIndices')
+
+
+@app.route('/api/market_cockpit')
+def api_market_cockpit():
+    payload = _fetch_all_indices()
+    if not payload or not payload.get('data'):
+        return jsonify({'error': 'market data unavailable (NSE block / off-market) '
+                                 '— residential IP + market hours par try karo'}), 503
+    sectors = _mkt.sector_heatmap(payload)
+    return jsonify({
+        'source': 'NSE India (allIndices)',
+        'timestamp': payload.get('timestamp'),
+        'age_minutes': _mkt.data_age_minutes(payload.get('timestamp')),
+        'breadth': _mkt.market_breadth(payload),
+        'indices': _mkt.index_cards(payload, _COCKPIT_HEADLINE),
+        'vix': _mkt.find_vix(payload),
+        'sectors': sectors,
+        'movers': _mkt.extremes(sectors, 3)})
+
+
+@app.route('/cockpit')
+def cockpit_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Cockpit.html')
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')
