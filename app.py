@@ -4515,6 +4515,96 @@ def fidii_page():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Fidii.html')
 
 
+# FIX-76: AI SCREENER — /screener page + /api/screener
+# scan_results.json ka pehla app-level consumer. Filtering/sorting SERVER par
+# hota hai (screener.py, tested) — page sirf dikhata hai.
+import screener as _scr
+
+_SCAN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scan_results.json')
+_SCR_CACHE = {'mtime': None, 'data': None}
+
+
+def _scr_load():
+    """File ko har request par dobara parse na karna pade — mtime badle tabhi."""
+    try:
+        mt = os.path.getmtime(_SCAN_FILE)
+    except OSError:
+        _SCR_CACHE['mtime'] = None
+        _SCR_CACHE['data'] = None
+        return _scr.load_scan(_SCAN_FILE)          # error message wahi dega
+    if _SCR_CACHE['mtime'] != mt:
+        _SCR_CACHE['data'] = _scr.load_scan(_SCAN_FILE)
+        _SCR_CACHE['mtime'] = mt
+    return _SCR_CACHE['data']
+
+
+def _fnum(name):
+    """Query param -> float, ya (None, error). Galat input par 400 milta hai,
+    chup-chaap ignore nahi hota (warna user ko lagega filter laga hi nahi)."""
+    v = _q(name)
+    if v is None:
+        return None, None
+    try:
+        return float(v), None
+    except (TypeError, ValueError):
+        return None, f'{name} ek number hona chahiye (mila: {v!r})'
+
+
+@app.route('/api/screener')
+def api_screener():
+    scan = _scr_load()
+    if scan.get('error'):
+        return jsonify({'ok': False, 'error': scan['error'], 'rows': [],
+                        'total': 0, 'matched': 0, 'facets': {'sectors': {}, 'signals': {}}}), 200
+
+    sector = _q('sector')
+    signal = _q('signal')
+    q = _q('q')
+    sort = _q('sort', 'signal_score')
+    order = _q('order', 'desc')
+    min_score, err = _fnum('min_score')
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    min_vol, err = _fnum('min_vol')
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    mu = _q('ml_used')
+    ml_used = None if mu is None else str(mu).lower() in ('1', 'true', 'yes')
+
+    rows = scan['rows']
+    matched = _scr.sort_rows(
+        _scr.filter_rows(rows, sector=sector, signal=signal, min_score=min_score,
+                         min_vol=min_vol, q=q, ml_used=ml_used),
+        key=sort, order=order)
+
+    st = _scr.staleness(scan.get('timestamp'))
+    return jsonify({
+        'ok': True,
+        'as_of': scan.get('timestamp'),
+        'age_label': st['age_label'],
+        'age_verdict': st['verdict'],
+        'total': len(rows),
+        'matched': len(matched),
+        'rows': matched,
+        # Facets POORE dataset se — warna filter lagane par options gayab ho jaate
+        'facets': _scr.facets(rows),
+        'filters': {'sector': sector, 'signal': signal, 'min_score': min_score,
+                    'min_vol': min_vol, 'q': q, 'ml_used': ml_used},
+        'sort': {'key': sort if sort in _scr.SORT_KEYS else 'signal_score',
+                 'order': order, 'valid_keys': list(_scr.SORT_KEYS)},
+        'ml_note_used': _scr.ml_note({'ml_used_in_composite': True}),
+        'ml_note_unused': _scr.ml_note({'ml_used_in_composite': False}),
+        'note': ('signal_score / composite / ensemble RELATIVE RANK hain — '
+                 'probability ya accuracy nahi. Scanner manually chalta hai, '
+                 'isliye data kitna purana hai upar dikha hai.'),
+    })
+
+
+@app.route('/screener')
+def screener_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Screener.html')
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')

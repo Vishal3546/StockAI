@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Screener</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+  label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px}
+  input,select{background:#0f1528;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;width:100%}
+  .fld{flex:1;min-width:100px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+  th{text-align:left;font-weight:500;color:var(--mut);font-size:11px;padding:6px;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap}
+  th:hover{color:var(--cyan)}
+  td{padding:6px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}
+  .muted{color:var(--mut);font-size:11.5px}
+  .err{color:var(--red);font-size:13px}
+  .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10.5px;border:1px solid var(--line)}
+  .p-buy{color:var(--green);border-color:var(--green)}
+  .p-sell{color:var(--red);border-color:var(--red)}
+  .p-watch{color:var(--amber);border-color:var(--amber)}
+  .banner{padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:14px;border:1px solid}
+  .b-old{border-color:var(--amber);color:var(--amber)}
+  .b-fresh{border-color:var(--green);color:var(--green)}
+  .b-bad{border-color:var(--red);color:var(--red)}
+  .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  .mldot{font-size:10px;padding:0 4px;border-radius:4px;border:1px solid var(--line)}
+  .mly{color:var(--green);border-color:var(--green)}
+  .mln{color:var(--mut)}
+  .scroll{overflow-x:auto}
+  button{background:#0f1528;color:var(--mut);border:1px solid var(--line);border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer}
+  button:hover{color:var(--cyan)}
+</style>
+</head>
+<body>
+<h1>🔎 AI Screener</h1>
+<div class="sub">Scanner ka ranked output, filter ke saath ·
+  <a href="/">← Dashboard</a> · <a href="/cockpit">Cockpit</a> ·
+  <a href="/options">Options</a> · <a href="/calculators">Calculators</a> ·
+  <a href="/fidii">FII/DII</a>
+</div>
+
+<div id="stale" class="banner b-old" style="display:none"></div>
+<div id="err" class="err" style="display:none"></div>
+
+<div class="panel">
+  <div class="row">
+    <div class="fld"><label>Symbol</label><input id="f_q" placeholder="e.g. INFY"></div>
+    <div class="fld"><label>Sector</label><select id="f_sector"><option value="">Sab</option></select></div>
+    <div class="fld"><label>Signal</label><select id="f_signal"><option value="">Sab</option></select></div>
+    <div class="fld"><label>Min score</label><input id="f_score" type="number" step="1" placeholder="0"></div>
+    <div class="fld"><label>Min vol ratio</label><input id="f_vol" type="number" step="0.1" placeholder="0"></div>
+    <div class="fld"><label>ML composite me</label>
+      <select id="f_ml"><option value="">Sab</option><option value="true">Sirf used</option><option value="false">Sirf not-used</option></select></div>
+    <div class="fld"><label>Sort</label>
+      <select id="f_sort"><option value="signal_score">Signal score</option><option value="composite">Composite</option>
+        <option value="ensemble">Ensemble</option><option value="rsi">RSI</option><option value="vol_ratio">Vol ratio</option>
+        <option value="change_pct">Change %</option><option value="ml_edge">ML edge</option><option value="symbol">Symbol</option></select></div>
+    <div class="fld" style="max-width:90px"><label>Order</label>
+      <select id="f_order"><option value="desc">↓ desc</option><option value="asc">↑ asc</option></select></div>
+    <div><button id="f_reset">Reset</button></div>
+  </div>
+  <div id="count" class="muted" style="margin-top:10px">…</div>
+</div>
+
+<div class="panel scroll">
+  <table>
+    <thead><tr>
+      <th data-k="symbol">Symbol</th><th data-k="sector">Sector</th>
+      <th class="n" data-k="price">Price</th><th class="n" data-k="change_pct">Chg%</th>
+      <th class="n" data-k="rsi">RSI</th><th class="n" data-k="vol_ratio">Vol</th>
+      <th data-k="signal">Signal</th><th class="n" data-k="signal_score">Score</th>
+      <th class="n" data-k="composite">Comp</th><th class="n" data-k="ensemble">Ens</th>
+      <th class="n" data-k="ml_prob">ML%</th><th class="n" data-k="ml_edge">Edge</th>
+      <th class="n">T1</th><th class="n">T2</th><th class="n">SL</th><th>Src</th>
+    </tr></thead>
+    <tbody id="tbody"><tr><td class="muted">Load ho raha hai…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="muted" id="mlnote"></div>
+
+<div class="disc">
+  <strong>Ye kya hai aur kya nahi:</strong> Score (signal_score / composite / ensemble) ek
+  <strong>relative rank</strong> hai — probability ya accuracy <em>nahi</em>. ML columns
+  diagnostic hain: <code>ml_acc</code> ek hi holdout split ka hai, walk-forward validated nahi,
+  aur jahan <span class="mldot mln">ML–</span> likha hai wahan ML composite me use hi nahi hua.
+  Ye scanner <strong>manually</strong> chalta hai — data kitna purana hai upar banner me hai.
+  StockAI SEBI-registered advisor nahi hai — ye investment advice nahi hai.
+</div>
+
+<script>
+function n2(v){ return (v===null||v===undefined) ? '—' : Number(v).toFixed(2); }
+function cls(v){ return (v===null||v===undefined) ? 'mut' : (v>0 ? 'green' : (v<0 ? 'red' : 'mut')); }
+function sgn(v){ return (v !== null && v !== undefined && v > 0) ? '+' : ''; }
+function pill(s){
+  var k = (s||'').indexOf('SELL')>=0 ? 'p-sell' : ((s||'').indexOf('BUY')>=0 ? 'p-buy' : 'p-watch');
+  return '<span class="pill '+k+'">'+(s||'—')+'</span>';
+}
+
+function fill(sel, obj, keep){
+  var el = document.getElementById(sel), cur = keep !== undefined ? keep : el.value;
+  var opts = '<option value="">Sab</option>';
+  Object.keys(obj||{}).forEach(function(k){ opts += '<option value="'+k+'">'+k+' ('+obj[k]+')</option>'; });
+  el.innerHTML = opts; el.value = cur || '';
+}
+
+function render(j){
+  var b = document.getElementById('stale'), e = document.getElementById('err');
+  e.style.display = 'none'; b.style.display = 'none';
+
+  if(j.ok === false){
+    e.style.display = 'block'; e.textContent = j.error || 'Load fail';
+    document.getElementById('count').textContent = '';
+    document.getElementById('tbody').innerHTML = '<tr><td class="muted">—</td></tr>';
+    return;
+  }
+
+  b.style.display = 'block';
+  var v = j.age_verdict;
+  b.className = 'banner ' + (v === 'fresh' || v === 'today' ? 'b-fresh' : 'b-old');
+  if(v === 'clock_skew') b.className = 'banner b-bad';
+  b.textContent = 'Scan ' + (j.age_label || '?') + ' purana hai (' + (j.as_of || 'no timestamp') +
+    ') — scanner manually chalta hai. Fresh data ke liye: python nifty_scanner.py';
+
+  if(!document.getElementById('f_sector').options.length || document.getElementById('f_sector').options.length < 2){
+    fill('f_sector', j.facets.sectors, document.getElementById('f_sector').value);
+    fill('f_signal', j.facets.signals, document.getElementById('f_signal').value);
+  }
+
+  document.getElementById('count').textContent =
+    j.matched + ' / ' + j.total + ' stocks · sort: ' + j.sort.key + ' ' + j.sort.order;
+
+  var tb = document.getElementById('tbody');
+  if(!j.rows.length){ tb.innerHTML = '<tr><td class="muted">Koi stock in filters se match nahi hua.</td></tr>'; }
+  else {
+    var h = '';
+    j.rows.forEach(function(r){
+      h += '<tr><td><b>'+r.symbol+'</b></td><td class="mut">'+(r.sector||'—')+'</td>'+
+        '<td class="n">'+n2(r.price)+'</td>'+
+        '<td class="n '+cls(r.change_pct)+'">'+sgn(r.change_pct)+n2(r.change_pct)+'</td>'+
+        '<td class="n">'+n2(r.rsi)+'</td><td class="n">'+n2(r.vol_ratio)+'</td>'+
+        '<td>'+pill(r.signal)+'</td>'+
+        '<td class="n"><b>'+n2(r.signal_score)+'</b></td>'+
+        '<td class="n">'+n2(r.composite)+'</td><td class="n">'+n2(r.ensemble)+'</td>'+
+        '<td class="n">'+n2(r.ml_prob)+' <span class="mldot '+(r.ml_used_in_composite?'mly':'mln')+'" title="'+
+          (r.ml_used_in_composite?j.ml_note_used:j.ml_note_unused)+'">'+(r.ml_used_in_composite?'ML+':'ML−')+'</span></td>'+
+        '<td class="n '+cls(r.ml_edge)+'">'+sgn(r.ml_edge)+n2(r.ml_edge)+'</td>'+
+        '<td class="n mut">'+n2(r.t1)+'</td><td class="n mut">'+n2(r.t2)+'</td>'+
+        '<td class="n mut">'+n2(r.sl)+'</td><td class="mut">'+(r.source||'—')+'</td></tr>';
+    });
+    tb.innerHTML = h;
+  }
+  document.getElementById('mlnote').textContent =
+    'ML+ = ML composite me use hua · ML− = use nahi hua (edge < 0).  ' + j.ml_note_unused;
+}
+
+function load(){
+  var p = [];
+  var map = {f_q:'q', f_sector:'sector', f_signal:'signal', f_score:'min_score',
+             f_vol:'min_vol', f_ml:'ml_used', f_sort:'sort', f_order:'order'};
+  Object.keys(map).forEach(function(id){
+    var v = document.getElementById(id).value;
+    if(v !== '' && v !== null) p.push(map[id]+'='+encodeURIComponent(v));
+  });
+  fetch('/api/screener' + (p.length ? '?'+p.join('&') : ''))
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); })
+    .then(function(res){
+      if(!res.ok && res.j && res.j.error){ res.j.ok = false; return render(res.j); }
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      render(res.j);
+    })
+    .catch(function(err){
+      var e = document.getElementById('err');
+      e.style.display = 'block'; e.className = 'err';
+      e.textContent = 'Load fail: ' + err.message;
+      document.getElementById('stale').style.display = 'none';
+      document.getElementById('tbody').innerHTML = '<tr><td class="muted">—</td></tr>';
+      document.getElementById('count').textContent = '';
+    });
+}
+
+['f_q','f_sector','f_signal','f_score','f_vol','f_ml','f_sort','f_order'].forEach(function(id){
+  var el = document.getElementById(id);
+  el.addEventListener(el.tagName === 'INPUT' && el.type === 'number' ? 'change' : 'input', load);
+});
+document.getElementById('f_reset').addEventListener('click', function(){
+  ['f_q','f_score','f_vol'].forEach(function(i){ document.getElementById(i).value = ''; });
+  document.getElementById('f_sector').value = '';
+  document.getElementById('f_signal').value = '';
+  document.getElementById('f_ml').value = '';
+  document.getElementById('f_sort').value = 'signal_score';
+  document.getElementById('f_order').value = 'desc';
+  load();
+});
+Array.prototype.forEach.call(document.querySelectorAll('th[data-k]'), function(th){
+  th.addEventListener('click', function(){
+    var s = document.getElementById('f_sort');
+    if(s.value === th.dataset.k){
+      document.getElementById('f_order').value =
+        document.getElementById('f_order').value === 'desc' ? 'asc' : 'desc';
+    } else { s.value = th.dataset.k; document.getElementById('f_order').value = 'desc'; }
+    load();
+  });
+});
+load();
+</script>
+</body>
+</html>
