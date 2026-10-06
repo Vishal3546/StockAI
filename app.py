@@ -4605,6 +4605,99 @@ def screener_page():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Screener.html')
 
 
+# FIX-77: TIMEFRAME SCORES — /timeframes page + /api/timeframe/<symbol>
+# calculate_kpi_scores() pehle se maujood tha par SIRF heavy /api/stock/<symbol>
+# ke andar call hota tha. Measured (06-Oct-2026, RELIANCE/TCS):
+#     /api/stock/RELIANCE  13.83s   (pehli call — regime ke liye ^NSEI + ^INDIAVIX
+#                                    + 5m/1h frames bhi fetch karta hai)
+#     lightweight path      0.47s   (2y daily + indicators + kpi)
+# aur DONO ke scores EXACTLY same aaye (RELIANCE 23/43/39/35, TCS 30/54/45/43).
+# Isliye ye alag lightweight endpoint hai — naya score formula NAHI.
+#
+# ZAROORI: fund_data wahi pass hota hai jo /api/stock/ pass karta hai
+# (yf.Ticker(...).info ke trailingPE / returnOnEquity / debtToEquity). Bina
+# iske longterm score 30 aata tha jabki /api/stock/ 39 dikhata — do pages par
+# do alag numbers, bilkul wahi problem jo bar-bar pakdi gayi hai.
+import time as _t77
+
+_TF_CACHE = {}
+_TF_TTL = 120          # 2 min. Yahoo ko bar-bar hit na karna pade.
+
+
+def _tf_fund_data(resolved, daily_source):
+    """/api/stock/ jaisa hi fund_data. FIX-54: BSE frame par .BO suffix."""
+    try:
+        import yfinance as _yf
+        suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'
+        info = _yf.Ticker(f'{resolved}{suffix}').info or {}
+    except Exception:
+        info = {}
+    return {'pe_val': info.get('trailingPE'),
+            'roe_val': info.get('returnOnEquity'),
+            'debt_val': info.get('debtToEquity')}
+
+
+def kpi_scores_for(symbol, prefer_exch='NSE'):
+    """(ok, payload). Heavy /api/stock/ ke bina wahi kpi scores."""
+    resolved = resolve_symbol(symbol)
+    if not resolved:
+        return False, {'error': f'symbol "{symbol}" resolve nahi hua'}
+    ok, reason = None, None
+    try:
+        df, src = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d',
+                                          prefer_exch=prefer_exch)
+    except Exception as e:
+        return False, {'error': f'data fetch fail: {type(e).__name__}: {e}'}
+    # FIX-28 wala degenerate-data check reuse — khali frame par score bana kar
+    # dena wahi purana bug hai.
+    ok, reason = _data_ok(df, min_bars=20)
+    if not ok:
+        return False, {'error': f'{resolved} ka data usable nahi: {reason}',
+                       'source': src}
+    dfi = calculate_all_indicators(df)
+    fd = _tf_fund_data(resolved, src)
+    kpi = calculate_kpi_scores(dfi, fd)
+    last = dfi.iloc[-1]
+    return True, {
+        'symbol': resolved,
+        'source': src,
+        'bars': int(len(dfi)),
+        'last_session': str(frame_last_date(dfi) or ''),
+        'price': sfx(last.get('Close')),
+        'kpi': kpi,
+        'fund_data': fd,
+        'fund_note': ('PE / ROE / D/E Yahoo .info se. Koi value None ho to us '
+                      'indicator ka vote SKIP hota hai (FIX-32) — isi liye '
+                      '"N/6 measured" dikhta hai.'),
+    }
+
+
+@app.route('/api/timeframe/<symbol>')
+def api_timeframe(symbol):
+    exch = _q('exch', 'NSE')
+    key = (str(symbol).strip().upper(), str(exch).strip().upper())
+    hit = _TF_CACHE.get(key)
+    if hit and (_t77.time() - hit[0]) < _TF_TTL:
+        payload = dict(hit[1])
+        payload['cached'] = True
+        return jsonify({'ok': bool(not payload.get('error')), **payload})
+    ok, payload = kpi_scores_for(symbol, prefer_exch=key[1])
+    _TF_CACHE[key] = (_t77.time(), payload)
+    if not ok:
+        return jsonify({'ok': False, **payload}), 200
+    return jsonify({'ok': True, 'cached': False,
+                    'note': ('Scores rule-based composite hain (kitne indicators '
+                             'measure hue wo "basis" me hai) — prediction ya '
+                             'probability nahi.'),
+                    **payload})
+
+
+@app.route('/timeframes')
+def timeframes_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)),
+                              'Timeframes.html')
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')

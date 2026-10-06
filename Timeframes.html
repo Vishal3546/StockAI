@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Timeframes</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+  label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px}
+  input,select{background:#0f1528;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:14px;width:100%}
+  button{background:#1d2547;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 16px;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--cyan)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+  .hz{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .hz h2{font-size:13px;color:var(--mut);font-weight:500;margin-bottom:8px}
+  .sc{font-size:32px;font-weight:700;line-height:1}
+  .bar{height:6px;background:#0f1528;border-radius:4px;margin:10px 0 8px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:4px}
+  .act{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;border:1px solid var(--line)}
+  .basis{color:var(--mut);font-size:11px;margin-top:8px}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}
+  .muted{color:var(--mut);font-size:11.5px}
+  .err{color:var(--red);font-size:13px}
+  .kv{display:flex;gap:18px;flex-wrap:wrap;margin-top:6px}
+  .kv div span{display:block;font-size:11px;color:var(--mut)}
+  .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  .spin{display:inline-block;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<h1>⏱️ Timeframes</h1>
+<div class="sub">Ek hi stock, teen horizon — intraday / swing / long-term ·
+  <a href="/">← Dashboard</a> · <a href="/cockpit">Cockpit</a> ·
+  <a href="/options">Options</a> · <a href="/calculators">Calculators</a> ·
+  <a href="/fidii">FII/DII</a> · <a href="/screener">Screener</a>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <div style="flex:2;min-width:170px"><label>Symbol</label><input id="sym" placeholder="RELIANCE, TCS, BANKNIFTY…" value="RELIANCE"></div>
+    <div style="flex:1;min-width:110px"><label>Exchange</label>
+      <select id="exch"><option value="NSE">NSE</option><option value="BSE">BSE</option></select></div>
+    <div><button id="go">Dekho</button></div>
+  </div>
+  <div id="meta" class="muted" style="margin-top:10px">Symbol daal kar "Dekho" dabao.</div>
+</div>
+
+<div id="err" class="err" style="display:none"></div>
+
+<div class="grid" id="cards" style="display:none">
+  <div class="hz"><h2>Intraday</h2><div id="h_intraday"></div></div>
+  <div class="hz"><h2>Swing</h2><div id="h_swing"></div></div>
+  <div class="hz"><h2>Long-term</h2><div id="h_longterm"></div></div>
+  <div class="hz" style="border-color:var(--cyan)"><h2>Master (teeno ka average)</h2><div id="h_master"></div></div>
+</div>
+
+<div class="panel" id="fund" style="display:none">
+  <div class="muted" id="fundtxt"></div>
+</div>
+
+<div class="disc">
+  <strong>Ye score kya hai:</strong> har horizon ka score ek <strong>rule-based composite</strong>
+  hai — jo indicators measure ho paye unke votes ka jod. <em>"basis"</em> batata hai ki kitne
+  indicators se score bana (jaise 5/6). Jitne kam measured, utna kam bharosemand — ye chhupaya
+  nahi jaata. Ye <strong>prediction ya probability nahi</strong> hai, aur na hi koi validated
+  accuracy claim. StockAI SEBI-registered advisor nahi hai — ye investment advice nahi hai.
+</div>
+
+<script>
+function col(v){ return v >= 65 ? 'green' : (v <= 35 ? 'red' : 'amber'); }
+function barCol(v){ return v >= 65 ? 'var(--green)' : (v <= 35 ? 'var(--red)' : 'var(--amber)'); }
+
+function card(k){
+  if(!k || typeof k.score !== 'number'){
+    return '<div class="mut">data nahi</div>';
+  }
+  var c = col(k.score);
+  return '<div class="sc '+c+'">'+k.score+'</div>'+
+    '<div class="bar"><i style="width:'+Math.max(0,Math.min(100,k.score))+'%;background:'+barCol(k.score)+'"></i></div>'+
+    '<span class="act '+c+'" style="border-color:currentColor">'+(k.action||'—')+'</span>'+
+    '<div class="basis">'+(k.basis||'')+'</div>';
+}
+
+function load(){
+  var sym = document.getElementById('sym').value.trim();
+  var ex = document.getElementById('exch').value;
+  var e = document.getElementById('err'), m = document.getElementById('meta'),
+      cards = document.getElementById('cards'), fund = document.getElementById('fund');
+  if(!sym){ e.style.display='block'; e.textContent='Symbol likho.'; cards.style.display='none'; return; }
+  e.style.display='none';
+  m.innerHTML = '<span class="spin">🔄</span> '+sym+' load ho raha hai…';
+  cards.style.display='none'; fund.style.display='none';
+
+  fetch('/api/timeframe/'+encodeURIComponent(sym)+'?exch='+encodeURIComponent(ex))
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); })
+    .then(function(res){
+      var j = res.j || {};
+      // HTTP status bhi dekho — pehle sirf `j.ok === false` check hota tha,
+      // isliye 500 par (jaha body {} ho sakti hai) page "undefined · ₹— ·
+      // undefined daily bars" render kar deta tha. Render test ne pakda.
+      if(!res.ok || j.ok === false || j.error){
+        e.style.display='block'; e.className='err';
+        e.textContent = j.error || ('Load fail: HTTP '+res.status);
+        m.textContent = '';
+        cards.style.display='none'; fund.style.display='none';
+        return;
+      }
+      var k = j.kpi || {};
+      ['intraday','swing','longterm','master'].forEach(function(h){
+        document.getElementById('h_'+h).innerHTML = card(k[h]);
+      });
+      cards.style.display='grid';
+      var price = (j.price===null||j.price===undefined) ? '—' : Number(j.price).toFixed(2);
+      m.innerHTML = '<b>'+j.symbol+'</b> · ₹'+price+
+        ' · '+j.bars+' daily bars · source: '+(j.source||'—')+
+        (j.last_session ? ' · last session '+j.last_session : '')+
+        (j.cached ? ' · <span class="mut">(2-min cache se)</span>' : '');
+      var fd = j.fund_data || {};
+      var fmt = function(v,suf){ return (v===null||v===undefined) ? 'N/A' : (Number(v).toFixed(2)+(suf||'')); };
+      fund.style.display='block';
+      document.getElementById('fundtxt').innerHTML =
+        '<b>Long-term score ke fundamentals (Yahoo .info):</b> P/E '+fmt(fd.pe_val)+
+        ' · ROE '+fmt(fd.roe_val)+' · D/E '+fmt(fd.debt_val)+
+        '<br><span class="mut">'+(j.fund_note||'')+'</span>'+
+        '<br><span class="mut">'+(j.note||'')+'</span>';
+    })
+    .catch(function(err){
+      e.style.display='block'; e.className='err'; e.textContent='Load fail: '+err.message;
+      m.textContent=''; cards.style.display='none'; fund.style.display='none';
+    });
+}
+
+document.getElementById('go').addEventListener('click', load);
+document.getElementById('sym').addEventListener('keydown', function(ev){
+  if(ev.key === 'Enter') load();
+});
+// Page khulte hi auto-fetch NAHI karte (har page-view par Yahoo hit na ho).
+// Par ?sym=RELIANCE se deep-link ho sakta hai — tab auto-load hota hai.
+(function(){
+  try {
+    var p = new URLSearchParams(window.location.search);
+    var s = (p.get('sym') || '').trim();
+    if(s){ document.getElementById('sym').value = s;
+           var e = p.get('exch'); if(e) document.getElementById('exch').value = e;
+           load(); }
+  } catch(e){}
+})();
+</script>
+</body>
+</html>
