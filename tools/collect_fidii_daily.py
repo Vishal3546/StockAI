@@ -14,10 +14,11 @@ Windows Task Scheduler ya roz manually:
     python tools\\collect_fidii_daily.py
     python tools\\collect_fidii_daily.py --status
 
-NOTE: ye script ZoneInfo use NAHI karta. IST fixed offset (+05:30) hai — IST me
-DST nahi hota. requirements.txt me `tzdata` nahi hai, isliye Windows par
-ZoneInfo('Asia/Kolkata') ZoneInfoNotFoundError dega (nifty_scanner.py aur
-collect_oi_daily.py me ye risk abhi bhi hai — alag se dekhna).
+NOTE: ye script fixed +05:30 offset use karta hai (IST me DST nahi hota, isliye
+exact) — market_cockpit.py ka bhi yahi pattern. ZoneInfo('Asia/Kolkata') bhi
+chal jaata hai: pandas `tzdata>=2022.7` ko bina kisi platform marker ke require
+karta hai, isliye `pip install -r requirements.txt` par tzdata Windows par bhi
+install ho jaata hai (verify_fidii.py isi ko pin karta hai).
 """
 from __future__ import annotations
 

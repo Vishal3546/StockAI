@@ -23,7 +23,7 @@ tools/verify_fidii.py — FIX-75 FII/DII SUITE
       taaki endpoint badle ya rate/scope badle to pakda jaaye.
 
   (H) WIRING/HONESTY — routes, page, Dashboard link, disclosures, NSE ke apne
-      headings wale labels, collector me ZoneInfo nahi (Windows tzdata missing).
+      headings wale labels, aur tzdata dependency-chain (pandas -> tzdata).
 
 Chalao:  python3 tools/verify_fidii.py
 """
@@ -191,7 +191,7 @@ src_fidii = (ROOT / 'fidii.py').read_text(encoding='utf-8')
 _imp_fidii = imported_modules(ROOT / 'fidii.py')
 check('fidii.py me koi flask/requests import nahi (pure module)',
       not (_imp_fidii & {'flask', 'requests'}), str(sorted(_imp_fidii)))
-check('fidii.py zoneinfo import nahi karta (Windows par tzdata missing)',
+check('fidii.py zoneinfo import nahi karta (fixed offset preference)',
       'zoneinfo' not in _imp_fidii, str(sorted(_imp_fidii)))
 check('fidii.py IST fixed +05:30 offset hai',
       'timedelta(hours=5, minutes=30)' in src_fidii)
@@ -260,7 +260,7 @@ check('history scope label dikhata hai (mix nahi)', 'hist_scope' in page)
 
 # Collector
 _imp_coll = imported_modules(ROOT / 'tools' / 'collect_fidii_daily.py')
-check('collector zoneinfo import nahi karta (Windows par crash karta)',
+check('collector zoneinfo import nahi karta (fixed offset preference)',
       'zoneinfo' not in _imp_coll, str(sorted(_imp_coll)))
 check('collector fixed +05:30 IST use karta hai',
       'timedelta(hours=5, minutes=30)' in coll)
@@ -289,24 +289,38 @@ for label, s in (('fidii.py', src_fidii), ('Fidii.html', page),
            if k.lower() in s.lower()]
     check(f'{label} me fake accuracy/prediction claim nahi', not bad, str(bad))
 
-# ── INFO (count nahi hota): known risk jo FIX-75 ka part NAHI hai ────────────
-# requirements.txt me `tzdata` nahi hai. Windows par system tz database nahi
-# hota, isliye ZoneInfo('Asia/Kolkata') wahan ZoneInfoNotFoundError deta hai.
-# FIX-75 ke files isliye fixed +05:30 offset use karte hain. Par ye do PURANE
-# files abhi bhi ZoneInfo use karte hain — alag se fix karna hoga, yahan sirf
-# report kar rahe hain (chhupa nahi rahe).
-_at_risk = [p for p in ('nifty_scanner.py', 'tools/collect_oi_daily.py',
-                        'tools/verify_live_quote.py')
-            if 'zoneinfo' in imported_modules(ROOT / p)]
-_req = (ROOT / 'requirements.txt').read_text(encoding='utf-8').lower()
-if _at_risk and 'tzdata' not in _req:
-    print('\nℹ️  KNOWN RISK (FIX-75 ka part nahi, isliye count nahi):')
-    print(f'   requirements.txt me tzdata NAHI hai, par ye files ZoneInfo use karti hain:')
-    for p in _at_risk:
-        print(f'     • {p}')
-    print('   Linux/macOS par system tz database hai isliye chalta hai; Windows par')
-    print("   ZoneInfoNotFoundError aayega — jab tak `pip install tzdata` na ho.")
-    print('   FIX-75 ke files (fidii.py, collect_fidii_daily.py) is par depend nahi karte.')
+# ── tzdata: pehle yahan ek GALAT "KNOWN RISK" INFO tha ──────────────────────
+# Maine likha tha ki requirements.txt me tzdata nahi hai isliye Windows par
+# ZoneInfo('Asia/Kolkata') ZoneInfoNotFoundError dega. Ye galat tha:
+#   • requirements.txt me tzdata DIRECT nahi hai — ye sach hai
+#   • par pandas use UNCONDITIONALLY require karta hai. pandas 2.2.3 ki METADATA:
+#       Requires-Dist: tzdata>=2022.7        <- koi platform_system marker NAHI
+#     isliye `pip install -r requirements.txt` par tzdata har platform par
+#     aata hai, Windows included.
+# User ne apne Windows machine par khud chalaya:
+#   python -c "from zoneinfo import ZoneInfo; print(ZoneInfo('Asia/Kolkata'))"
+#   -> Asia/Kolkata          (chal gaya, koi error nahi)
+# Ab ye guess nahi, do checks se pin hota hai.
+try:
+    import importlib.metadata as _md
+    _pd = [r for r in (_md.requires('pandas') or []) if 'tzdata' in r]
+    check('pandas tzdata ko require karta hai -> requirements install par milta hai',
+          bool(_pd), str(_pd))
+except Exception as _e:                                    # pandas installed nahi
+    print(f'\nℹ️  pandas metadata read nahi hua ({_e}) — tzdata check skip')
+
+try:
+    from zoneinfo import ZoneInfo as _ZI
+    _tz = _ZI('Asia/Kolkata')
+    check('ZoneInfo("Asia/Kolkata") is env me resolve hota hai', str(_tz) == 'Asia/Kolkata',
+          str(_tz))
+except Exception as _e:
+    check('ZoneInfo("Asia/Kolkata") is env me resolve hota hai', False,
+          f'{type(_e).__name__}: {_e} — `pip install tzdata`')
+
+# FIX-75 ke files phir bhi ZoneInfo par depend NAHI karte: fixed +05:30 offset
+# (IST me DST nahi hota, isliye exact) ek dependency kam rakhta hai — ye
+# market_cockpit.py ka bhi pattern hai. Ye preference hai, majboori nahi.
 
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 84)

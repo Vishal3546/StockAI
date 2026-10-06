@@ -29,8 +29,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-# IST me DST nahi hota, isliye fixed offset exact hai. zoneinfo/tzdata Windows
-# par aksar missing hota hai (requirements me nahi hai) — isliye ZoneInfo AVOID.
+# IST me DST nahi hota, isliye fixed +05:30 offset exact hai. ZoneInfo bhi chal
+# jaata (pandas tzdata ko unconditionally require karta hai, isliye wo installed
+# hota hai), par fixed offset ek dependency kam rakhta hai — market_cockpit.py ka
+# bhi yahi pattern hai. Ye preference hai, kisi bug se bachna nahi.
 IST = timezone(timedelta(hours=5, minutes=30), 'IST')
 
 # NSE ke apne page ke headings — inhi ko label ki tarah use karo, khud se
