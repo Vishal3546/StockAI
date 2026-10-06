@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Options Analytics</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--muted:#93a;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  input,select,button{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:14px}
+  button{cursor:pointer;background:var(--cyan);color:#03131a;font-weight:600;border:none}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .card .k{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  .card .v{font-size:18px;font-weight:700;margin-top:2px}
+  .green{color:var(--green)}.red{color:var(--red)}.amber{color:var(--amber)}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px}
+  th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;text-transform:uppercase;font-size:10.5px}
+  td.k,th.k{text-align:left}
+  .atm td{background:rgba(34,211,238,.07)}
+  .oibar{display:inline-block;height:8px;border-radius:3px;vertical-align:middle}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .panel h2{font-size:14px;margin-bottom:8px}
+  .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  .muted{color:var(--mut);font-size:12px}
+  a{color:var(--cyan);text-decoration:none}
+</style>
+</head>
+<body>
+<h1>📊 Options Analytics</h1>
+<div class="sub">Live NSE option chain · OI / PCR / Max Pain / Straddle · <a href="/">← Dashboard</a></div>
+
+<div class="bar">
+  <input id="sym" value="NIFTY" placeholder="NIFTY / BANKNIFTY / RELIANCE…" style="width:170px">
+  <button id="load">Load Chain</button>
+  <span class="muted" id="meta"></span>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Option Chain (ATM ± 8 strikes)</h2>
+    <table id="chain"><thead><tr>
+      <th>CE OI</th><th>CE IV</th><th>CE LTP</th><th class="k">STRIKE</th><th>PE LTP</th><th>PE IV</th><th>PE OI</th>
+    </tr></thead><tbody></tbody></table>
+  </div>
+  <div class="panel">
+    <h2>Strategy Builder (live premiums se)</h2>
+    <div class="bar">
+      <select id="strat">
+        <option value="straddle">Long Straddle</option>
+        <option value="bullcall">Bull Call Spread</option>
+        <option value="bearput">Bear Put Spread</option>
+        <option value="condor">Iron Condor</option>
+      </select>
+      <button id="build">Build P&amp;L</button>
+    </div>
+    <div id="stratOut" class="muted">Chain load karke strategy banao.</div>
+    <table id="payoff" style="margin-top:10px"><thead><tr><th class="k">Price</th><th>P&amp;L</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<div class="disc">⚠️ We are not SEBI registered. This is for educational purpose only. OI / PCR / max-pain
+<b>descriptive</b> support-resistance &amp; sentiment metrics hain — <b>predictive edge ya profit ka proof nahi</b>.
+Strategy P&amp;L live premiums par expiry-payoff hai; costs/slippage excluded.</div>
+
+<script>
+let CHAIN=null;
+const $=id=>document.getElementById(id);
+async function load(){
+  const sym=$('sym').value.trim().toUpperCase()||'NIFTY';
+  $('meta').textContent='loading…';
+  try{
+    const r=await fetch('/api/option_chain/'+sym);
+    if(!r.ok){const e=await r.json();$('meta').textContent=e.error||('HTTP '+r.status);return;}
+    CHAIN=await r.json(); render();
+  }catch(e){$('meta').textContent='fetch fail: '+e;}
+}
+function render(){
+  const d=CHAIN, t=d.totals, w=d.walls, s=d.straddle;
+  $('meta').textContent=`${d.symbol} · expiry ${d.expiry} · spot ${d.spot}`;
+  const cards=[
+    ['Spot',fmt(d.spot),''],
+    ['PCR (OI)',t.pcr_oi??'—',t.pcr_oi>1?'green':t.pcr_oi<1?'red':''],
+    ['Max Pain',fmt(d.max_pain),'amber'],
+    ['Call Wall (Res)',fmt(w.call_wall),'red'],
+    ['Put Wall (Sup)',fmt(w.put_wall),'green'],
+    ['ATM IV',d.atm_iv?d.atm_iv+'%':'—',''],
+    ['Straddle',s?s.straddle:'—',''],
+    ['Exp. Move',s?s.expected_move_pct+'%':'—',''],
+  ];
+  $('cards').innerHTML=cards.map(c=>`<div class="card"><div class="k">${c[0]}</div><div class="v ${c[2]}">${c[1]}</div></div>`).join('');
+  renderChain();
+}
+function fmt(x){return x==null?'—':Number(x).toLocaleString('en-IN',{maximumFractionDigits:2});}
+function renderChain(){
+  const rows=CHAIN.rows, spot=CHAIN.spot;
+  const atm=rows.reduce((a,b)=>Math.abs(a.strike-spot)<Math.abs(b.strike-spot)?a:b);
+  const idx=rows.findIndex(r=>r.strike===atm.strike);
+  const lo=Math.max(0,idx-8), hi=Math.min(rows.length,idx+9);
+  const maxOI=Math.max(...rows.map(r=>Math.max(r.ce_oi,r.pe_oi)),1);
+  const tb=rows.slice(lo,hi).map(r=>{
+    const cw=Math.round(r.ce_oi/maxOI*60), pw=Math.round(r.pe_oi/maxOI*60);
+    return `<tr class="${r.strike===atm.strike?'atm':''}">
+      <td><span class="oibar" style="width:${cw}px;background:var(--red)"></span> ${kfmt(r.ce_oi)}</td>
+      <td>${r.ce_iv?r.ce_iv.toFixed(1):'—'}</td><td>${r.ce_ltp.toFixed(1)}</td>
+      <td class="k"><b>${r.strike}</b></td>
+      <td>${r.pe_ltp.toFixed(1)}</td><td>${r.pe_iv?r.pe_iv.toFixed(1):'—'}</td>
+      <td>${kfmt(r.pe_oi)} <span class="oibar" style="width:${pw}px;background:var(--green)"></span></td></tr>`;
+  }).join('');
+  document.querySelector('#chain tbody').innerHTML=tb;
+  CHAIN._atm=atm; CHAIN._idx=idx;
+}
+function kfmt(x){return x>=1e7?(x/1e7).toFixed(1)+'Cr':x>=1e5?(x/1e5).toFixed(1)+'L':x>=1e3?(x/1e3).toFixed(1)+'K':x;}
+// ── strategy payoff (mirror of option_analytics) ──
+function payoff(legs,prices){return prices.map(s=>{let p=0;for(const L of legs){const intr=L.opt==='CE'?Math.max(0,s-L.strike):Math.max(0,L.strike-s);p+=L.side==='buy'?intr-L.premium:L.premium-intr;}return Math.round(p*100)/100;});}
+function stats(legs,prices){const pay=payoff(legs,prices);const be=[];for(let i=1;i<pay.length;i++){if((pay[i-1]<=0&&pay[i]>0)||(pay[i-1]>=0&&pay[i]<0)){const[p0,p1]=[prices[i-1],prices[i]],[v0,v1]=[pay[i-1],pay[i]];if(v1!==v0)be.push(Math.round((p0+(0-v0)*(p1-p0)/(v1-v0))*100)/100);}}
+  const mp=Math.max(...pay),ml=Math.min(...pay);return{mp:mp>0?mp:null,ml:ml<0?ml:null,be,pay};}
+function build(){
+  if(!CHAIN){$('stratOut').textContent='pehle chain load karo';return;}
+  const rows=CHAIN.rows,atm=CHAIN._atm,i=CHAIN._idx;
+  const g=n=>rows[Math.max(0,Math.min(rows.length-1,i+n))];
+  let legs=[];
+  const st=$('strat').value;
+  if(st==='straddle')legs=[{opt:'CE',side:'buy',strike:atm.strike,premium:atm.ce_ltp},{opt:'PE',side:'buy',strike:atm.strike,premium:atm.pe_ltp}];
+  if(st==='bullcall')legs=[{opt:'CE',side:'buy',strike:atm.strike,premium:atm.ce_ltp},{opt:'CE',side:'sell',strike:g(2).strike,premium:g(2).ce_ltp}];
+  if(st==='bearput')legs=[{opt:'PE',side:'buy',strike:atm.strike,premium:atm.pe_ltp},{opt:'PE',side:'sell',strike:g(-2).strike,premium:g(-2).pe_ltp}];
+  if(st==='condor')legs=[{opt:'PE',side:'sell',strike:g(-3).strike,premium:g(-3).pe_ltp},{opt:'PE',side:'buy',strike:g(-5).strike,premium:g(-5).pe_ltp},
+                         {opt:'CE',side:'sell',strike:g(3).strike,premium:g(3).ce_ltp},{opt:'CE',side:'buy',strike:g(5).strike,premium:g(5).ce_ltp}];
+  const spot=CHAIN.spot, prices=[]; for(let p=spot*0.9;p<=spot*1.1;p+=spot*0.02)prices.push(Math.round(p));
+  const s=stats(legs,prices);
+  $('stratOut').innerHTML=`<b>${$('strat').selectedOptions[0].text}</b> · Max Profit: <span class="green">${s.mp??'unlimited/—'}</span> · Max Loss: <span class="red">${s.ml??'—'}</span> · Breakeven: ${s.be.join(', ')||'—'}`;
+  document.querySelector('#payoff tbody').innerHTML=prices.map((p,j)=>`<tr><td class="k">${fmt(p)}</td><td class="${s.pay[j]>=0?'green':'red'}">${s.pay[j]}</td></tr>`).join('');
+}
+$('load').onclick=load; $('build').onclick=build;
+load();
+</script>
+</body>
+</html>

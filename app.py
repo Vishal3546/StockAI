@@ -4239,6 +4239,97 @@ def handle_global_exception(e):
     traceback.print_exc()
     return jsonify({'error': f"Server Exception: {str(e)}"}), 500
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FIX-69: OPTIONS ANALYTICS — /options page + /api/option_chain
+#   Live NSE option-chain (option-chain-v3, FIX-61 verified recipe) se chain
+#   lekar option_analytics ke pure functions se PCR / OI-walls / max-pain /
+#   straddle / ATM-IV nikalte hain. Sab metrics DESCRIPTIVE hain (support/
+#   resistance/sentiment) — predictive edge ka claim NAHI (standing NO EDGE).
+#   Sandbox se NSE blocked hai; ye aapke residential machine par chalta hai.
+# ═══════════════════════════════════════════════════════════════════════════
+import option_analytics as _opta
+
+_OPT_SESS = None
+
+
+def _opt_session():
+    import requests as _rq
+    s = _rq.Session()
+    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                                    'Chrome/131.0.0.0 Safari/537.36'})
+    try:
+        s.get('https://www.nseindia.com/option-chain', timeout=20)   # cookie handshake
+    except Exception:
+        pass
+    return s
+
+
+def _opt_get(url):
+    global _OPT_SESS
+    if _OPT_SESS is None:
+        _OPT_SESS = _opt_session()
+    try:
+        r = _OPT_SESS.get(url, timeout=25, headers={
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': 'https://www.nseindia.com/option-chain',
+            'Accept-Encoding': 'identity'})
+        if r.status_code == 200 and r.text and r.text[:1] in '{[':
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+
+def _fetch_option_chain(symbol, expiry=None):
+    if expiry is None:
+        ci = _opt_get(f'https://www.nseindia.com/api/option-chain-contract-info?symbol={symbol}')
+        if not ci or not ci.get('expiryDates'):
+            return None
+        expiry = ci['expiryDates'][0]
+    j = _opt_get(f'https://www.nseindia.com/api/option-chain-v3?symbol={symbol}&expiry={expiry}')
+    if not j:
+        return None
+    rec = j.get('records') or {}
+    rows = rec.get('data') or []
+    if not rows:
+        return None
+    norm = []
+    for r in rows:
+        ce = r.get('CE') or {}
+        pe = r.get('PE') or {}
+        norm.append({
+            'strike': float(r.get('strikePrice') or 0),
+            'ce_oi': float(ce.get('openInterest') or 0), 'ce_ltp': float(ce.get('lastPrice') or 0),
+            'ce_iv': float(ce.get('impliedVolatility') or 0),
+            'pe_oi': float(pe.get('openInterest') or 0), 'pe_ltp': float(pe.get('lastPrice') or 0),
+            'pe_iv': float(pe.get('impliedVolatility') or 0)})
+    return {'symbol': symbol, 'expiry': expiry, 'spot': rec.get('underlyingValue'), 'rows': norm}
+
+
+@app.route('/api/option_chain/<symbol>')
+def api_option_chain(symbol):
+    data = _fetch_option_chain(symbol.upper().replace('.NS', ''))
+    if not data:
+        return jsonify({'error': 'option chain unavailable (NSE block / off-market) — '
+                                 'residential IP + market hours par try karo'}), 503
+    rows = data['rows']
+    spot = data['spot']
+    return jsonify({
+        'symbol': data['symbol'], 'expiry': data['expiry'], 'spot': spot,
+        'totals': _opta.chain_totals(rows),
+        'walls': _opta.oi_walls(rows),
+        'max_pain': _opta.max_pain(rows),
+        'straddle': _opta.straddle_price(rows, spot),
+        'atm_iv': _opta.atm_iv(rows, spot),
+        'rows': sorted(rows, key=lambda r: r['strike'])})
+
+
+@app.route('/options')
+def options_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'Options.html')
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')
