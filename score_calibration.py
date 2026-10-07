@@ -43,6 +43,26 @@ WINDOW_SESSIONS = 250
 MIN_COVERAGE = 20
 MAX_AGE_CALENDAR_DAYS = 10
 ARTIFACT_PATH = Path(__file__).resolve().with_name('score_calibration.json')
+# FIX-84 (Phase 2): BSE ka apna calibration artifact. Pehle sirf NSE universe par
+# fitted bands the aur BSE frame par wahi NSE distribution se compare hota tha
+# (app.py FIX-53 comment me disclose tha). BSE aur NSE ke closing prices alag hote
+# hain — TradingView par RELIANCE 1207.70 (NSE) vs 1206.65 (BSE) — isliye score
+# distribution bhi alag hoti hai aur alag fit chahiye.
+# Purana naam ARTIFACT_PATH backward-compat ke liye NSE hi rahega.
+ARTIFACT_PATH_BSE = Path(__file__).resolve().with_name('score_calibration_bse.json')
+ARTIFACT_PATHS = {'NSE': ARTIFACT_PATH, 'BSE': ARTIFACT_PATH_BSE}
+
+
+def artifact_path(exchange='NSE'):
+    """Exchange ke hisaab se calibration artifact. Unknown -> NSE (fail-safe).
+
+    NOTE: module globals SEEDHE padho, ARTIFACT_PATHS dict se nahi. Dict import
+    time par Path objects capture kar leta hai, isliye `C.ARTIFACT_PATH = tmp`
+    wala monkeypatch kaam karna band ho jaata — aur tools/verify_score_calibration.py
+    ke fail-closed tests bilkul usi par depend karte hain.
+    """
+    ex = str(exchange or 'NSE').strip().upper()
+    return ARTIFACT_PATH_BSE if ex == 'BSE' else ARTIFACT_PATH
 PERCENTILES = {
     'short_sell': 0.10,     # bottom decile (relative rank only)
     'watchlist': 0.40,

@@ -101,14 +101,73 @@ def backfill(frames, *, max_sessions=C.WINDOW_SESSIONS, exclude_latest_sessions=
     return history[-max_sessions:]
 
 
+def download_daily_tv(symbol, exchange='BSE', n_bars=1400):
+    """FIX-84 (Phase 2): BSE ke liye TradingView se daily OHLCV.
+
+    Yahoo ke paas BSE historicals hote hi nahi — `.BO` par RELIANCE ke liye
+    `max` range par bhi sirf 1 row aata tha (measure kiya). TradingView ke paas
+    poori history hai: 1400 bars, 2021-02-12 se. NSE/BSE ke prices genuinely
+    alag hote hain (RELIANCE 1207.70 vs 1206.65), isliye BSE ka apna fit chahiye.
+
+    Output shape download_daily() jaisa hi rakha hai taaki backfill()/build_artifact()
+    bina badlav ke dono source par chalein.
+    """
+    df, exch = A.DATA_MANAGER.fetch_tradingview(symbol, n_bars=n_bars,
+                                                interval_str='1d',
+                                                prefer_exch=exchange)
+    if df is None or len(df) == 0:
+        return None
+    if str(exch or '').upper() != str(exchange).upper():
+        # Strict: BSE maanga aur NSE mila to is artifact ko BSE kehna jhooth hoga.
+        raise C.CalibrationError(
+            f'{symbol}: {exchange} maanga tha par source ne {exch} diya')
+    df = df.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    rename = {c.lower(): c.capitalize() for c in df.columns}
+    df = df.rename(columns=rename)
+    needed = ['Open', 'High', 'Low', 'Close', 'Volume']
+    if not all(k in df for k in needed):
+        return None
+    df = df[needed].apply(pd.to_numeric, errors='coerce').dropna()
+    df = df[(df[['Open', 'High', 'Low', 'Close']] > 0).all(axis=1) & (df['Volume'] >= 0)]
+    idx = pd.DatetimeIndex(df.index)
+    df.index = (idx.tz_localize(None) if idx.tz is not None else idx).normalize()
+    # FIX-84: TradingView ke daily feed me kabhi-kabhi weekend dates aa jaati hain
+    # (RELIANCE par 6 mili: 2023-11-12 Sun, 2024-01-20 Sat, 2024-03-02 Sat,
+    #  2024-05-18 Sat, 2025-02-01 Sat, 2026-02-01 Sun). NSE/BSE cash session
+    # weekend par hota hi nahi, aur score_calibration.validate_artifact() inhe
+    # reject karta hai ("NSE cash session cannot be a weekend") — sahi karta hai.
+    # Yahoo me ye dates aati nahi, isliye ye sirf TradingView-source ka filter hai.
+    _we = df.index.dayofweek >= 5
+    if _we.any():
+        df = df[~_we]
+    df = df[~df.index.duplicated(keep='last')].sort_index()
+    return df if len(df) >= C.LOOKBACK_BARS + C.WINDOW_SESSIONS else None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=pathlib.Path, default=C.ARTIFACT_PATH)
+    parser.add_argument('--output', type=pathlib.Path, default=None,
+                        help='default: exchange ke hisaab se score_calibration[_bse].json')
+    parser.add_argument('--exchange', choices=('NSE', 'BSE'), default='NSE',
+                        help='NSE = Yahoo .NS (purana rasta); BSE = TradingView (FIX-84)')
     args = parser.parse_args()
-    print(f'FIX-33: Yahoo daily 3y → {C.WINDOW_SESSIONS} past sessions; universe {len(C.UNIVERSE)}')
+    exch = args.exchange
+    # FIX-84: universe wahi 30 naam, par BSE par bhi wahi tickers chalte hain
+    # (TradingView symbol exchange-param se resolve karta hai).
+    if exch == 'BSE':
+        fetch = lambda s: download_daily_tv(s, 'BSE')
+        src_label = 'TradingView daily OHLCV (BSE)'
+        print(f'FIX-84: TradingView daily → {C.WINDOW_SESSIONS} past sessions; '
+              f'universe {len(C.UNIVERSE)} (BSE)')
+    else:
+        fetch = lambda s: download_daily(s)
+        src_label = 'Yahoo Finance daily adjusted OHLCV (no intraday/ML)'
+        print(f'FIX-33: Yahoo daily 3y → {C.WINDOW_SESSIONS} past sessions; universe {len(C.UNIVERSE)}')
     frames = {}
     with ThreadPoolExecutor(max_workers=5) as pool:
-        fut = {pool.submit(download_daily, s): s for s in C.UNIVERSE}
+        fut = {pool.submit(fetch, s): s for s in C.UNIVERSE}
         for job in as_completed(fut):
             symbol = fut[job]
             try:
@@ -126,14 +185,16 @@ def main():
     now_ist = datetime.now(A.IST)
     last_date = max(df.index[-1].date() for df in frames.values())
     exclude = 2 if A.is_market_open(now_ist) and last_date == now_ist.date() else 1
-    print(f'  latest Yahoo date {last_date}; skipping {exclude} newest session(s) '
+    print(f'  latest {exch} date {last_date}; skipping {exclude} newest session(s) '
           '(exclude current live reference to prevent same-day look-ahead)')
     history = backfill(frames, exclude_latest_sessions=exclude)
-    artifact = C.build_artifact(history, A.score_formula_hash(),
-                                source='Yahoo Finance daily adjusted OHLCV (no intraday/ML)')
+    artifact = C.build_artifact(history, A.score_formula_hash(), source=src_label)
+    # FIX-84: artifact me exchange bhi record karo — taaki app verify kar sake ki
+    # BSE frame par BSE ka fit lag raha hai, NSE ka nahi.
+    artifact['exchange'] = exch
     # Before touching disk, verify the entire artifact against actual history.
     fitted = C.validate_artifact(artifact, A.score_formula_hash())
-    path = args.output
+    path = args.output or C.artifact_path(exch)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + '.tmp')
     try:

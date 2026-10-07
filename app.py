@@ -3167,7 +3167,9 @@ def ml_study_payload():
 
 
 _SCORE_FORMULA_HASH = None
-_SCORE_CAL_CACHE = {'key': None, 'fitted': None, 'error': None}
+# FIX-84 (Phase 2): exchange-wise cache. Pehle ek hi entry thi, isliye BSE ka
+# artifact load karne par NSE ka fit overwrite ho jaata (aur ulta).
+_SCORE_CAL_CACHE = {}      # exchange -> {'key', 'fitted', 'error'}
 _SCORE_CAL_LOCK = threading.Lock()
 
 
@@ -3186,8 +3188,11 @@ def score_formula_hash():
     return _SCORE_FORMULA_HASH
 
 
-def _score_history_for(asof_session, bars, symbol):
+def _score_history_for(asof_session, bars, symbol, exchange='NSE'):
     """Read validated JSON once per file change; fail CLOSED if missing/stale.
+
+    FIX-84 (Phase 2): exchange ke hisaab se alag artifact load hota hai. BSE frame
+    par ab BSE ka apna fit lagta hai, NSE distribution se compare nahi hota.
 
     A single scanner run has 29 `composite` scores, NOT comparable to this
     pipeline. Only 250 historical snapshots of THIS exact stock-score formula
@@ -3195,29 +3200,43 @@ def _score_history_for(asof_session, bars, symbol):
     """
     if symbol not in SCORE_CAL.UNIVERSE:
         return None, 'symbol calibration universe me nahi (30 NSE names)'
-    path = SCORE_CAL.ARTIFACT_PATH
+    exch = str(exchange or 'NSE').strip().upper()
+    if exch not in ('NSE', 'BSE'):
+        exch = 'NSE'
+    path = SCORE_CAL.artifact_path(exch)
     try:
         st = path.stat()
         if st.st_size > 5_000_000:
             raise SCORE_CAL.CalibrationError('artifact unusually large')
         key = (str(path), st.st_mtime_ns, st.st_size, score_formula_hash())
     except FileNotFoundError:
-        return None, 'score history missing — python tools/build_score_calibration.py run karein'
+        return None, (f'{exch} score history missing — python '
+                      f'tools/build_score_calibration.py'
+                      + (' --exchange BSE' if exch == 'BSE' else '') + ' run karein')
     except (OSError, SCORE_CAL.CalibrationError) as exc:
         return None, f'history unreadable: {exc}'
 
     with _SCORE_CAL_LOCK:
-        if _SCORE_CAL_CACHE['key'] != key:
+        ent = _SCORE_CAL_CACHE.get(exch)
+        if ent is None or ent['key'] != key:
             try:
                 with path.open(encoding='utf8') as f:
                     data = json.load(f)
-                _SCORE_CAL_CACHE['fitted'] = SCORE_CAL.validate_artifact(data, key[-1])
-                _SCORE_CAL_CACHE['error'] = None
+                # FIX-84: artifact khud batata hai kis exchange ka hai — cross-wired
+                # file (BSE frame par NSE fit) yahan pakdi jaati hai.
+                a_exch = str(data.get('exchange') or exch).upper()
+                if a_exch != exch:
+                    raise SCORE_CAL.CalibrationError(
+                        f'artifact {exch} ka hona chahiye tha par {a_exch} ka hai')
+                _SCORE_CAL_CACHE[exch] = {
+                    'key': key,
+                    'fitted': SCORE_CAL.validate_artifact(data, key[-1]),
+                    'error': None}
             except (OSError, ValueError, SCORE_CAL.CalibrationError) as exc:
-                _SCORE_CAL_CACHE['fitted'] = None
-                _SCORE_CAL_CACHE['error'] = f'invalid score history: {exc}'
-            _SCORE_CAL_CACHE['key'] = key
-        fitted, error = _SCORE_CAL_CACHE['fitted'], _SCORE_CAL_CACHE['error']
+                _SCORE_CAL_CACHE[exch] = {'key': key, 'fitted': None,
+                                          'error': f'invalid score history: {exc}'}
+            ent = _SCORE_CAL_CACHE[exch]
+        fitted, error = ent['fitted'], ent['error']
     if not fitted:
         return None, error
     if symbol not in fitted['symbols_covered']:
@@ -3231,7 +3250,7 @@ def _score_history_for(asof_session, bars, symbol):
 
 
 def ensemble_score(engines, *, asof_session=None, bars=None, symbol=None,
-                   calibration=None, data_fresh=True):
+                   calibration=None, data_fresh=True, exchange='NSE'):
     """Four daily stock engines → stock rank; p80/p95 labels only with a valid fit.
 
     Regime (market-wide) has ZERO stock-score weight and never contributes to
@@ -3256,7 +3275,7 @@ def ensemble_score(engines, *, asof_session=None, bars=None, symbol=None,
         except (KeyError, SCORE_CAL.CalibrationError) as exc:
             reason = str(exc)
     else:
-        fitted, reason = _score_history_for(asof_session, bars, symbol)
+        fitted, reason = _score_history_for(asof_session, bars, symbol, exchange)
 
     ready = bool(fitted) and result['score'] is not None
     threshold = fitted['thresholds'] if ready else None
@@ -3272,7 +3291,12 @@ def ensemble_score(engines, *, asof_session=None, bars=None, symbol=None,
         'relative_rank_pct': (SCORE_CAL.percentile_rank(fitted['_sorted_scores'], result['score'])
                               if ready else None),
         'universe_size': len(SCORE_CAL.UNIVERSE),
-        'basis': '250 completed NSE-universe sessions; 4 daily OHLCV engines; trailing 250 bars',
+        # FIX-84: kaun sa exchange fit use hua — UI ko sach bolne ke liye zaroori.
+        # Pehle 'basis' me hamesha "NSE-universe" hardcoded tha, chahe BSE fit laga ho.
+        'exchange': (str(exchange or 'NSE').strip().upper()
+                     if str(exchange or 'NSE').strip().upper() in ('NSE', 'BSE') else 'NSE'),
+        'basis': (f'250 completed {str(exchange or "NSE").strip().upper()}-universe sessions; '
+                  '4 daily OHLCV engines; trailing 250 bars'),
         'note': ('Relative ranking ONLY — calibrated labels do not imply future return / edge'
                  if ready else f'UNFITTED — {reason or "history not ready"}; no directional action'),
     }
@@ -4024,9 +4048,12 @@ def stock_api(symbol):
                                     prefer_exch=req_exch)  # independent diagnostic
         engines = [e1, e2, e3, e4, e5, e6]
 
+        # FIX-84 (Phase 2): exchange ke hisaab se calibration — BSE frame par ab
+        # BSE ka apna fitted rank lagta hai, NSE distribution se compare nahi hota.
         ens = ensemble_score(engines, asof_session=rank_session,
                              bars=len(ranked_df), symbol=resolved,
-                             data_fresh='STALE' not in str(daily_source).upper())
+                             data_fresh='STALE' not in str(daily_source).upper(),
+                             exchange=req_exch)
         ens['calibration']['reference_session'] = rank_session
         # FIX-30: ML ka measured accuracy bhi bhejo — risk plan ab apna win-rate
         # assumption disclose karta hai (pehle 0.62/0.55/0.45 chup-chaap use hote the)
@@ -4229,10 +4256,13 @@ def stock_api(symbol):
             'frame_close': sfx(L.get('Close'), 2),
             'price_basis': ('live NSE LTP' if live_nse
                             else 'daily frame close (koi live NSE quote nahi)'),
-            # FIX-53: frame kis exchange se aaya. App ka score calibration NSE
-            # universe par fitted hai (30 NSE naam, 250 NSE sessions), isliye BSE
-            # frame par percentile ranks technically NSE distribution se compare
-            # ho rahe hote hain. Chhupana nahi, batana.
+            # FIX-53: frame kis exchange se aaya.
+            # FIX-84 (Phase 2) UPDATE: pehle yahan likha tha ki "app ka score
+            # calibration NSE universe par fitted hai isliye BSE frame par percentile
+            # ranks technically NSE distribution se compare ho rahe hote hain".
+            # Ab BSE ka APNA artifact hai (score_calibration_bse.json, TradingView
+            # se 250 sessions). BSE fit missing ho to hi NSE-style gap rehta hai —
+            # aur wo case calibration meta me saaf dikhta hai. Chhupana nahi, batana.
             'requested_exchange': req_exch,
             # FIX-62: pehle sirf '(NSE)'/'(BSE)' (TradingView) match hota tha —
             # Yahoo 'yahoo.ns'/'yahoo.bo' deta hai, isliye LGEINDIA jaise NSE

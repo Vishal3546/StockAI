@@ -1277,17 +1277,23 @@ function render(d) {
   // 3336.7 / 1976) jabki app NSE universe par calibrated hai.
   const exchEl = document.getElementById('exchWarn');
   if (exchEl) {
+    // FIX-84 (Phase 2): BSE ka ab apna calibration artifact hai, isliye "percentile
+    // NSE universe par fitted hai" hamesha bolna galat ho gaya. Server batata hai
+    // kaun sa fit laga — wahi dikhao. BSE fit missing ho to purani warning.
+    const _calEx = String(d.ensemble?.calibration?.exchange || '').toUpperCase();
+    const _frameEx = String(d.frame_exchange || '').toUpperCase();
+    const _calLine = (_calEx && _calEx === _frameEx)
+      ? `Score percentile ${_calEx} universe par fitted hai (alag ${_calEx} calibration).`
+      : `Score percentile ${_calEx || 'NSE'} universe par fitted hai, isliye ${_frameEx || 'BSE'} frame par rank indicative hai.`;
     if (d.frame_exchange === 'BSE') {
       exchEl.style.display = 'block';
       if (d.on_nse_master === false) {
         // FIX-54: 'feed fail hua' aur 'NSE par listed hi nahi' alag baatein hain.
         exchEl.textContent = 'ℹ️ Ye stock sirf BSE par listed hai (NSE master list me nahi), isliye '
-          + 'saara data BSE se aa raha hai. BSE aur NSE ke closing prices alag hote hain. Score '
-          + 'percentile NSE universe par fitted hai, isliye yahan rank indicative hai.';
+          + 'saara data BSE se aa raha hai. BSE aur NSE ke closing prices alag hote hain. ' + _calLine;
       } else {
-        exchEl.textContent = '⚠️ Ye frame BSE se aaya hai (NSE feed khaali tha). BSE aur NSE ke '
-          + 'closing prices alag hote hain — TCS par 01-Oct ko BSE ₹2,079.30 vs NSE ₹2,075.00. '
-          + 'Score percentile NSE universe par fitted hai, isliye BSE frame par rank indicative hai.';
+        exchEl.textContent = '⚠️ Ye frame BSE se aaya hai. BSE aur NSE ke '
+          + 'closing prices alag hote hain — TCS par 01-Oct ko BSE ₹2,079.30 vs NSE ₹2,075.00. ' + _calLine;
       }
     } else {
       exchEl.style.display = 'none';
