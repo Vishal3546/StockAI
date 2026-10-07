@@ -728,8 +728,13 @@ print('\n-- FIX-52: search bar me exchange suffix')
 # FIX-55: dedupe (symbol, exchange) par hone ke baad `ex` ab _x variable se aata hai
 check('/api/search `ex` field bhejta hai',
       "_x = 'NSE' if '.NS' in sym" in app_src and "'ex': _x," in app_src)
-check('search dropdown `ex` render karta hai (pehle sirf sym/name/sec dikhte the)',
-      "exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE'" in _HTML)
+# FIX-85: pehle ye exact line grep karta tha —
+#   exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE'
+# Wo line hi bug thi: `ex` null/unknown hone par bhi 'NSE' dikha deti thi.
+# Ab ternary `_exKnown` se chalti hai aur unknown par '?' aata hai.
+check('search dropdown `ex` render karta hai (aur unknown par jhootha NSE nahi)',
+      'exEl.textContent = _exKnown ? _exRaw' in _HTML
+      and "_exKnown ? _exRaw : '?'" in _HTML)
 check('dropdown item me exchange badge append hota hai',
       'item.append(symEl, exEl, nameEl, secEl)' in _HTML)
 

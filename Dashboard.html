@@ -949,7 +949,11 @@ symInput.addEventListener('input', function() {
         const item = document.createElement('div');
         item.className = 'search-item';
         item.dataset.sym = String(s.sym ?? '');
-        item.dataset.ex = String(s.ex ?? 'NSE').toUpperCase() === 'BSE' ? 'BSE' : 'NSE';
+        // FIX-85: pehle `ex` null hone par bhi 'NSE' set ho jaata tha (aur badge me
+        // bhi 'NSE' dikhta tha) — yaani unknown exchange ko NSE bana kar dikhate the.
+        const _exRaw = String(s.ex ?? '').toUpperCase();
+        const _exKnown = (_exRaw === 'BSE' || _exRaw === 'NSE');
+        item.dataset.ex = _exKnown ? _exRaw : '';
         const symEl = document.createElement('span');
         symEl.className = 'search-sym';
         symEl.textContent = String(s.sym ?? '');
@@ -961,12 +965,18 @@ symInput.addEventListener('input', function() {
         // zaroori hai.
         const exEl = document.createElement('span');
         exEl.className = 'search-ex';
-        exEl.textContent = String(s.ex ?? '').toUpperCase() === 'BSE' ? 'BSE' : 'NSE';
+        // FIX-85: unknown par '?' — jhootha 'NSE' nahi. Title me wajah.
+        exEl.textContent = _exKnown ? _exRaw : '?';
+        exEl.title = _exKnown
+          ? `${_exRaw} listing`
+          : 'Exchange confirm nahi hua — upar selector se NSE/BSE chunein';
         exEl.style.cssText = ('font-size:0.68rem;font-weight:700;padding:1px 6px;border-radius:4px;'
           + 'margin-left:7px;letter-spacing:0.4px;'
-          + (String(s.ex ?? '').toUpperCase() === 'BSE'
+          + (_exRaw === 'BSE'
               ? 'background:rgba(247,147,26,0.16);color:#f7931a;'
-              : 'background:rgba(0,212,255,0.14);color:var(--accent-cyan);'));
+              : _exRaw === 'NSE'
+                ? 'background:rgba(0,212,255,0.14);color:var(--accent-cyan);'
+                : 'background:rgba(150,150,150,0.16);color:var(--text-muted);'));
         const nameEl = document.createElement('span');
         nameEl.className = 'search-name';
         nameEl.textContent = String(s.name ?? '');
@@ -994,7 +1004,10 @@ function selectStock(sym, ex) {
 dropdown.addEventListener('click', (e) => {
   const item = e.target.closest('.search-item');
   const sym = item && item.dataset ? item.dataset.sym : '';
-  const ex = item && item.dataset ? (item.dataset.ex || 'NSE') : 'NSE';
+  // FIX-85: exchange unknown ('') ho to user ka chuna hua exchange CHANGE MAT
+  // karo. Pehle `|| 'NSE'` fallback tha — BSE-only stock par click karne se
+  // zabardasti NSE compute hone lagta tha.
+  const ex = item && item.dataset ? (item.dataset.ex || '') : '';
   if (sym) selectStock(sym, ex);
 });
 
@@ -1185,7 +1198,11 @@ async function loadStock() {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 40000); // Robust 40s Fetch window
+    // FIX-85: 40s chhota tha. BSE-only / illiquid stocks par teeno tiers × dono
+    // exchange try hote hain (TradingView + NSE Direct + Yahoo .NS/.BO), aur Yahoo
+    // ke read-timeout par ye 45-50s tak ja sakta hai — user ke log me TAPARIA ne
+    // 47s liye (search 18:24:18 → response 18:25:05), isliye 40s par abort ho gaya.
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
 
     const r = await apiFetch(`/api/stock/${sym}?ex=${activeExchange}`, {
       signal: controller.signal
@@ -1213,7 +1230,15 @@ async function loadStock() {
     startLiveTicker(sym);
   } catch (e) {
     if (e.name === 'AbortError') {
-      showBanner('⏱️ Request timed out — the ML walk-forward needs 5-10s on a cold cache. Retry.', 'var(--color-yellow)');
+      // FIX-85: purana message galat cheez ko blame karta tha ("ML walk-forward
+      // needs 5-10s"). Asli cause data tier cascade hai — illiquid/BSE-only stocks
+      // par teeno engines × dono exchange try hote hain. Jhoothi diagnosis se user
+      // galat cheez retry karta hai.
+      showBanner('⏱️ Request 90s me complete nahi hua. Iska matlab ML nahi — data '
+        + 'fetch slow hai: illiquid ya BSE-only stocks par teeno engines (TradingView / '
+        + 'NSE / Yahoo) × dono exchange try hote hain. Ek baar aur try karein; '
+        + 'baar-baar ho to likh dein, main server-side budget add kar dunga.',
+        'var(--color-yellow)');
     } else {
       showBanner('🔌 API unreachable. Start the backend (python app.py) or pass ?api=http://host:port', 'var(--color-red)');
     }

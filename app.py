@@ -378,7 +378,7 @@ CONFIG = {
     'SUPERTREND_MULTIPLIER': 3.0,
     'SUPERTREND_PERIOD': 10,
     'DEFAULT_CAPITAL': 100000,
-    'SEARCH_MAX_RESULTS': 15,
+    'SEARCH_MAX_RESULTS': 20,   # FIX-85: dual-listing mirror ke baad 15 chhota tha
     'CHART_CANDLES': 150,
     'SSE_STREAM_INTERVAL': 3,
     'NSE_MASTER_URL': 'https://archives.nseindia.com/content/equities/EQUITY_L.csv',
@@ -1882,18 +1882,26 @@ def dynamic_search():
         return jsonify([])
 
     results = []
-    
+
     # Layer 1: In-Memory Search
+    # FIX-85: pehle ye 12 results bhar kar `break` kar deta tha, aur Layer 2 sirf
+    # `len(results) < 5` par chalta tha. Matlab jis query par 5+ NSE naam mil jaate
+    # (TATA/BANK/STEEL — measured: 12 results, 100% NSE), wahan Yahoo search chalta
+    # HI NAHI tha aur BSE ke stocks kabhi nahi dikhte the. DYNAMIC_STOCK_DB me
+    # 2570 entries hain aur exchange breakdown {'NSE': 2570} — ek bhi BSE nahi,
+    # kyunki source NSE ka EQUITY_L.csv hai. Isliye BSE coverage Layer 2 se hi
+    # aa sakti hai; usse conditional mat karo.
+    _L1_CAP = 8
     for s in DYNAMIC_STOCK_DB:
         sym_match = q == s['sym'].upper() or s['sym'].upper().startswith(q)
         name_match = q in s['name'].upper()
         if sym_match or name_match:
             results.append(s)
-        if len(results) >= 12:
+        if len(results) >= _L1_CAP:
             break
 
-    # Layer 2: Yahoo Live Search Fallback
-    if len(results) < 5:
+    # Layer 2: Yahoo Live Search — AB HAMESHA chalta hai (BSE coverage ke liye)
+    if True:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"{CONFIG['YAHOO_SEARCH_URL']}?q={q}&quotesCount=8&newsCount=0"
@@ -1920,13 +1928,39 @@ def dynamic_search():
             pass
 
     # Layer 3: Direct User Query Entry
+    # FIX-85: pehle ex='NSE' hardcode tha jabki name me "(NSE/BSE)" likha tha —
+    # yaani dropdown jhooth bolta tha. Aur Dashboard search result ke `ex` se
+    # activeExchange set kar deta hai (line ~988), to BSE-only stock par click
+    # karne se zabardasti NSE compute hota tha.
     if not results and len(q) >= 2:
         results.append({
             'sym': q,
-            'name': f"{q} (NSE/BSE)",
-            'ex': 'NSE',
+            'name': f"{q} — exchange confirm nahi hua",
+            'ex': None,          # None = unknown; Dashboard apna chuna hua use karega
             'sec': 'Equity'
         })
+
+    # FIX-85 Layer 2b: dual-listing mirror.
+    # Measure kiya: NSE master ke pehle 14 symbols me se 12 par TradingView BSE ka
+    # data bhi deta hai (A2ZINFRA/AAATECH/AADHARHFC … 60 bars each). Yaani zyadaatar
+    # stocks dono exchange par SAME ticker se listed hain. Par DYNAMIC_STOCK_DB me
+    # sirf NSE entries hain (2570, exchange split {'NSE': 2570}) aur Yahoo search
+    # 'TATA' jaisi query par sirf .NS return karta hai (7/7 NSI, koi .BO nahi) —
+    # isliye BSE listing kabhi nahi dikhti thi.
+    # Ab har result ka sibling exchange bhi dikhate hain. Jis symbol ki BSE listing
+    # genuinely nahi hai wahan FIX-83 ka strict 409 saaf batata hai "BSE par data
+    # nahi mil raha, NSE chunein" — jhootha data nahi.
+    _by_key = {(r['sym'].upper(), (r.get('ex') or '').upper()) for r in results}
+    _merged = []
+    for r in results:
+        _merged.append(r)
+        _cur = (r.get('ex') or '').upper()
+        _sib = 'BSE' if _cur == 'NSE' else ('NSE' if _cur == 'BSE' else None)
+        if _sib and (r['sym'].upper(), _sib) not in _by_key:
+            _merged.append({'sym': r['sym'], 'name': r.get('name'),
+                            'ex': _sib, 'sec': r.get('sec', 'Equity')})
+            _by_key.add((r['sym'].upper(), _sib))
+    results = _merged
 
     return jsonify(clean_json(results[:CONFIG['SEARCH_MAX_RESULTS']]))
 
