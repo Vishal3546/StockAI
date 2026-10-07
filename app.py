@@ -4660,9 +4660,25 @@ def kpi_scores_for(symbol, prefer_exch='NSE'):
     fd = _tf_fund_data(resolved, src)
     kpi = calculate_kpi_scores(dfi, fd)
     last = dfi.iloc[-1]
+    # FIX-80: aapne kaunsa exchange maanga aur data kis exchange se aaya — ye
+    # pehle SIRF server console me warn hota tha ("BSE ka koi fresh source nahi
+    # mila — fallback use ho raha hai"). API response me koi field hi nahi tha,
+    # isliye page par sirf source string '(NSE)' dikhti thi. Chhupa hua fallback
+    # nahi hona chahiye — wahi problem jo bar-bar pakdi gayi hai.
+    req = str(prefer_exch or '').strip().upper() or None
+    act = exchange_from_source(src)
+    mismatch = bool(req and act and req != act)
     return True, {
         'symbol': resolved,
         'source': src,
+        'exchange_requested': req,
+        'exchange_actual': act,
+        'exchange_mismatch': mismatch,
+        'exchange_note': (
+            f'Aapne {req} maanga tha, par {req} ka koi fresh source nahi mila — '
+            f'ye data {act} se aaya hai. Dono exchange par price alag ho sakta '
+            f'hai, isliye numbers {act} ke hain, {req} ke nahi.'
+            if mismatch else None),
         'bars': int(len(dfi)),
         'last_session': str(frame_last_date(dfi) or ''),
         'price': sfx(last.get('Close')),

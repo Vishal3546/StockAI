@@ -71,6 +71,8 @@ function render(url, payload, mode = 'ok') {
         err: d.getElementById('err').textContent.replace(/\s+/g, ' ').trim(),
         errShown: d.getElementById('err').style.display !== 'none',
         fundtxt: d.getElementById('fundtxt').textContent.replace(/\s+/g, ' ').trim(),
+        exwarn: d.getElementById('exwarn').textContent.replace(/\s+/g, ' ').trim(),
+        exwarnShown: d.getElementById('exwarn').style.display !== 'none',
         h: {}, html: {},
       };
       for (const k of ['intraday', 'swing', 'longterm', 'master']) {
@@ -162,6 +164,35 @@ const PLAIN = 'http://localhost/timeframes';
   s = await render(DEEP, base({ kpi: {} }));
   check('kpi khaali -> "data nahi" (crash nahi)', s.h.intraday.includes('data nahi'), s.h.intraday);
   check('kpi khaali -> koi jhootha score nahi', !/\d/.test(s.h.master), s.h.master);
+
+  // ── 8. EXCHANGE MISMATCH (FIX-80) — BSE maanga, NSE mila ──────────────
+  const NOTE = 'Aapne BSE maanga tha, par BSE ka koi fresh source nahi mila — ye data NSE se aaya hai.';
+  s = await render(DEEP, base({ exchange_requested: 'BSE', exchange_actual: 'NSE',
+                                exchange_mismatch: true, exchange_note: NOTE }));
+  check('mismatch par banner DIKHTA hai', s.exwarnShown === true);
+  check('banner me poora note hai', s.exwarn.includes('BSE maanga tha')
+    && s.exwarn.includes('NSE se aaya hai'), s.exwarn.slice(0, 90));
+  check('banner me warning sign hai', s.exwarn.startsWith('⚠️'), s.exwarn.slice(0, 6));
+  check('mismatch par cards phir bhi dikhte hain (data valid hai)', s.cardsShown === true);
+
+  // ── 9. NO mismatch — banner chhupna chahiye ───────────────────────────
+  s = await render(DEEP, base({ exchange_requested: 'NSE', exchange_actual: 'NSE',
+                                exchange_mismatch: false, exchange_note: null }));
+  check('match par banner chhupa hai', s.exwarnShown === false);
+
+  // ── 10. fields absent (purana response) — crash nahi, banner nahi ─────
+  s = await render(DEEP, base());
+  check('exchange fields na hon to bhi crash nahi', s.cardsShown === true);
+  check('exchange fields na hon to banner nahi', s.exwarnShown === false);
+
+  // ── 11. error paths par banner chhupna chahiye (stale warning na rahe) ─
+  s = await render(DEEP, { ok: false, error: 'data usable nahi', exchange_mismatch: true,
+                           exchange_note: NOTE });
+  check('api error par banner chhupta hai', s.exwarnShown === false);
+  for (const mode of ['reject', 'http500']) {
+    s = await render(DEEP, base({ exchange_mismatch: true, exchange_note: NOTE }), mode);
+    check(`${mode}: banner chhupta hai`, s.exwarnShown === false);
+  }
 
   const passed = results.filter(Boolean).length;
   console.log('='.repeat(84));

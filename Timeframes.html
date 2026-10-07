@@ -31,6 +31,8 @@
   .kv{display:flex;gap:18px;flex-wrap:wrap;margin-top:6px}
   .kv div span{display:block;font-size:11px;color:var(--mut)}
   .disc{margin-top:16px;padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px}
+  .warn{background:#2a1f0b;border:1px solid var(--amber);color:var(--amber);
+        padding:10px 12px;border-radius:10px;font-size:12.5px;margin-bottom:14px}
   .spin{display:inline-block;animation:sp 1s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
 </style>
@@ -53,6 +55,7 @@
   <div id="meta" class="muted" style="margin-top:10px">Symbol daal kar "Dekho" dabao.</div>
 </div>
 
+<div id="exwarn" class="warn" style="display:none"></div>
 <div id="err" class="err" style="display:none"></div>
 
 <div class="grid" id="cards" style="display:none">
@@ -96,6 +99,7 @@ function load(){
       cards = document.getElementById('cards'), fund = document.getElementById('fund');
   if(!sym){ e.style.display='block'; e.textContent='Symbol likho.'; cards.style.display='none'; return; }
   e.style.display='none';
+  document.getElementById('exwarn').style.display='none';
   m.innerHTML = '<span class="spin">🔄</span> '+sym+' load ho raha hai…';
   cards.style.display='none'; fund.style.display='none';
 
@@ -108,10 +112,18 @@ function load(){
       // undefined daily bars" render kar deta tha. Render test ne pakda.
       if(!res.ok || j.ok === false || j.error){
         e.style.display='block'; e.className='err';
+        document.getElementById('exwarn').style.display='none';
         e.textContent = j.error || ('Load fail: HTTP '+res.status);
         m.textContent = '';
         cards.style.display='none'; fund.style.display='none';
         return;
+      }
+      var xw = document.getElementById('exwarn');
+      if(j.exchange_mismatch && j.exchange_note){
+        xw.style.display = 'block';
+        xw.textContent = '⚠️ ' + j.exchange_note;
+      } else {
+        xw.style.display = 'none';
       }
       var k = j.kpi || {};
       ['intraday','swing','longterm','master'].forEach(function(h){
@@ -135,6 +147,7 @@ function load(){
     .catch(function(err){
       e.style.display='block'; e.className='err'; e.textContent='Load fail: '+err.message;
       m.textContent=''; cards.style.display='none'; fund.style.display='none';
+      document.getElementById('exwarn').style.display='none';
     });
 }
 
