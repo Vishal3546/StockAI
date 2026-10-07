@@ -1194,7 +1194,19 @@ async function loadStock() {
 
     const d = await r.json();
     if (d.error) {
-      showBanner(`⚠️ ${d.error}`, 'var(--color-red)');
+      // FIX-83: strict-exchange 409 — requested exchange ka data nahi, par doosre ka
+      // hai. Sirf error mat dikhao, rasta bhi batao.
+      // NOTE: showBanner() textContent set karta hai, isliye HTML tags mat daalo —
+      // wo literal '<b>' ki tarah dikhenge.
+      if (d.available_exchange) {
+        showBanner(`⚠️ ${d.error} ${d.available_exchange} par data available hai — `
+          + `upar exchange selector me ${d.available_exchange} chunein. `
+          + `Dono exchange ke closing prices alag hote hain, isliye `
+          + `${d.available_exchange} ka data ${d.requested_exchange} bana kar nahi dikha rahe.`,
+          'var(--color-yellow)');
+      } else {
+        showBanner(`⚠️ ${d.error}`, 'var(--color-red)');
+      }
       return;
     }
     render(d);

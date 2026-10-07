@@ -69,7 +69,10 @@ def synth(n=60, start=100.0):
 
 class _Stub:
     def __init__(self, src): self.src = src
-    def __call__(self, symbol, period='2y', interval='1d', prefer_exch='NSE'):
+    # FIX-83: smart_fetch ka signature badla (strict_exch add hua) — stub bhi wahi
+    # accept kare, warna TypeError se saare stubbed checks gir jaate hain.
+    def __call__(self, symbol, period='2y', interval='1d', prefer_exch='NSE',
+                 strict_exch=False):
         return synth(), self.src
 
 
@@ -220,10 +223,17 @@ check('page par #exwarn banner hai', 'id="exwarn"' in page)
 check('banner mismatch par dikhta hai', 'j.exchange_mismatch && j.exchange_note' in page)
 check('banner me note ka text jaata hai', 'j.exchange_note' in page)
 check('banner else me chhupta hai', "xw.style.display = 'none'" in page)
-# har error path par chhupna chahiye — warna purana warning naye error ke saath dikhega
-hides = page.count("exwarn').style.display='none'") + page.count("xw.style.display = 'none'")
-check('banner kam se kam 4 jagah chhupta hai (pre-fetch + api-error + catch + else)',
-      hides >= 4, str(hides))
+# har error path par banner ya to chhupna chahiye ya fresh message lena chahiye —
+# warna purana warning naye error ke saath chipak jaata hai.
+# FIX-83: strict-exchange miss par banner jaan-boojh kar REUSE hota hai (doosra
+# exchange available hai ye batane ke liye), isliye sirf 'hide' count karna kaafi
+# nahi — dono mil kar har path cover hone chahiye.
+hides = (page.count("exwarn').style.display='none'")
+         + page.count("xw.style.display = 'none'")
+         + page.count("xw0.style.display = 'none'"))
+fresh = page.count("xw0.style.display = 'block'") + page.count("xw.style.display = 'block'")
+check('banner har error path par hide ya fresh message leta hai (>=4 hide + reuse)',
+      hides >= 3 and fresh >= 2, f'hides={hides} fresh={fresh}')
 check('helper exchange_from_source use hota hai (naya parse nahi banaya)',
       'exchange_from_source(src)' in blk)
 check('mismatch tabhi True jab DONO pata hon (None par guess nahi)',

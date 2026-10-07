@@ -138,9 +138,73 @@ if (payloadPath && fs.existsSync(payloadPath)) {
   console.log('\n[3] real payload — skip (koi payload path nahi diya)');
 }
 
-const passed = results.filter(([, ok]) => ok).length;
-const failed = results.length - passed;
-console.log('\n' + '='.repeat(84));
-console.log(` RESULT: ${passed} passed, ${failed} failed`);
-console.log('='.repeat(84));
-process.exit(failed ? 1 : 0);
+// ── FIX-83: loadStock() ka strict-exchange 409 path ─────────────────────────
+// render() directly payload leta hai; 409 handling fetch path me hai, isliye
+// ek alag DOM chahiye jiska fetch resolve hota ho.
+async function strictExchangeSection() {
+  console.log('\n[4] FIX-83 — strict exchange 409 handling');
+  const mk = (payload, status) => new JSDOM(clean, {
+    runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
+    beforeParse(win) {
+      win.fetch = () => Promise.resolve({
+        ok: status >= 200 && status < 300, status,
+        json: () => Promise.resolve(payload),
+      });
+      win.Chart = function () { this.destroy = () => {}; };
+      win.LightweightCharts = { createChart: () => ({
+        addCandlestickSeries: series, addLineSeries: series, addHistogramSeries: series,
+        priceScale: () => ({ applyOptions() {} }), timeScale: () => ({ fitContent() {} }),
+        applyOptions() {}, remove() {} }) };
+    },
+  });
+
+  const bannerOf = d => {
+    const el = d.getElementById('errBanner');
+    return el ? { text: el.textContent.replace(/\s+/g, ' ').trim(),
+                  color: el.style.color } : null;
+  };
+
+  // 4a: BSE maanga, sirf NSE available -> actionable amber banner
+  let dom = mk({ error: "BSE par 'RELIANCE' ka data abhi nahi mil raha.",
+                 requested_exchange: 'BSE', available_exchange: 'NSE',
+                 available_source: 'NSE Direct' }, 409);
+  let win = dom.window;
+  win.document.getElementById('symInput').value = 'RELIANCE';
+  await win.loadStock();
+  await new Promise(r => setTimeout(r, 60));
+  let b = bannerOf(win.document);
+  check('409 par banner dikhta hai', !!b);
+  check('banner me doosra exchange available batata hai',
+        !!b && b.text.includes('NSE') && /available/i.test(b.text), b && b.text.slice(0, 70));
+  check('banner me chunne ka rasta hai', !!b && /chunein/.test(b.text));
+  check('banner me prices alag hone ki wajah hai', !!b && /alag/.test(b.text));
+  check('banner amber hai (red nahi)', !!b && /yellow|255,\s*200|ffc/i.test(b.color || '')
+        || !!b && b.color !== 'var(--color-red)', b && b.color);
+  // textContent use hota hai — HTML tags literal nahi dikhne chahiye
+  check('banner me literal HTML tag nahi hai', !!b && !/<[a-z]/i.test(b.text),
+        b && b.text.slice(0, 40));
+  check('409 par render() call nahi hua (mainContent opacity wapas 1)',
+        win.document.getElementById('mainContent').style.opacity === '1');
+
+  // 4b: generic error (available_exchange nahi) -> red banner, purana behaviour
+  dom = mk({ error: 'Stock data not available' }, 404);
+  win = dom.window;
+  win.document.getElementById('symInput').value = 'ZZZ';
+  await win.loadStock();
+  await new Promise(r => setTimeout(r, 60));
+  b = bannerOf(win.document);
+  check('generic error par red banner', !!b && b.color === 'var(--color-red)',
+        b && b.color);
+  check('generic error par "chunein" wala text nahi aata', !!b && !/chunein/.test(b.text));
+}
+
+(async () => {
+  await strictExchangeSection();
+
+  const passed = results.filter(([, ok]) => ok).length;
+  const failed = results.length - passed;
+  console.log('\n' + '='.repeat(84));
+  console.log(` RESULT: ${passed} passed, ${failed} failed`);
+  console.log('='.repeat(84));
+  process.exit(failed ? 1 : 0);
+})();

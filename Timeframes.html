@@ -111,9 +111,19 @@ function load(){
       // isliye 500 par (jaha body {} ho sakti hai) page "undefined · ₹— ·
       // undefined daily bars" render kar deta tha. Render test ne pakda.
       if(!res.ok || j.ok === false || j.error){
-        e.style.display='block'; e.className='err';
-        document.getElementById('exwarn').style.display='none';
-        e.textContent = j.error || ('Load fail: HTTP '+res.status);
+        // FIX-83: strict-exchange miss par doosra exchange available hota hai —
+        // red error ki jagah amber warning + rasta dikhao.
+        var xw0 = document.getElementById('exwarn');
+        if(j.available_exchange){
+          xw0.style.display = 'block';
+          xw0.textContent = '⚠️ ' + j.error + ' ' + j.available_exchange
+            + ' par data available hai — upar ' + j.available_exchange + ' chunein.';
+          e.style.display = 'none';
+        } else {
+          xw0.style.display = 'none';
+          e.style.display='block'; e.className='err';
+          e.textContent = j.error || ('Load fail: HTTP '+res.status);
+        }
         m.textContent = '';
         cards.style.display='none'; fund.style.display='none';
         return;

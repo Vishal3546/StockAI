@@ -1241,6 +1241,7 @@ class MultiTechDataSourceManager:
     
     def __init__(self):
         self.tv = None
+        self.exch_fallback = None   # FIX-83: (src, exch) — strict mode me caller ke liye
         self.init_tv()
 
     def init_tv(self):
@@ -1456,7 +1457,7 @@ class MultiTechDataSourceManager:
         return None, None
 
     def smart_fetch(self, symbol, period='2y', interval='1d', n_bars=500, _now=None,
-                    prefer_exch='NSE'):
+                    prefer_exch='NSE', strict_exch=False):
         """
         Executes strict 3-tier cascade with real-time terminal logging.
 
@@ -1467,6 +1468,11 @@ class MultiTechDataSourceManager:
         """
         clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
         prefer = str(prefer_exch).upper()
+        # FIX-83: HAR call ke shuru me reset — warna pichhli call ka fallback
+        # chipak rehta aur /api/stock galat "available_exchange" bata deta.
+        # (Pehle ye fresh_fallback block me tha, par TradingView tier early-return
+        #  kar deta hai to wo line chalti hi nahi thi — test A4 ne pakda.)
+        self.exch_fallback = None
         stale_candidates = []          # (age_min, df, source)
         fresh_fallback = None          # (df, src) — fresh, par requested exchange nahi
 
@@ -1525,8 +1531,19 @@ class MultiTechDataSourceManager:
 
         # FIX-68: requested exchange ka koi fresh source nahi mila — doosre exchange
         # ka held fresh frame use karo (frame_exchange se disclosed rahega).
+        # FIX-83: strict_exch=True ho to cross-exchange fallback RETURN NAHI hota.
+        # User ne BSE maanga aur sirf NSE mila — to NSE ka data BSE bana kar dikhana
+        # galat hai (dono ke closing prices alag hote hain). Caller ko batao ki
+        # requested exchange ka data nahi hai, par doosra available hai.
         if fresh_fallback is not None:
             df, src = fresh_fallback
+            _fb_exch = exchange_from_source(src) or ('BSE' if prefer == 'NSE' else 'NSE')
+            self.exch_fallback = (src, _fb_exch)
+            if strict_exch:
+                print(f"⛔ [{prefer}] {clean_sym} — koi source nahi mila. "
+                      f"{_fb_exch} ka data available hai par strict mode me "
+                      f"cross-exchange data nahi dete.")
+                return None, None
             print(f"ℹ️  {prefer} ka koi fresh source nahi mila — fallback [{src}] use ho raha hai")
             return df, src
 
@@ -3908,12 +3925,30 @@ def stock_api(symbol):
     req_exch = (request.args.get('ex') or 'NSE').strip().upper()
     if req_exch not in ('NSE', 'BSE'):
         req_exch = 'NSE'
+    # FIX-83: strict — user ne jo exchange chuna, USI ka data aayega. Pehle BSE
+    # maangne par chupchap NSE ka frame mil jaata tha (Yahoo ke paas BSE
+    # historicals nahi hote), aur dashboard NSE ke numbers BSE ki tarah dikha
+    # deta tha. Ab cross-exchange data nahi milta — saaf error milta hai.
     df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d',
                                                  n_bars=CONFIG['CHART_CANDLES'] * 2,
-                                                 prefer_exch=req_exch)
+                                                 prefer_exch=req_exch, strict_exch=True)
     daily_source = active_source  # price path NSE live source se baad me replace ho sakta hai
 
     if df is None or len(df) < 20:
+        _fb = getattr(DATA_MANAGER, 'exch_fallback', None)
+        if _fb:
+            # Requested exchange ka data nahi, par doosre ka hai — ye "stock nahi
+            # mila" nahi hai, isliye _FAIL_CACHE me mat daalo (NSE kaam kar sakta hai).
+            _other = _fb[1]
+            return jsonify({
+                'error': f"{req_exch} par '{symbol}' ka data abhi kisi source se nahi mil raha.",
+                'requested_exchange': req_exch,
+                'available_exchange': _other,
+                'available_source': _fb[0],
+                'hint': f"{_other} chunein to data mil jayega. Dono exchange ke "
+                        f"closing prices alag hote hain, isliye {_other} ka data "
+                        f"{req_exch} ki jagah nahi dikha rahe.",
+            }), 409
         _FAIL_CACHE[symbol.upper()] = time.time() + 300
         return jsonify({'error': f"Stock '{symbol}' data not available across all 3 engines!"}), 404
 
@@ -4254,15 +4289,35 @@ import option_analytics as _opta
 _OPT_SESS = None
 
 
+# FIX-83: _opt_get pehle `except Exception: pass` karta tha aur non-200 par chupchap
+# None return karta tha. Matlab jab NSE 403 "Access Denied" deta tha (Akamai IP
+# block), reason KAHIN nahi dikhta tha — user ko sirf generic "market data
+# unavailable" milta tha, aur mujhe 3 alag commands chala kar pata karna pada ki
+# asal me handshake hi 403 de raha hai aur 0 cookies milte hain.
+# Ab har call ka asli outcome record hota hai aur API response me jaata hai.
+_OPT_LAST = {'url': None, 'status': None, 'error': None, 'handshake': None,
+             'cookies': None, 'at': None}
+
+
 def _opt_session():
     import requests as _rq
     s = _rq.Session()
     s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                                     'Chrome/131.0.0.0 Safari/537.36'})
     try:
-        s.get('https://www.nseindia.com/option-chain', timeout=20)   # cookie handshake
-    except Exception:
-        pass
+        r = s.get('https://www.nseindia.com/option-chain', timeout=20)   # cookie handshake
+        # FIX-83: handshake ka status bhi record karo — 403 + 0 cookies ka matlab
+        # hai poori NSE site is IP ke liye blocked hai (sirf API nahi).
+        _OPT_LAST['handshake'] = r.status_code
+        _OPT_LAST['cookies'] = len(s.cookies)
+        if r.status_code in (401, 403):
+            _OPT_LAST['error'] = (f'NSE cookie handshake HTTP {r.status_code} '
+                                  f'({len(s.cookies)} cookies) — is IP ko NSE ne block kiya hua hai')
+            print(f"⚠️  [NSE] {_OPT_LAST['error']}")
+    except Exception as e:
+        _OPT_LAST['handshake'] = None
+        _OPT_LAST['cookies'] = 0
+        _OPT_LAST['error'] = f'NSE handshake fail: {type(e).__name__}: {e}'[:160]
     return s
 
 
@@ -4277,10 +4332,31 @@ def _opt_get(url):
             'Referer': 'https://www.nseindia.com/option-chain',
             'Accept-Encoding': 'identity'})
         if r.status_code == 200 and r.text and r.text[:1] in '{[':
+            _OPT_LAST.update(url=url, status=200, error=None, at=time.time())
             return r.json()
-    except Exception:
-        pass
+        # FIX-83: non-200 ya non-JSON — reason record karo, chhupao nahi.
+        if r.status_code in (401, 403):
+            why = (f'HTTP {r.status_code} Access Denied — NSE ne is IP ko block kiya '
+                   f'hua hai (Akamai). Residential IP / market hours me try karo.')
+        elif r.status_code == 200:
+            why = f'HTTP 200 par response JSON nahi hai (pehla char {r.text[:1]!r})'
+        else:
+            why = f'HTTP {r.status_code}'
+        _OPT_LAST.update(url=url, status=r.status_code, error=why, at=time.time())
+        print(f"⚠️  [NSE] {url.split('/api/')[-1][:40]} → {why}")
+    except Exception as e:
+        _OPT_LAST.update(url=url, status=None,
+                         error=f'{type(e).__name__}: {e}'[:160], at=time.time())
+        print(f"⚠️  [NSE] {url.split('/api/')[-1][:40]} → {type(e).__name__}: {e}")
     return None
+
+
+def _opt_last_error():
+    """FIX-83: last NSE call ka asli failure reason — API response me bhejne ke liye."""
+    d = dict(_OPT_LAST)
+    if d.get('at'):
+        d['age_seconds'] = round(time.time() - d['at'], 1)
+    return d
 
 
 def _fetch_option_chain(symbol, expiry=None):
@@ -4353,8 +4429,18 @@ def _fetch_all_indices():
 def api_market_cockpit():
     payload = _fetch_all_indices()
     if not payload or not payload.get('data'):
-        return jsonify({'error': 'market data unavailable (NSE block / off-market) '
-                                 '— residential IP + market hours par try karo'}), 503
+        # FIX-83: pehle generic message tha — asli reason (403 block? handshake
+        # fail? timeout?) kahin nahi dikhta tha. Ab server jo jaanta hai wo bhejta hai.
+        why = _opt_last_error()
+        return jsonify({
+            'error': 'market data unavailable (NSE block / off-market) '
+                     '— residential IP + market hours par try karo',
+            'reason': why.get('error'),
+            'nse_status': why.get('status'),
+            'handshake_status': why.get('handshake'),
+            'cookies': why.get('cookies'),
+            'endpoint': (why.get('url') or '').split('/api/')[-1][:60],
+        }), 503
     sectors = _mkt.sector_heatmap(payload)
     return jsonify({
         'source': 'NSE India (allIndices)',
@@ -4648,14 +4734,26 @@ def kpi_scores_for(symbol, prefer_exch='NSE'):
         return False, {'error': f'symbol "{symbol}" resolve nahi hua'}
     ok, reason = None, None
     try:
+        # FIX-83: strict — requested exchange ka hi data, cross-exchange fallback nahi.
         df, src = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d',
-                                          prefer_exch=prefer_exch)
+                                          prefer_exch=prefer_exch, strict_exch=True)
     except Exception as e:
         return False, {'error': f'data fetch fail: {type(e).__name__}: {e}'}
     # FIX-28 wala degenerate-data check reuse — khali frame par score bana kar
     # dena wahi purana bug hai.
     ok, reason = _data_ok(df, min_bars=20)
     if not ok:
+        _fb = getattr(DATA_MANAGER, 'exch_fallback', None)
+        _req = str(prefer_exch or 'NSE').strip().upper()
+        if _fb and df is None:
+            return False, {'error': f"{_req} par '{resolved}' ka data abhi nahi mil raha.",
+                           'requested_exchange': _req,
+                           'available_exchange': _fb[1],
+                           'available_source': _fb[0],
+                           'exchange_mismatch': False,
+                           'hint': f"{_fb[1]} chunein to data mil jayega — par dono "
+                                   f"exchange ke prices alag hote hain, isliye "
+                                   f"{_fb[1]} ka data {_req} bana kar nahi dikha rahe."}
         return False, {'error': f'{resolved} ka data usable nahi: {reason}',
                        'source': src}
     dfi = calculate_all_indicators(df)

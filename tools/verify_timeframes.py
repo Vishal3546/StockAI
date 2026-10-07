@@ -64,9 +64,10 @@ class _StubFetch:
     def __init__(self, df, src='Yahoo Finance (NSE)'):
         self.df, self.src, self.calls = df, src, 0
 
-    def __call__(self, symbol, period='2y', interval='1d', prefer_exch='NSE'):
+    def __call__(self, symbol, period='2y', interval='1d', prefer_exch='NSE',
+                 strict_exch=False):
         self.calls += 1
-        self.last = (symbol, period, interval, prefer_exch)
+        self.last = (symbol, period, interval, prefer_exch, strict_exch)
         return (self.df.copy() if self.df is not None else None), self.src
 
 

@@ -194,6 +194,30 @@ const PLAIN = 'http://localhost/timeframes';
     check(`${mode}: banner chhupta hai`, s.exwarnShown === false);
   }
 
+  // ── FIX-83: strict-exchange miss (BSE maanga, sirf NSE available) ──────────
+  // Server ab ok:false + available_exchange bhejta hai. Page ko red error ki
+  // jagah AMBER warning dikhani chahiye jisme doosra exchange chunne ka rasta ho.
+  const strictPayload = {
+    ok: false, error: "BSE par 'RELIANCE' ka data abhi nahi mil raha.",
+    requested_exchange: 'BSE', available_exchange: 'NSE',
+    available_source: 'NSE Direct', exchange_mismatch: false,
+  };
+  s = await render(DEEP, strictPayload);
+  check('strict miss: cards nahi dikhte (NSE data se BSE score nahi)',
+    s.cardsShown === false);
+  check('strict miss: amber warning DIKHTI hai', s.exwarnShown === true);
+  check('strict miss: warning me doosra exchange available batata hai',
+    s.exwarn.includes('NSE') && s.exwarn.includes('available'), s.exwarn.slice(0, 80));
+  check('strict miss: red error box chhupa hai (duplicate nahi)', s.errShown === false,
+    s.err.slice(0, 50));
+  check('strict miss: warning ⚠️ se shuru hoti hai', s.exwarn.startsWith('⚠️'),
+    s.exwarn.slice(0, 6));
+
+  // strict miss ke BAAD normal request — warning stale nahi rehni chahiye
+  s = await render(DEEP, base({ exchange_mismatch: false, exchange_note: null }));
+  check('strict miss ke baad normal request par warning saaf hai',
+    s.exwarnShown === false && s.cardsShown === true);
+
   const passed = results.filter(Boolean).length;
   console.log('='.repeat(84));
   console.log(` ${passed} / ${results.length} checks passed`);
