@@ -39,6 +39,10 @@
   .scroll{overflow-x:auto}
   button{background:#0f1528;color:var(--mut);border:1px solid var(--line);border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer}
   button:hover{color:var(--cyan)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .spin{display:inline-block;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #rstat{font-size:11.5px;color:var(--mut);margin-top:8px}
 </style>
 </head>
 <body>
@@ -68,8 +72,10 @@
     <div class="fld" style="max-width:90px"><label>Order</label>
       <select id="f_order"><option value="desc">↓ desc</option><option value="asc">↑ asc</option></select></div>
     <div><button id="f_reset">Reset</button></div>
+    <div><button id="f_refresh" title="Naya scan chalao (~7-40s)">🔄 Refresh</button></div>
   </div>
   <div id="count" class="muted" style="margin-top:10px">…</div>
+  <div id="rstat"></div>
 </div>
 
 <div class="panel scroll">
@@ -160,6 +166,7 @@ function render(j){
     });
     tb.innerHTML = h;
   }
+  if(j.refresh) rstat(j.refresh);
   document.getElementById('mlnote').textContent =
     'ML+ = ML composite me use hua · ML− = use nahi hua (edge < 0).  ' + j.ml_note_unused;
 }
@@ -183,11 +190,65 @@ function load(){
       var e = document.getElementById('err');
       e.style.display = 'block'; e.className = 'err';
       e.textContent = 'Load fail: ' + err.message;
+      document.getElementById('rstat').textContent = '';
       document.getElementById('stale').style.display = 'none';
       document.getElementById('tbody').innerHTML = '<tr><td class="muted">—</td></tr>';
       document.getElementById('count').textContent = '';
     });
 }
+
+var _poll = null;
+
+function rstat(s, extra){
+  var el = document.getElementById('rstat');
+  if(!s){ el.textContent = ''; return; }
+  var bits = [];
+  if(s.running) bits.push('Scan chal raha hai… (' + (s.reason || s.last_reason || '') + ')');
+  if(extra) bits.push(extra);
+  if(!s.running && s.last_at){
+    var ago = Math.max(0, Math.round((Date.now()/1000 - s.last_at) / 60));
+    bits.push('Pichla scan ' + (s.last_ok ? 'successful' : 'FAIL') + ' · ' +
+              (s.last_seconds || '?') + 's · ' + ago + ' min pehle');
+    if(!s.last_ok && s.last_error) bits.push('Error: ' + String(s.last_error).slice(0,140));
+  }
+  bits.push('Auto-refresh ' + (s.autorefresh ? 'ON' : 'OFF') + ' (limit ' + s.max_age_hours + 'h)');
+  el.textContent = bits.join(' · ');
+}
+
+function pollUntilDone(){
+  if(_poll) clearInterval(_poll);
+  var t0 = Date.now();
+  _poll = setInterval(function(){
+    fetch('/api/screener/status').then(function(r){ return r.json(); }).then(function(j){
+      var s = j.status || {};
+      rstat(s, 'chal raha hai… ' + Math.round((Date.now()-t0)/1000) + 's');
+      if(!s.running){ clearInterval(_poll); _poll = null; load(); }
+    }).catch(function(){ clearInterval(_poll); _poll = null; });
+  }, 3000);
+}
+
+document.getElementById('f_refresh').addEventListener('click', function(){
+  var b = this;
+  b.disabled = true; b.innerHTML = '<span class="spin">🔄</span> Scan…';
+  fetch('/api/screener/refresh', {method:'POST'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      var s = res.j.status || {};
+      if(res.j.already_running){
+        rstat(s, 'pehle se chal raha tha');
+      } else if(!res.ok){
+        rstat(s, 'shuru nahi hua: ' + (res.j.error || ('HTTP ' + res.status)));
+      } else {
+        rstat(s, 'shuru hua');
+      }
+      pollUntilDone();
+      setTimeout(function(){ b.disabled = false; b.innerHTML = '🔄 Refresh'; }, 3000);
+    })
+    .catch(function(err){
+      rstat(null); document.getElementById('rstat').textContent = 'Refresh fail: ' + err.message;
+      b.disabled = false; b.innerHTML = '🔄 Refresh';
+    });
+});
 
 ['f_q','f_sector','f_signal','f_score','f_vol','f_ml','f_sort','f_order'].forEach(function(id){
   var el = document.getElementById(id);

@@ -499,7 +499,13 @@ def run_full_scan():
     results.sort(key=lambda x: x['signal_score'], reverse=True)
 
     scan_data = {
-        'timestamp': datetime.now().isoformat(),
+        # FIX-79: pehle `datetime.now().isoformat()` tha = NAIVE local time.
+        # screener.parse_scan_ts use IST maanta hai, isliye jo machine IST par
+        # nahi hai wahan age galat nikalta tha (measured: UTC sandbox par exactly
+        # 5.5h ka farq). Ab offset ke saath likhte hain — file self-describing
+        # hai, machine ke timezone par depend nahi karti. _IST line 25 par pehle
+        # se defined tha.
+        'timestamp': datetime.now(_IST).isoformat(),
         'total_scanned': len(results),
         'scan_time_seconds': elapsed,
         'results': results

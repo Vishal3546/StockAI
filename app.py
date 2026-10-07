@@ -4555,7 +4555,8 @@ def api_screener():
     scan = _scr_load()
     if scan.get('error'):
         return jsonify({'ok': False, 'error': scan['error'], 'rows': [],
-                        'total': 0, 'matched': 0, 'facets': {'sectors': {}, 'signals': {}}}), 200
+                        'total': 0, 'matched': 0, 'facets': {'sectors': {}, 'signals': {}},
+                        'refresh': _scan_status()}), 200
 
     sector = _q('sector')
     signal = _q('signal')
@@ -4594,9 +4595,10 @@ def api_screener():
                  'order': order, 'valid_keys': list(_scr.SORT_KEYS)},
         'ml_note_used': _scr.ml_note({'ml_used_in_composite': True}),
         'ml_note_unused': _scr.ml_note({'ml_used_in_composite': False}),
+        'refresh': _scan_status(),
         'note': ('signal_score / composite / ensemble RELATIVE RANK hain — '
-                 'probability ya accuracy nahi. Scanner manually chalta hai, '
-                 'isliye data kitna purana hai upar dikha hai.'),
+                 'probability ya accuracy nahi. Data kitna purana hai upar '
+                 'dikha hai; Refresh button se naya scan chala sakte ho.'),
     })
 
 
@@ -4698,6 +4700,143 @@ def timeframes_page():
                               'Timeframes.html')
 
 
+# FIX-79: SCREENER AUTO-REFRESH
+# Ab tak scan_results.json sirf tab banta tha jab user manually
+# `python nifty_scanner.py` chalata. Measured: TradingView up ho to ~7s,
+# TradingView down (Yahoo fallback) to ~39s.
+#
+# Do raste diye hain:
+#   • MANUAL  — Screener page par "Refresh" button -> POST /api/screener/refresh
+#   • AUTO    — server start par, agar file missing ya STOCKAI_SCAN_MAX_AGE_HOURS
+#               se purani ho, to background me scan (page block nahi hota)
+#
+# Subprocess kyun (in-process import nahi): scanner apne threads chalata hai aur
+# ~40 lines print karta hai. Crash hone par server nahi marna chahiye — isolate
+# rakho. Yahi verify_fixes.py:100 bhi karta hai.
+import subprocess as _sp79
+import sys as _sys79   # app.py top par sys import nahi karta — probe me
+                       # NameError mila, isliye yahan local alias
+
+_SCAN_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            'nifty_scanner.py')
+_SCAN_TIMEOUT = 900          # 15 min. 39s wale scan ke liye bahut zyada slack.
+_scan_thread = None
+_SCAN_STATE = {'running': False, 'last_ok': None, 'last_at': None,
+               'last_seconds': None, 'last_error': None, 'last_reason': None,
+               'runs': 0}
+_scan_lock = threading.Lock()
+
+
+def _scan_autorefresh_on():
+    """Default ON. .env me STOCKAI_SCAN_AUTOREFRESH=0 se band."""
+    return str(os.environ.get('STOCKAI_SCAN_AUTOREFRESH', '1')).strip().lower() \
+        not in ('0', 'false', 'no', 'off')
+
+
+def _scan_max_age_hours():
+    """Kitni purani hone par auto-refresh. Default 12 ghante."""
+    try:
+        v = float(os.environ.get('STOCKAI_SCAN_MAX_AGE_HOURS', '12'))
+        return v if v > 0 else 12.0
+    except (TypeError, ValueError):
+        return 12.0
+
+
+def _scan_age_hours():
+    """File kitni purani hai (ghante me). Missing ho to None."""
+    try:
+        return (_t77.time() - os.path.getmtime(_SCAN_FILE)) / 3600.0
+    except OSError:
+        return None
+
+
+def _run_scan_subprocess(reason):
+    """Asli scan. Blocking hai — hamesha background thread se call karo."""
+    global _SCAN_STATE
+    t0 = _t77.time()
+    ok, err = False, None
+    try:
+        p = _sp79.run([_sys79.executable, _SCAN_SCRIPT],
+                      cwd=os.path.dirname(_SCAN_SCRIPT),
+                      capture_output=True, text=True, timeout=_SCAN_TIMEOUT)
+        ok = (p.returncode == 0)
+        if not ok:
+            tail = ((p.stderr or '') + (p.stdout or '')).strip()
+            err = (tail[-500:] or f'exit code {p.returncode}')
+    except _sp79.TimeoutExpired:
+        err = f'timeout ({_SCAN_TIMEOUT}s)'
+    except Exception as e:
+        err = f'{type(e).__name__}: {e}'
+    secs = round(_t77.time() - t0, 1)
+    with _scan_lock:
+        _SCAN_STATE.update({'running': False, 'last_ok': ok, 'last_at': _t77.time(),
+                            'last_seconds': secs, 'last_error': err,
+                            'last_reason': reason,
+                            'runs': _SCAN_STATE['runs'] + 1})
+    _SCR_CACHE['mtime'] = None          # FIX-76 cache invalidate
+    print(f"{'✅' if ok else '❌'} Screener scan ({reason}) — {secs}s"
+          + ('' if ok else f" — {str(err)[:160]}"))
+    return ok
+
+
+def _spawn_scan(reason):
+    """Background scan shuru karo. Already chal raha ho to False."""
+    global _scan_thread
+    with _scan_lock:
+        if _SCAN_STATE['running']:
+            return False
+        _SCAN_STATE['running'] = True
+        _SCAN_STATE['last_reason'] = reason
+    _scan_thread = threading.Thread(target=_run_scan_subprocess, args=(reason,),
+                                    name='screener-scan', daemon=True)
+    _scan_thread.start()
+    return True
+
+
+def _scan_status():
+    with _scan_lock:
+        st = dict(_SCAN_STATE)
+    st['age_hours'] = (round(a, 2) if (a := _scan_age_hours()) is not None else None)
+    st['autorefresh'] = _scan_autorefresh_on()
+    st['max_age_hours'] = _scan_max_age_hours()
+    st['exists'] = _scan_age_hours() is not None
+    return st
+
+
+def maybe_autorefresh_scan():
+    """Server start par call hota hai. Missing/purani file -> background scan."""
+    if not _scan_autorefresh_on():
+        print("👉 Screener auto-refresh OFF (STOCKAI_SCAN_AUTOREFRESH=0)")
+        return False
+    age = _scan_age_hours()
+    mx = _scan_max_age_hours()
+    if age is None:
+        why = 'scan_results.json nahi mila'
+    elif age > mx:
+        why = f'scan {age:.1f}h purana hai (limit {mx:g}h)'
+    else:
+        print(f"👉 Screener data theek hai ({age:.1f}h purana, limit {mx:g}h) — scan skip")
+        return False
+    print(f"👉 Screener auto-refresh: {why} — background me scan shuru")
+    return _spawn_scan('startup-auto')
+
+
+@app.route('/api/screener/refresh', methods=['POST'])
+def api_screener_refresh():
+    """POST-only — link prefetch/crawler se accidental scan na ho."""
+    if _spawn_scan('manual'):
+        return jsonify({'ok': True, 'started': True, 'status': _scan_status()})
+    return jsonify({'ok': False, 'started': False, 'already_running': True,
+                    'error': 'Scan pehle se chal raha hai — thoda ruk kar dobara',
+                    'status': _scan_status()}), 409
+
+
+@app.route('/api/screener/status')
+def api_screener_status():
+    """Page isko poll karta hai jab scan chal raha ho."""
+    return jsonify({'ok': True, 'status': _scan_status()})
+
+
 @app.route('/')
 @app.route('/dashboard.html')
 @app.route('/Dashboard.html')
@@ -4760,6 +4899,7 @@ if __name__ == '__main__':
         _n = sum(1 for d in NSE_HOLIDAYS if d.year == _this_year)
         print(f"👉 NSE holidays: {_n} dates loaded for {_this_year} "
               f"(aaj {'HOLIDAY — market band' if is_market_holiday() else 'trading day'})")
+    maybe_autorefresh_scan()
     if SECURITY['TOKEN']:
         print("🔒 Token auth ON — neeche wali link me token pehle se juda hua hai")
         # FIX-48: token KAHAN se aaya — .env se ya Windows/process env se. Pehle ye
