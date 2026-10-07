@@ -11,7 +11,9 @@ par sirf source string '(NSE)' dikhti thi. Chhupa hua fallback.
   (B) kpi_scores_for() — stubbed fetch ke saath: exchange fields sahi bante hain.
   (C) MISMATCH LOGIC — requested vs actual, case-insensitive, unknown source par
       jhootha mismatch NAHI banana chahiye.
-  (D) LIVE — asli BSE request par mismatch detect hota hai.
+  (D) LIVE — dono exchange request; mismatch INVARIANT check hota hai
+      (outcome environment par depend karta hai: TradingView up ho to BSE
+       ka asli data milta hai aur mismatch False hota hai — wo sahi hai).
   (E) PAGE WIRING — banner dikhta hai, aur HAR error path par chhupta hai.
 
 Chalao:  python3 tools/verify_exchange_mismatch.py
@@ -170,20 +172,43 @@ try:
 except Exception as e:
     skip('live BSE mismatch check', f'{type(e).__name__}: {e}')
 
+# NOTE: pehle ye section hardcode karta tha ki BSE request HAMESHA NSE par giregi
+# ("Yahoo ke paas BSE historicals nahi"). Wo sirf tab sach hai jab TradingView
+# tier unavailable ho. TvDatafeed installed + connect ho to BSE ka ASLI data
+# milta hai (source='TradingView Direct (BSE)'), mismatch False hota hai — jo
+# sahi behaviour hai. Isliye ab outcome nahi, INVARIANT assert hota hai.
 for jn, jb in live:
-    check('NSE request -> mismatch False', jn['exchange_mismatch'] is False)
-    check('NSE request -> actual NSE', jn['exchange_actual'] == 'NSE',
-          str(jn['exchange_actual']))
-    check('BSE request -> mismatch True', jb['exchange_mismatch'] is True,
-          str(jb['exchange_mismatch']))
-    check('BSE request -> actual NSE (Yahoo ke paas BSE historicals nahi)',
-          jb['exchange_actual'] == 'NSE', str(jb['exchange_actual']))
-    check('BSE request -> note me saaf likha hai',
-          'BSE maanga tha' in jb['exchange_note'], jb['exchange_note'][:80])
+    for lbl, j, want in (('NSE', jn, 'NSE'), ('BSE', jb, 'BSE')):
+        req, act, mm = (j.get('exchange_requested'), j.get('exchange_actual'),
+                        j.get('exchange_mismatch'))
+        check(f'{lbl} request -> fields present',
+              all(k in j for k in ('exchange_requested', 'exchange_actual',
+                                   'exchange_mismatch', 'exchange_note')))
+        check(f'{lbl} request -> requested={want}', req == want, str(req))
+        # mismatch ka matlab hi ye hai: dono pata ho aur alag ho
+        check(f'{lbl} request -> mismatch == (req != act)',
+              mm is bool(req and act and req != act), f'req={req} act={act} mm={mm}')
+        # note sirf mismatch par, aur usme maanga hua exchange likha ho
+        note = j.get('exchange_note')
+        if mm:
+            check(f'{lbl} mismatch -> note present + exchange naam hai',
+                  bool(note) and want in note, str(note)[:70])
+        else:
+            check(f'{lbl} no-mismatch -> note nahi (jhoothi warning nahi)',
+                  not note, str(note)[:70])
+        check(f'{lbl} request -> source string exchange se consistent',
+              (act is None) or (act in (j.get('source') or '')), str(j.get('source')))
     check('cached response me bhi fields hain',
           'exchange_mismatch' in jb and jb.get('cached') in (True, False))
-    check('scores exchange se nahi badalte (dono same df)',
-          jn['kpi'] == jb['kpi'])
+    # Scores exchange ke saath BADAL sakte hain (BSE/NSE ka data alag hota hai) —
+    # isliye equality assert nahi karte, sirf structure aur range check karte hain.
+    check('dono exchange par kpi structure same hai',
+          sorted(jn['kpi']) == sorted(jb['kpi']), f"{sorted(jn['kpi'])} vs {sorted(jb['kpi'])}")
+    check('dono exchange par scores 0-100 range me hain',
+          all(0 <= v['score'] <= 100 for k in ('jn', 'jb')
+              for v in (jn if k == 'jn' else jb)['kpi'].values()))
+    print(f"   (info) NSE source={jn.get('source')!r} BSE source={jb.get('source')!r} "
+          f"— mismatch={jb['exchange_mismatch']}")
 
 print('=' * 84)
 print(' (E) PAGE WIRING')
