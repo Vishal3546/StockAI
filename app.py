@@ -1745,7 +1745,9 @@ def _fetch_nse_master(verbose=True):
 
 def _spawn_master_refresh():
     """Background me fresh list lao — import/search block na ho."""
-    global _master_refresh_thread, DYNAMIC_STOCK_DB
+    # DYNAMIC_STOCK_DB is global list me zaroori NAHI tha — outer scope me wo
+    # assign nahi hota, sirf inner _run() me hota hai (pyflakes ne pakda).
+    global _master_refresh_thread
     if _master_refresh_thread is not None and _master_refresh_thread.is_alive():
         return
 
@@ -4768,7 +4770,8 @@ def _scan_age_hours():
 
 def _run_scan_subprocess(reason):
     """Asli scan. Blocking hai — hamesha background thread se call karo."""
-    global _SCAN_STATE
+    # NOTE: `global _SCAN_STATE` yahan zaroori NAHI tha (pyflakes ne pakda) —
+    # hum dict ko rebind nahi karte, sirf .update() se mutate karte hain.
     t0 = _t77.time()
     ok, err = False, None
     try:

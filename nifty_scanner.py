@@ -154,9 +154,8 @@ def _nan_safe(o):
     if isinstance(o, np.bool_):
         return bool(o)
     return o
-from datetime import datetime, timedelta
+from datetime import datetime   # timedelta unused tha (pyflakes) — hataya
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests as http_requests
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -458,7 +457,7 @@ def scan_stock(symbol):
             't1': round(price + 2.0 * atr, 2),
             't2': round(price + 3.5 * atr, 2)
         }
-    except Exception as e:
+    except Exception:      # `e` unused tha (pyflakes)
         return None
 
 
@@ -538,7 +537,7 @@ def run_full_scan():
         print(f"  🏆 Top in BUY band: {', '.join([r['symbol'] for r in top_buys[:5]])}")
     if top_sells:
         print(f"  💀 Top in SELL band: {', '.join([r['symbol'] for r in top_sells[:5]])}")
-    print(f"  💾 Saved to scan_results.json")
+    print("  💾 Saved to scan_results.json")   # f prefix bekaar tha (pyflakes)
     print(f"{'='*78}\n")
 
     return results

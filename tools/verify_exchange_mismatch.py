@@ -17,7 +17,6 @@ par sirf source string '(NSE)' dikhti thi. Chhupa hua fallback.
 Chalao:  python3 tools/verify_exchange_mismatch.py
 """
 import pathlib
-import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -95,12 +94,12 @@ try:
               p['exchange_mismatch'] is want_mm, str(p.get('exchange_mismatch')))
         if want_mm:
             n = p['exchange_note']
-            check(f'  mismatch par note hai', bool(n))
-            check(f'  note me dono exchange ka naam hai',
+            check('  mismatch par note hai', bool(n))
+            check('  note me dono exchange ka naam hai',
                   req in n and str(want_act) in n, str(n)[:70])
-            check(f'  note "price alag ho sakta hai" kehta hai', 'alag ho sakta' in n)
+            check('  note "price alag ho sakta hai" kehta hai', 'alag ho sakta' in n)
         else:
-            check(f'  no-mismatch par note None', p['exchange_note'] is None,
+            check('  no-mismatch par note None', p['exchange_note'] is None,
                   str(p['exchange_note']))
         check(f'req={req} -> exchange_requested uppercase normalized',
               p['exchange_requested'] == req)
@@ -117,7 +116,7 @@ try:
         check(f'prefer_exch={raw!r} -> requested={want!r}',
               p['exchange_requested'] == want, str(p['exchange_requested']))
         if want is None:
-            check(f'  requested None -> mismatch False (jhootha flag nahi)',
+            check('  requested None -> mismatch False (jhootha flag nahi)',
                   p['exchange_mismatch'] is False, str(p['exchange_mismatch']))
 
     print()

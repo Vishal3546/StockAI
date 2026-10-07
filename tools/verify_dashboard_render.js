@@ -53,8 +53,13 @@ check('RSI row fake "50" nahi', !/RSI \(14\) 50\b/.test(ind), ind.match(/RSI \(1
 check('RSI row par "—"', /RSI \(14\) —/.test(ind));
 check('volume-ratio fake "NORMAL" nahi', !/NORMAL/.test(ind));
 check('risk plan me fake ₹0 nahi', !/₹0\b/.test(risk));
-check('master score fake 50/100 nahi', !/Score: 50\/100/.test(verdict));
-check('master score "—/100"', /Master Score: —\/100/.test(verdict));
+check('missing score par fake 50/100 nahi', !/Ensemble rank: 50\/100/.test(verdict), verdict.match(/Ensemble rank: [^ ]*/)?.[0]);
+check('missing score "Ensemble rank: —/100" dikhata hai', /Ensemble rank: —\/100/.test(verdict), verdict.match(/Ensemble rank: [^ ]*/)?.[0]);
+// honesty redesign ke baad wording "Master Score" se "Ensemble rank" hua tha;
+// ye 2 checks purane wording par pinned the aur chupchap fail ho rahe the.
+// ML data absent hai to baseline accuracy par number nahi, '?' aana chahiye.
+check('ML absent par baseline accuracy "?" hai (fabricated number nahi)',
+      /Baseline accuracy of \?%/.test(verdict), verdict.match(/Baseline accuracy of [^ ]+/)?.[0]);
 check('ML confidence fake "LOW" nahi', !/LOW Confidence/.test(verdict), verdict.match(/\(([A-Z]+) Confidence\)/)?.[1]);
 check('gauge khaali (needle 50 par nahi)', Math.abs(parseFloat(w.document.getElementById('gMaster').style.strokeDashoffset) - 2 * Math.PI * 47) < 0.01);
 
@@ -63,7 +68,9 @@ err = render({ price: 1234.5, ensemble: { score: 71, action: 'BUY', tradeable: t
 check('crash nahi hota', !err, err || '');
 check('asli RSI 61.2 dikhta hai', /RSI \(14\) 61.2/.test(txt('indList')));
 check('missing risk par ₹0 nahi', !/₹0\b/.test(txt('riskPlan')));
-check('verdict me 71/100', /Master Score: 71\/100/.test(txt('aiVerdict')));
+check('verdict me real "Ensemble rank: 71/100"', /Ensemble rank: 71\/100/.test(txt('aiVerdict')));
+check('tradeable verdict "NOT validated profit" disclose karta hai', /NOT validated profit/.test(txt('aiVerdict')));
+check('rank ko "probability"/"chance" nahi bola jata', !/(probability|chance) of (profit|gain)/i.test(txt('aiVerdict')));
 
 console.log('\n[2b] unfit history + no measured plan (FIX-33)');
 err = render({ ensemble: { score: 72, action: 'WATCHLIST', tradeable: false,
@@ -91,7 +98,7 @@ if (payloadPath && fs.existsSync(payloadPath)) {
   check('crash nahi hota', !err, err || '');
   const v = txt('aiVerdict'), ind2 = txt('indList');
   if (p.indicators?.rsi != null) check('real RSI ' + p.indicators.rsi + ' table me', ind2.includes(String(p.indicators.rsi)));
-  if (p.ensemble?.score != null) check('real master score ' + p.ensemble.score, new RegExp('Master Score: ' + p.ensemble.score + '/100').test(v));
+  if (p.ensemble?.score != null) check('real ensemble rank ' + p.ensemble.score, new RegExp('Ensemble rank: ' + p.ensemble.score + '/100').test(v));
   if (p.ml?.probability != null) check('real ML probability ' + p.ml.probability + '%', v.includes(p.ml.probability + '%'));
   check('gauges fill hue (khaali nahi)', Math.abs(parseFloat(w.document.getElementById('gMaster').style.strokeDashoffset) - 2 * Math.PI * 47) > 0.01);
   if (p.ensemble?.calibration) {
