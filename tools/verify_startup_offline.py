@@ -135,6 +135,11 @@ print("\n[3] M-9 — loader: cache-first, offline, background")
 # apna spawn skip hota hai aur asli NSE list (2567) assertion tod deti hai.
 if A._master_refresh_thread is not None:
     A._master_refresh_thread.join(timeout=20)
+# FIX-86: _set_master_db() har path par bse_master.json ke BSE symbols merge karta
+# hai, isliye total = (NSE fixture count) + (BSE rows). Absolute numbers pin karne
+# ke bajaye yahi invariant assert karte hain (FIX-82 ka sabak).
+NBSE = len(A._load_bse_master(verbose=False))
+print(f"   BSE master rows = {NBSE} (har count me ye judta hai)")
 A._master_refresh_thread = None
 calls = {'n': 0}
 
@@ -149,7 +154,8 @@ A._master_cache_write(stocks)
 calls['n'] = 0
 n = A.load_dynamic_nse_stocks()
 check("fresh cache par network call NAHI", calls['n'] == 0, f"{calls['n']} calls")
-check("fresh cache se stocks load hue", n == 600 and len(A.DYNAMIC_STOCK_DB) == 600, str(n))
+check("fresh cache se stocks load hue", n == 600 + NBSE and len(A.DYNAMIC_STOCK_DB) == 600 + NBSE,
+      f"{n} = 600 NSE + {NBSE} BSE")
 
 # stale cache → background refresh (sync fetch nahi)
 data = json.loads(tmp_cache.read_text(encoding='utf-8'))
@@ -158,16 +164,17 @@ tmp_cache.write_text(json.dumps(data), encoding='utf-8')
 calls['n'] = 0
 before = len(A.DYNAMIC_STOCK_DB)
 n2 = A.load_dynamic_nse_stocks(background=True)
-check("stale cache par bhi turant stocks milte hain", n2 == 600, str(n2))
+check("stale cache par bhi turant stocks milte hain", n2 == 600 + NBSE, str(n2))
 # NOTE: background thread turant fetch shuru kar sakta hai, isliye call-count se
 # nahi — returned value se prove karte hain: stale cache me 600 stocks the jabki
 # sync fetch 501 deta. 600 aaya matlab main path network par gaya hi nahi.
-check("stale cache par sync fetch nahi hua (cache value wapas aayi)", n2 == 600, f"{n2} (fresh fetch 501 deta)")
+check("stale cache par sync fetch nahi hua (cache value wapas aayi)", n2 == 600 + NBSE,
+      f"{n2} (fresh fetch {501 + NBSE} deta)")
 check("background refresh thread chalu",
       A._master_refresh_thread is not None and A._master_refresh_thread.name == 'nse-master-refresh')
 time.sleep(2.0)
-check("background refresh ne fresh list load ki", len(A.DYNAMIC_STOCK_DB) == 501,
-      f"{len(A.DYNAMIC_STOCK_DB)} stocks")
+check("background refresh ne fresh list load ki", len(A.DYNAMIC_STOCK_DB) == 501 + NBSE,
+      f"{len(A.DYNAMIC_STOCK_DB)} = 501 NSE + {NBSE} BSE")
 
 # OFFLINE mode
 os.environ['STOCKAI_OFFLINE'] = '1'
@@ -175,33 +182,37 @@ tmp_cache.unlink(missing_ok=True)
 calls['n'] = 0
 n3 = A.load_dynamic_nse_stocks()
 check("STOCKAI_OFFLINE=1 par network NAHI", calls['n'] == 0, f"{calls['n']} calls")
-check("OFFLINE + no cache → curated fallback", n3 == len(A._fallback_master_list()) and n3 > 10, str(n3))
+check("OFFLINE + no cache → curated fallback",
+      n3 == len(A._fallback_master_list()) + NBSE and n3 > 10,
+      f"{n3} = {len(A._fallback_master_list())} NSE + {NBSE} BSE")
 A._master_cache_write(stocks)
 calls['n'] = 0
 n4 = A.load_dynamic_nse_stocks()
-check("OFFLINE me cache use hoti hai", calls['n'] == 0 and n4 == 600, str(n4))
+check("OFFLINE me cache use hoti hai", calls['n'] == 0 and n4 == 600 + NBSE, str(n4))
 data = json.loads(tmp_cache.read_text(encoding='utf-8'))
 data['saved_at_utc'] = (datetime.now(timezone.utc) - timedelta(hours=99)).isoformat()
 tmp_cache.write_text(json.dumps(data), encoding='utf-8')
 calls['n'] = 0
 n5 = A.load_dynamic_nse_stocks(background=True)
-check("OFFLINE me stale cache par refresh trigger NAHI", calls['n'] == 0 and n5 == 600, str(n5))
+check("OFFLINE me stale cache par refresh trigger NAHI", calls['n'] == 0 and n5 == 600 + NBSE, str(n5))
 os.environ.pop('STOCKAI_OFFLINE', None)
 
 # fetch fail → purani cache, warna fallback
 tmp_cache.unlink(missing_ok=True)
 A._HTTP.get = lambda *a, **k: _FakeResp('nope', status=500)
 n6 = A.load_dynamic_nse_stocks()
-check("fetch fail + no cache → curated fallback", n6 == len(A._fallback_master_list()), str(n6))
+check("fetch fail + no cache → curated fallback",
+      n6 == len(A._fallback_master_list()) + NBSE, str(n6))
 A._master_cache_write(stocks)
 n7 = A.load_dynamic_nse_stocks()
-check("fetch fail + cache → purani cache", n7 == 600, str(n7))
+check("fetch fail + cache → purani cache", n7 == 600 + NBSE, str(n7))
 
 # force=True sync fetch karta hai
 A._HTTP.get = _counting_get
 calls['n'] = 0
 n8 = A.load_dynamic_nse_stocks(force=True)
-check("force=True par sync fetch hota hai", calls['n'] == 1 and n8 == 501, f"{calls['n']} calls, {n8} stocks")
+check("force=True par sync fetch hota hai", calls['n'] == 1 and n8 == 501 + NBSE,
+      f"{calls['n']} calls, {n8} stocks")
 
 check("module-level call background=True se hota hai (import block nahi)",
       'load_dynamic_nse_stocks(background=True)' in src)

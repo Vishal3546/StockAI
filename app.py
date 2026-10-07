@@ -1769,11 +1769,11 @@ def _spawn_master_refresh():
         return
 
     def _run():
-        global DYNAMIC_STOCK_DB
+        # FIX-86: global assignment ab _set_master_db() karta hai (NSE + BSE merge)
         fresh = _fetch_nse_master(verbose=False)
         if fresh:
-            DYNAMIC_STOCK_DB = fresh
-            print(f"✅ NSE master list background refresh — {fresh and len(fresh)} stocks")
+            n = _set_master_db(fresh)
+            print(f"✅ Master list background refresh — {n} stocks (NSE + BSE)")
 
     _master_refresh_thread = threading.Thread(target=_run, name='nse-master-refresh', daemon=True)
     _master_refresh_thread.start()
@@ -1784,8 +1784,10 @@ def load_dynamic_nse_stocks(force=False, background=False):
 
     Order: fresh cache → (stale cache + background refresh) → sync fetch
     → purani cache → curated fallback. STOCKAI_OFFLINE=1 par network bilkul nahi.
+    FIX-86: global assignment ab _set_master_db() karta hai — NSE list set hote hi
+    bse_master.json ke BSE symbols merge ho jaate hain, isliye koi bhi code path
+    (fresh fetch / stale cache / offline / fallback) BSE ko chhod nahi sakta.
     """
-    global DYNAMIC_STOCK_DB
     ttl = float(CONFIG['NSE_MASTER_CACHE_HOURS'])
     offline = (os.environ.get('STOCKAI_OFFLINE') or '').strip().lower() in ('1', 'true', 'yes')
 
@@ -1793,39 +1795,41 @@ def load_dynamic_nse_stocks(force=False, background=False):
         hit = _master_cache_read()
         if hit:
             stocks, age_h = hit
-            DYNAMIC_STOCK_DB = stocks
+            # FIX-86: return value merged count hona chahiye, warna caller ko
+            # 600 dikhta hai jabki index me 600 NSE + BSE rows hain.
+            n = _set_master_db(stocks)
             if age_h <= ttl:
-                print(f"💾 NSE master list cache se — {len(stocks)} stocks "
+                print(f"💾 NSE master list cache se — {len(stocks)} NSE + "
+                      f"{n - len(stocks)} BSE = {n} stocks "
                       f"({age_h}h purani, TTL {ttl:g}h) — koi network call nahi")
-                return len(stocks)
+                return n
             print(f"♻️  NSE master cache {age_h}h purani (TTL {ttl:g}h)"
                   + (" — STOCKAI_OFFLINE, refresh skip" if offline else " — background me refresh"))
             if not offline:
                 _spawn_master_refresh()
-            return len(stocks)
+            return n
         if offline:
-            DYNAMIC_STOCK_DB = _fallback_master_list()
+            n = _set_master_db(_fallback_master_list())
             print(f"⚠️ STOCKAI_OFFLINE=1 aur cache nahi — curated fallback "
-                  f"({len(DYNAMIC_STOCK_DB)} stocks)")
-            return len(DYNAMIC_STOCK_DB)
+                  f"({n} stocks)")
+            return n
         if background:
-            DYNAMIC_STOCK_DB = _fallback_master_list()
+            n = _set_master_db(_fallback_master_list())
             print("🌐 NSE master list background me download ho rahi hai "
-                  f"(filhaal curated fallback — {len(DYNAMIC_STOCK_DB)} stocks)")
+                  f"(filhaal curated fallback — {n} stocks)")
             _spawn_master_refresh()
-            return len(DYNAMIC_STOCK_DB)
+            return n
 
     fresh = None if offline else _fetch_nse_master()
     if fresh:
-        DYNAMIC_STOCK_DB = fresh
-        return len(fresh)
+        return _set_master_db(fresh)
     hit = _master_cache_read()
     if hit:
-        DYNAMIC_STOCK_DB = hit[0]
-        print(f"⚠️ fetch fail — purani cache use ho rahi hai ({hit[1]}h, {len(hit[0])} stocks)")
+        n = _set_master_db(hit[0])
+        print(f"⚠️ fetch fail — purani cache use ho rahi hai ({hit[1]}h, {n} stocks incl. BSE)")
     else:
-        DYNAMIC_STOCK_DB = _fallback_master_list()
-        print(f"⚠️ fetch fail, cache nahi — curated fallback ({len(DYNAMIC_STOCK_DB)} stocks)")
+        n = _set_master_db(_fallback_master_list())
+        print(f"⚠️ fetch fail, cache nahi — curated fallback ({n} stocks)")
     return len(DYNAMIC_STOCK_DB)
 
 
@@ -1863,6 +1867,92 @@ def _fallback_master_list():
         {"sym": "JIOFIN", "name": "Jio Financial Services Ltd", "ex": "NSE", "sec": "NBFC"},
         {"sym": "TATATECH", "name": "Tata Technologies Ltd", "ex": "NSE", "sec": "IT / Auto Tech"}
     ]
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  FIX-86: BSE master list — TradingView public scanner se bani hui artifact
+# ────────────────────────────────────────────────────────────────────────────
+# NSE ka EQUITY_L.csv sirf NSE symbols deta hai (2570, 100 % NSE), isliye BSE-only
+# listings (TAPARIA, DHOOTIN, …) search index me the hi nahi. BSE ki apni files
+# datacenter IP se nahi milti (07-Oct-2026 ko dobara measure kiya):
+#   api.bseindia.com/Msource/*  -> HTTP 403
+#   EQ_ISINCODE_*.CSV           -> HTTP 200 par 0 bytes
+#   List_Scrips.html            -> HTTP 200, sirf Angular shell
+# TradingView ka scanner API chalta hai aur BSE par 4770 stocks deta hai.
+# Artifact banane ka tarika:  python tools/build_bse_master.py
+BSE_MASTER_FILE = pathlib.Path(__file__).resolve().parent / 'bse_master.json'
+_BSE_MASTER_ROWS = None
+_MASTER_IDX_KEYS = None
+_MASTER_IDX_SIG = None
+
+
+def _load_bse_master(verbose=True):
+    """bse_master.json -> list[dict] in DYNAMIC_STOCK_DB shape. Ek hi baar padhta hai."""
+    global _BSE_MASTER_ROWS
+    if _BSE_MASTER_ROWS is not None:
+        return _BSE_MASTER_ROWS
+    rows = []
+    generated = '?'
+    try:
+        art = json.loads(BSE_MASTER_FILE.read_text(encoding='utf-8'))
+        generated = art.get('generated_at') or '?'
+        for r in (art.get('stocks') or []):
+            sym = str(r.get('symbol') or '').strip().upper()
+            if not sym:
+                continue
+            rows.append({'sym': sym,
+                         'name': str(r.get('name') or sym).strip() or sym,
+                         'ex': 'BSE',
+                         'sec': None})
+        if verbose:
+            print(f"🏛  BSE master list — {len(rows)} stocks (generated {generated})"
+                  f" · source: TradingView scanner · rebuild: python tools/build_bse_master.py")
+    except FileNotFoundError:
+        if verbose:
+            print("⚠️  bse_master.json nahi mila — search me sirf NSE rahega. "
+                  "Banane ke liye: python tools/build_bse_master.py")
+    except Exception as e:                                       # noqa: BLE001
+        if verbose:
+            print(f"⚠️  bse_master.json padh nahi paya ({type(e).__name__}) — sirf NSE rahega")
+    _BSE_MASTER_ROWS = rows
+    return rows
+
+
+def _master_index_keys():
+    """(SYM, EX) ka set — mirror ko verify karne ke liye. DYNAMIC_STOCK_DB badle to rebuild."""
+    global _MASTER_IDX_KEYS, _MASTER_IDX_SIG
+    sig = len(DYNAMIC_STOCK_DB)
+    if _MASTER_IDX_KEYS is not None and _MASTER_IDX_SIG == sig:
+        return _MASTER_IDX_KEYS
+    _MASTER_IDX_KEYS = {(str(x.get('sym') or '').strip().upper(),
+                         (x.get('ex') or 'NSE').strip().upper())
+                        for x in DYNAMIC_STOCK_DB}
+    _MASTER_IDX_SIG = sig
+    return _MASTER_IDX_KEYS
+
+
+def _set_master_db(stocks):
+    """FIX-86: NSE list set karo + BSE master merge karo. Har assignment isi se hota hai.
+
+    Dedupe key (sym, ex) hai — isliye dual-listed stock dono exchange par aata hai,
+    aur BSE-only stock bhi index me aa jata hai. Koi bhi code path BSE ko chhod
+    nahi sakta, kyunki global par direct assignment ab kahin nahi hai.
+    """
+    global DYNAMIC_STOCK_DB
+    merged = list(stocks or [])
+    seen = set()
+    for s_ in merged:
+        seen.add((str(s_.get('sym') or '').strip().upper(),
+                  (s_.get('ex') or 'NSE').strip().upper()))
+    for b in _load_bse_master(verbose=False):
+        key = (b['sym'], 'BSE')
+        if key not in seen:
+            merged.append(b)
+            seen.add(key)
+    DYNAMIC_STOCK_DB = merged
+    global _MASTER_IDX_KEYS
+    _MASTER_IDX_KEYS = None          # index badla — mirror ka cache reset
+    return len(merged)
 
 
 # FIX-39 (M-9): import par sirf cache padha jaata hai; network background me.
@@ -1940,35 +2030,37 @@ def dynamic_search():
             'sec': 'Equity'
         })
 
-    # FIX-85 Layer 2b: dual-listing mirror.
-    # Measure kiya: NSE master ke pehle 14 symbols me se 12 par TradingView BSE ka
-    # data bhi deta hai (A2ZINFRA/AAATECH/AADHARHFC … 60 bars each). Yaani zyadaatar
-    # stocks dono exchange par SAME ticker se listed hain. Par DYNAMIC_STOCK_DB me
-    # sirf NSE entries hain (2570, exchange split {'NSE': 2570}) aur Yahoo search
-    # 'TATA' jaisi query par sirf .NS return karta hai (7/7 NSI, koi .BO nahi) —
-    # isliye BSE listing kabhi nahi dikhti thi.
-    # Ab har result ka sibling exchange bhi dikhate hain. Jis symbol ki BSE listing
-    # genuinely nahi hai wahan FIX-83 ka strict 409 saaf batata hai "BSE par data
-    # nahi mil raha, NSE chunein" — jhootha data nahi.
+    # ── FIX-86: dual-listing mirror, ab INDEX-VERIFIED ──────────────────────
+    # FIX-85 ka mirror blind tha: har result ka sibling exchange bina check kiye
+    # add kar deta tha. Jab tak index me sirf NSE tha ye zaroori tha (BSE coverage
+    # ka koi source nahi tha). Ab bse_master.json se 4770 BSE symbols index me hain,
+    # to blind mirror JHOOTH bolne laga:
+    #     TAPARIA -> [TAPARIA ex=NSE, TAPARIA ex=BSE]
+    # jabki TAPARIA sirf BSE par listed hai (NSE master me hai hi nahi).
+    # Ab sibling sirf tab add hota hai jab index me (sym, sibling) actually ho.
+    _idx = _master_index_keys()
     _by_key = {(r['sym'].upper(), (r.get('ex') or '').upper()) for r in results}
     _merged = []
     for r in results:
         _merged.append(r)
         _cur = (r.get('ex') or '').upper()
         _sib = 'BSE' if _cur == 'NSE' else ('NSE' if _cur == 'BSE' else None)
-        if _sib and (r['sym'].upper(), _sib) not in _by_key:
+        # sirf verified listing mirror karo; warna user ko aisa exchange dikhta
+        # hai jahan stock listed hi nahi — aur click par 409/404 milta hai.
+        if _sib and (r['sym'].upper(), _sib) not in _by_key \
+                and (r['sym'].upper(), _sib) in _idx:
             _merged.append({'sym': r['sym'], 'name': r.get('name'),
                             'ex': _sib, 'sec': r.get('sec', 'Equity')})
             _by_key.add((r['sym'].upper(), _sib))
+
     # FIX-85b: same symbol ke NSE aur BSE entries ADJACENT karo.
-    # Bug: Yahoo ne 'RELIANCE.BO' Layer 2 me diya tha, to (RELIANCE,'BSE') pehle se
-    # _by_key me tha aur mirror ne duplicate add nahi kiya — natija RELIANCE NSE
-    # position 5 par aur RELIANCE BSE position 12 (sabse aakhir) par. User ko
-    # scroll karna padta tha, isliye laga "BSE dikh hi nahi raha".
-    # Stable sort se first-appearance order rehta hai, sirf siblings saath aa jaate hain.
+    # Bug tha: Yahoo ne 'RELIANCE.BO' Layer 2 me diya tha, to (RELIANCE,'BSE')
+    # pehle se _by_key me tha aur mirror ne duplicate add nahi kiya — natija
+    # RELIANCE NSE position 5 par, RELIANCE BSE position 12 (sabse aakhir) par.
+    # Stable sort se first-appearance order rehta hai, sirf siblings saath aate hain.
     _first = {}
-    for i, r in enumerate(results):
-        _first.setdefault(r['sym'].upper(), i)
+    for _i, r in enumerate(results):
+        _first.setdefault(r['sym'].upper(), _i)
     # NOTE: sort _MERGED par karna hai, `results` par nahi — warna mirror ki
     # banayi hui entries chupchap drop ho jaati hain (ye bug khud kar chuka hoon:
     # `results = _merged` assignment edit me ud gayi thi aur TATA par 20 -> 11

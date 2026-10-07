@@ -53,8 +53,11 @@ for s in db:
     split[s.get('ex')] = split.get(s.get('ex'), 0) + 1
 print(f'   index size={len(db)} split={split}')
 check('A1 index populated hai', len(db) > 500, str(len(db)))
-check('A1 index NSE-only hai (isliye BSE coverage Layer 2/mirror se aani chahiye)',
-      set(k for k in split if k) <= {'NSE'}, str(split))
+# FIX-86: pehle ye check assert karta tha ki index NSE-only hai (tab BSE coverage
+# sirf Layer 2/mirror se aa sakti thi). Ab bse_master.json se 4770 BSE symbols
+# index me hain, isliye BSE coverage Layer 1 se hi aati hai. Invariant badla:
+check('A1 index me DONO exchange hain (FIX-86: bse_master.json merge)',
+      split.get('NSE', 0) > 500 and split.get('BSE', 0) > 3000, str(split))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
