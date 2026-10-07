@@ -490,7 +490,12 @@ logging.getLogger('tvDatafeed.main').setLevel(logging.CRITICAL)
 BROWSER_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
               '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 LIVE_TTL = 2.0                      # seconds — se chhota mat karo (upstream load)
-_LIVE_CACHE = {}                    # symbol -> (ts, payload)
+# FIX-88: SSE har 3s poll karta hai (SSE_STREAM_INTERVAL) par TTL 2s tha — yaani
+# cache KABHI hit nahi hota tha. Market band ho to har 3 second me poora
+# 3-tier × 2-exchange smart_fetch chalta tha (user ke log me wahi line 20-30 baar).
+# Market band ho to daily close badal nahi sakta, isliye lambi TTL.
+LIVE_TTL_CLOSED = 900.0             # 15 min — market band, close immutable
+_LIVE_CACHE = {}                    # symbol:ex -> (ts, payload, ttl)
 
 # FIX-39 (M-7): har call par naya TCP+TLS handshake hota tha (~0.2-0.4 s).
 # Shared session connections warm rakhta hai — cold quote measurably faster.
@@ -723,10 +728,14 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
     if not force:
         with _LIVE_LOCK:
             hit = _LIVE_CACHE.get(_ckey)
-        if hit and (now - hit[0]) < LIVE_TTL:
-            payload = dict(hit[1])
-            payload['cached'] = True
-            return payload
+        # FIX-88: TTL cache me store hoti hai (market open/band ke hisaab se).
+        # Purani 2-tuple entries bhi tolerate karo — warna upgrade par crash.
+        if hit:
+            _ttl = hit[2] if len(hit) > 2 else LIVE_TTL
+            if (now - hit[0]) < _ttl:
+                payload = dict(hit[1])
+                payload['cached'] = True
+                return payload
 
     # FIX-56: BSE par Yahoo ka data noticeably kam reliable hai — measured
     # DHOOTIN.BO vs TV-BSE, 21 sessions me 7 mismatch (-5.00 tak), jabki NSE par
@@ -807,8 +816,14 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
     quote.setdefault('is_realtime', False)
     quote.setdefault('source', 'unknown')
 
+    # FIX-88: market band ho to close immutable hai — lambi TTL. Warna 2s.
+    # Isse SSE ka 3s poll cache hit karta hai aur upstream par load nahi padta.
+    try:
+        _ttl = LIVE_TTL if is_market_open(exchange=('BSE' if _bse else 'NSE')) else LIVE_TTL_CLOSED
+    except Exception:                                        # noqa: BLE001
+        _ttl = LIVE_TTL
     with _LIVE_LOCK:
-        _LIVE_CACHE[_ckey] = (now, dict(quote))
+        _LIVE_CACHE[_ckey] = (now, dict(quote), _ttl)
         if len(_LIVE_CACHE) > 256:           # memory bound
             for k in sorted(_LIVE_CACHE, key=lambda s: _LIVE_CACHE[s][0])[:64]:
                 _LIVE_CACHE.pop(k, None)
@@ -1849,7 +1864,14 @@ def _fallback_master_list():
         {"sym": "WIPRO", "name": "Wipro Ltd", "ex": "NSE", "sec": "IT"},
         {"sym": "AXISBANK", "name": "Axis Bank Ltd", "ex": "NSE", "sec": "Banking"},
         {"sym": "MARUTI", "name": "Maruti Suzuki India Ltd", "ex": "NSE", "sec": "Auto"},
-        {"sym": "TATAMOTORS", "name": "Tata Motors Ltd", "ex": "NSE", "sec": "Auto"},
+        # FIX-87: 'TATAMOTORS' -> 'TMPV'. Tata Motors 1 Oct 2025 ko demerge hua aur
+        # NSE ticker TATAMOTORS ab exist nahi karta (Yahoo .NS/.BO dono 404). Ye
+        # mapping score_calibration.py aur nifty_scanner.py me FIX-45 se thi, par
+        # curated fallback list me stale entry reh gayi thi — matlab NSE fetch fail
+        # hone par search ek dead ticker dikhata. TMPV = Tata Motors Passenger
+        # Vehicles Ltd (24 Oct 2025 se listed, Nifty 50 me); TMCV = CV arm.
+        {"sym": "TMPV", "name": "Tata Motors Passenger Vehicles Ltd", "ex": "NSE", "sec": "Auto"},
+        {"sym": "TMCV", "name": "Tata Motors Ltd (Commercial Vehicles)", "ex": "NSE", "sec": "Auto"},
         {"sym": "BAJFINANCE", "name": "Bajaj Finance Ltd", "ex": "NSE", "sec": "NBFC"},
         {"sym": "SUNPHARMA", "name": "Sun Pharmaceutical Industries Ltd", "ex": "NSE", "sec": "Pharma"},
         {"sym": "TITAN", "name": "Titan Company Ltd", "ex": "NSE", "sec": "Consumer"},

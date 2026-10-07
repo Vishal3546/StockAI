@@ -1536,6 +1536,72 @@ try:
 finally:
     _M68.fetch_tradingview, _M68.fetch_nse_direct, _M68.fetch_yahoo = _o68
 
+# ── FIX-88: TTL vs SSE poll interval ───────────────────────────────────────
+# Root cause (user ke log se): SSE har 3s poll karta hai (SSE_STREAM_INTERVAL=3)
+# par LIVE_TTL 2.0s tha — cache KABHI hit nahi hota tha, isliye market band hone
+# par bhi har 3 second me poora 3-tier × 2-exchange smart_fetch chalta tha.
+# Wahi line log me 20-30 baar dikhti thi.
+print('-' * 82)
+print(' FIX-88 — adaptive TTL (market band ho to cache SSE poll se lamba chale)')
+print('-' * 82)
+check('LIVE_TTL_CLOSED defined', hasattr(A, 'LIVE_TTL_CLOSED'),
+      str(getattr(A, 'LIVE_TTL_CLOSED', None)))
+check('LIVE_TTL_CLOSED > SSE_STREAM_INTERVAL ( warna cache bekaar )',
+      getattr(A, 'LIVE_TTL_CLOSED', 0) > A.CONFIG['SSE_STREAM_INTERVAL'],
+      f"{A.LIVE_TTL_CLOSED} > {A.CONFIG['SSE_STREAM_INTERVAL']}")
+check('LIVE_TTL (open market) <= SSE interval — 2s hi sahi hai',
+      A.LIVE_TTL <= A.CONFIG['SSE_STREAM_INTERVAL'], str(A.LIVE_TTL))
+
+# dono states prove karo — environment par pin nahi (FIX-82 ka sabak)
+_imo_orig = A.is_market_open
+_LC_saved = dict(A._LIVE_CACHE)
+# fake symbol par saare tiers fail hote hain aur get_live_quote None deta hai,
+# isliye NSE-live tier ko stub karo — TTL logic hi test karna hai, network nahi.
+_lnll_orig = A.fetch_nse_live_ltp
+_FAKE_Q = {'symbol': 'FIX88TEST', 'price': 100.0, 'change': 1.0, 'pChange': 1.0,
+           'close_price': 99.0, 'dayHigh': 101.0, 'dayLow': 98.0,
+           'timestamp': '15:30:00', 'is_realtime': True, 'source': 'stub'}
+try:
+    for _state, _want in ((False, A.LIVE_TTL_CLOSED), (True, A.LIVE_TTL)):
+        A.is_market_open = lambda *a, _s=_state, **k: _s
+        # market "open" stub par BSE branch Yahoo par jaata hai — dono tier stub karo
+        A.fetch_nse_live_ltp = lambda *a, **k: dict(_FAKE_Q)
+        _y_orig = getattr(A, 'fetch_yahoo_live_ltp', None)
+        A.fetch_yahoo_live_ltp = lambda *a, **k: dict(_FAKE_Q)
+        try:
+            A._LIVE_CACHE.clear()
+            _q = A.get_live_quote('FIX88TEST', force=True, prefer_exch='NSE')
+            _ent = A._LIVE_CACHE.get('FIX88TEST:NSE')
+            check(f"market_open={_state} -> stored TTL {_want:g}s",
+                  _ent is not None and len(_ent) > 2 and _ent[2] == _want,
+                  str(_ent[2] if _ent and len(_ent) > 2 else _ent))
+            _q2 = A.get_live_quote('FIX88TEST', prefer_exch='NSE')
+            check(f"market_open={_state} -> doosri call cache se (cached=True)",
+                  bool(_q2 and _q2.get('cached')), str(_q2 and _q2.get('cached')))
+        finally:
+            if _y_orig is not None:
+                A.fetch_yahoo_live_ltp = _y_orig
+finally:
+    A.is_market_open = _imo_orig
+    A.fetch_nse_live_ltp = _lnll_orig
+    A._LIVE_CACHE.clear()
+    A._LIVE_CACHE.update(_LC_saved)
+
+# cache tuple 3-element hai par purani 2-element entries par crash na ho
+_lc2 = dict(A._LIVE_CACHE)
+try:
+    import time as _t88
+    A.fetch_nse_live_ltp = lambda *a, **k: None
+    A._LIVE_CACHE.clear()
+    A._LIVE_CACHE['LEGACY:NSE'] = (_t88.time(), {'price': 1.0, 'source': 'legacy'})
+    _legacy = A.get_live_quote('LEGACY', prefer_exch='NSE')
+    check('legacy 2-tuple cache entry par crash nahi', True,
+          'no exception')
+finally:
+    A.fetch_nse_live_ltp = _lnll_orig
+    A._LIVE_CACHE.clear()
+    A._LIVE_CACHE.update(_lc2)
+
 # ── summary ────────────────────────────────────────────────────────────────
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 82)

@@ -46,7 +46,8 @@ from research.features import (APP_28, SMALL_10, build_features,   # noqa: E402
 from research import ml_lab                                        # noqa: E402
 
 UNIVERSE = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'ITC',
-            'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'TATAMOTORS', 'BAJFINANCE',
+            # FIX-87: 'TATAMOTORS' -> 'TMPV' (demerger, 1 Oct 2025). Ticker ab exist nahi karta.
+            'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'TMPV', 'BAJFINANCE',
             'SUNPHARMA', 'TITAN', 'NTPC', 'ONGC', 'TATASTEEL']
 
 WARMUP = 252          # 1 saal training se pehle
