@@ -1960,7 +1960,21 @@ def dynamic_search():
             _merged.append({'sym': r['sym'], 'name': r.get('name'),
                             'ex': _sib, 'sec': r.get('sec', 'Equity')})
             _by_key.add((r['sym'].upper(), _sib))
-    results = _merged
+    # FIX-85b: same symbol ke NSE aur BSE entries ADJACENT karo.
+    # Bug: Yahoo ne 'RELIANCE.BO' Layer 2 me diya tha, to (RELIANCE,'BSE') pehle se
+    # _by_key me tha aur mirror ne duplicate add nahi kiya — natija RELIANCE NSE
+    # position 5 par aur RELIANCE BSE position 12 (sabse aakhir) par. User ko
+    # scroll karna padta tha, isliye laga "BSE dikh hi nahi raha".
+    # Stable sort se first-appearance order rehta hai, sirf siblings saath aa jaate hain.
+    _first = {}
+    for i, r in enumerate(results):
+        _first.setdefault(r['sym'].upper(), i)
+    # NOTE: sort _MERGED par karna hai, `results` par nahi — warna mirror ki
+    # banayi hui entries chupchap drop ho jaati hain (ye bug khud kar chuka hoon:
+    # `results = _merged` assignment edit me ud gayi thi aur TATA par 20 -> 11
+    # results, saari BSE entries gayab).
+    results = sorted(_merged, key=lambda r: (_first[r['sym'].upper()],
+                                             0 if (r.get('ex') or '').upper() == 'NSE' else 1))
 
     return jsonify(clean_json(results[:CONFIG['SEARCH_MAX_RESULTS']]))
 

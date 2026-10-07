@@ -78,6 +78,23 @@ check('B2 koi (sym, ex) pair duplicate nahi', len(pairs) == len(set(pairs)),
 check('B2 RELIANCE ke dono exchange entries hain',
       ('RELIANCE', 'NSE') in pairs and ('RELIANCE', 'BSE') in pairs, str(pairs[:6]))
 
+# B2b (FIX-85b): same symbol ke NSE aur BSE entries ADJACENT hone chahiye.
+# Ye bug khud kar chuka hoon — mirror `_merged` banata tha par sort `results` par
+# chalta tha (`results = _merged` assignment edit me ud gayi thi), to saari BSE
+# entries chupchap drop ho jaati thin (TATA 20 -> 11). Aur usse pehle wala bug:
+# Yahoo ne RELIANCE.BO Layer 2 me diya tha to mirror ne skip kiya aur RELIANCE NSE
+# #5 par / RELIANCE BSE #12 par tha — user ko laga "BSE dikh hi nahi raha".
+for q in ('RELIANCE', 'TATA', 'BANK'):
+    r = c.get(f'/api/search?q={q}').get_json() or []
+    pos = {}
+    for i, x in enumerate(r):
+        pos.setdefault(x['sym'].upper(), []).append(i)
+    bad = {k: v for k, v in pos.items() if len(v) > 1 and (max(v) - min(v)) != len(v) - 1}
+    check(f'B2b "{q}" par same symbol ke NSE/BSE entries adjacent hain', not bad, str(bad))
+    dual = {k: v for k, v in pos.items() if len(v) == 2}
+    check(f'B2b "{q}" par kam se kam 3 symbols ke dono exchange entries hain',
+          len(dual) >= 3, f'{len(dual)} dual-listed')
+
 # B3: results cap respect hota hai
 cap = A.CONFIG['SEARCH_MAX_RESULTS']
 check('B3 SEARCH_MAX_RESULTS se zyada results nahi', len(r) <= cap, f'{len(r)} vs cap {cap}')
