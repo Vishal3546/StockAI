@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Score Backtest</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .panel h2{font-size:15px;margin-bottom:2px}
+  .lab{font-size:11px;color:var(--mut);margin-bottom:10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  th{text-align:left;font-weight:500;color:var(--mut);font-size:11px;padding:5px 6px;border-bottom:1px solid var(--line)}
+  td{padding:5px 6px;border-bottom:1px solid var(--line)}
+  td:not(:first-child),th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}.cy{color:var(--cyan)}
+  .err{color:var(--red);font-size:12.5px;margin-top:8px}
+  .disc{padding:10px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:12px;margin-bottom:14px}
+  .thin{opacity:.55}
+  .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;border:1px solid var(--line);margin-left:6px}
+  .p-thin{color:var(--amber);border-color:var(--amber)}
+  .p-sig{color:var(--green);border-color:var(--green)}
+  .p-no{color:var(--mut)}
+  .tabs{display:flex;gap:8px;margin-bottom:12px}
+  .tab{padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mut);cursor:pointer;font-size:13px}
+  .tab.on{color:var(--text);border-color:var(--cyan)}
+  .kpi{display:flex;gap:18px;flex-wrap:wrap;margin-top:6px}
+  .kpi div span{display:block;font-size:11px;color:var(--mut)}
+  .kpi div b{font-size:16px}
+  .note{font-size:11.5px;color:var(--mut);margin-top:10px;line-height:1.6}
+  .bar{height:6px;border-radius:3px;background:var(--line);position:relative;overflow:hidden;min-width:70px}
+  .bar i{position:absolute;top:0;bottom:0;left:50%;display:block}
+</style>
+</head>
+<body>
+<h1>📊 Score-Band Backtest</h1>
+<div class="sub">Score ke BAAD actually kya hua — real historical returns ·
+  <a href="/">← Dashboard</a> · <a href="/screener">Screener</a> ·
+  <a href="/timeframes">Timeframes</a> · <a href="/watchlist">Watchlist</a> ·
+  <a href="/heatmap">Heatmap</a> · <a href="/alerts">Alerts</a>
+</div>
+
+<div class="disc" id="verdict">⚠️ Load ho raha hai…</div>
+
+<div class="tabs">
+  <div class="tab on" data-ex="NSE">NSE</div>
+  <div class="tab" data-ex="BSE">BSE</div>
+</div>
+
+<div class="panel">
+  <h2>Band-wise forward returns <span id="exlab" class="mut"></span></h2>
+  <div class="lab" id="meta">…</div>
+  <div id="tbl"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<div class="panel">
+  <h2>Ye numbers kaise padhein</h2>
+  <div class="note">
+    <b>mean ± SE</b> — average forward return aur uski standard error. <b>t = mean / SE</b>.<br>
+    <b>|t| ≥ 2</b> ≈ 95% confidence ki effect zero nahi hai. Isse chhota = noise maano.<br>
+    <b>n &lt; <span id="minn">30</span></b> wale bands <span class="amber">"thin"</span> hain —
+    unka average 2-3 samples se hil jaata hai, un par koi decision mat lo.<br>
+    <b>&gt;0 %</b> — kitne samples positive rahe. 50% ke aas-paas = coin flip.<br><br>
+    Ye page <b>accuracy claim nahi</b> hai. Score ek relative/confluence rank hai —
+    ye table batata hai ki wo rank historically predictive raha ya nahi.
+  </div>
+</div>
+
+<script>
+var EX = 'NSE';
+function f2(x){ return (x===null||x===undefined) ? '—' : (x>=0?'+':'')+Number(x).toFixed(2)+'%'; }
+function cls(x){ return (x===null||x===undefined) ? 'mut' : (x>0?'green':(x<0?'red':'mut')); }
+function tstat(t){
+  if(t===null||t===undefined) return '<span class="mut">—</span>';
+  var s = (t>=0?'+':'')+Number(t).toFixed(2);
+  if(Math.abs(t)>=2) return '<span class="'+(t>0?'green':'red')+'"><b>'+s+'</b></span>';
+  return '<span class="mut">'+s+'</span>';
+}
+function bar(mean, maxAbs){
+  if(mean===null||mean===undefined||!maxAbs) return '';
+  var w = Math.min(50, Math.abs(mean)/maxAbs*50);
+  var col = mean>=0 ? 'var(--green)' : 'var(--red)';
+  var left = mean>=0 ? '50%' : (50-w)+'%';
+  return '<div class="bar"><i style="left:'+left+';width:'+w+'%;background:'+col+'"></i></div>';
+}
+
+function load(ex){
+  EX = ex;
+  document.getElementById('tbl').innerHTML = '<div class="mut">Load ho raha hai…</div>';
+  fetch('/api/backtest?ex='+ex).then(function(r){ return r.json(); }).then(function(d){
+    document.getElementById('exlab').textContent = '· ' + ex;
+    if(!d.ok){
+      document.getElementById('tbl').innerHTML = '<div class="err">'+(d.error||'load fail')+'</div>'+
+        (d.hint?'<div class="note">'+d.hint+'</div>':'');
+      document.getElementById('verdict').textContent = '⚠️ '+(d.error||'data nahi mila');
+      return;
+    }
+    document.getElementById('verdict').textContent = '⚠️ ' + d.verdict;
+    var m = d.meta||{};
+    document.getElementById('meta').innerHTML =
+      m.samples+' samples · '+m.sessions+' sessions · '+m.first_session+' → '+m.last_session+
+      ' · '+(m.universe?m.universe.length:0)+' symbols · source: '+(m.source||'?')+
+      ' · generated '+(m.generated_at||'?');
+    document.getElementById('minn').textContent = d.min_band_n;
+
+    var H = (d.horizons||[5,20]).map(String);
+    var maxAbs = 0;
+    d.bands.forEach(function(b){ H.forEach(function(h){
+      var v=b.h[h]&&b.h[h].mean; if(v!==null&&v!==undefined&&Math.abs(v)>maxAbs) maxAbs=Math.abs(v);
+    });});
+
+    var html = '<table><thead><tr><th>Score band</th><th>n</th>';
+    H.forEach(function(h){ html += '<th>fwd '+h+'d mean</th><th>SE</th><th>t</th><th>&gt;0%</th>'; });
+    html += '<th style="text-align:left;padding-left:10px">spread</th></tr></thead><tbody>';
+
+    d.bands.forEach(function(b){
+      html += '<tr'+(b.thin?' class="thin"':'')+'>';
+      html += '<td><b>'+b.band+'</b>'+
+              (b.thin?'<span class="pill p-thin">thin · n&lt;'+d.min_band_n+'</span>':'')+'</td>';
+      html += '<td>'+b.n+'</td>';
+      H.forEach(function(h){
+        var x=b.h[h]||{};
+        html += '<td class="'+cls(x.mean)+'">'+f2(x.mean)+'</td>';
+        html += '<td class="mut">'+(x.se===null||x.se===undefined?'—':Number(x.se).toFixed(2))+'</td>';
+        html += '<td>'+tstat(x.t)+'</td>';
+        html += '<td class="mut">'+(x.pos_pct===null||x.pos_pct===undefined?'—':x.pos_pct+'%')+'</td>';
+      });
+      var mm = b.h[H[0]]||{};
+      html += '<td style="text-align:left;padding-left:10px">'+bar(mm.mean,maxAbs)+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('tbl').innerHTML = html;
+
+    // honest summary: kitne bands actually significant hain
+    var sig = 0, tot = 0, thin = 0;
+    d.bands.forEach(function(b){ if(b.thin) thin++;
+      H.forEach(function(h){ var x=b.h[h]||{}; if(x.t!==null&&x.t!==undefined){ tot++; if(Math.abs(x.t)>=2) sig++; } }); });
+    document.getElementById('note').innerHTML =
+      '<b>Summary:</b> '+tot+' band-horizon pairs me se <b class="cy">'+sig+'</b> par |t| ≥ 2 '+
+      '('+(tot?Math.round(100*sig/tot):0)+'%). '+thin+' band(s) thin hain (n &lt; '+d.min_band_n+').<br>'+
+      'Yaani zyadaatar cells statistically noise hain — ye jaan-bujh kar dikhaya gaya hai, '+
+      'chhupaya nahi gaya.';
+  }).catch(function(e){
+    document.getElementById('tbl').innerHTML = '<div class="err">fetch fail: '+e+'</div>';
+  });
+}
+
+document.querySelectorAll('.tab').forEach(function(t){
+  t.addEventListener('click', function(){
+    document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('on'); });
+    t.classList.add('on');
+    load(t.getAttribute('data-ex'));
+  });
+});
+load('NSE');
+</script>
+</body>
+</html>

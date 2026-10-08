@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Sector Heatmap</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+  .cell{border:1px solid var(--line);border-radius:10px;padding:11px 12px;cursor:pointer;position:relative;overflow:hidden}
+  .cell h3{font-size:13.5px;margin-bottom:3px}
+  .cell .pct{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  .cell .sm{font-size:11px;color:var(--mut);margin-top:2px}
+  .cell .thin{position:absolute;top:8px;right:9px;font-size:9.5px;color:var(--amber);border:1px solid var(--amber);border-radius:10px;padding:0 6px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  th{text-align:left;font-weight:500;color:var(--mut);font-size:11px;padding:5px 6px;border-bottom:1px solid var(--line)}
+  td{padding:5px 6px;border-bottom:1px solid var(--line)}
+  td:not(:first-child),th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}
+  .err{color:var(--red);font-size:12.5px}
+  .disc{padding:9px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:11.5px;margin-bottom:14px}
+  .legend{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--mut);margin-top:10px}
+  .sw{width:26px;height:10px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<h1>🗺️ Sector Heatmap</h1>
+<div class="sub">Scan kiye gaye stocks ka sector-wise performance ·
+  <a href="/">← Dashboard</a> · <a href="/screener">Screener</a> ·
+  <a href="/watchlist">Watchlist</a> · <a href="/backtest">Backtest</a> ·
+  <a href="/alerts">Alerts</a>
+</div>
+
+<div class="disc" id="disc">⚠️ Ye <b>scanned stocks ka</b> average hai, poore sector ka index nahi.
+  <b>n &lt; 3</b> wale sectors ka average 1-2 stocks se ban raha hai — noise.</div>
+
+<div class="panel">
+  <div id="hdr" class="mut">Load ho raha hai…</div>
+  <div class="grid" id="grid"></div>
+  <div class="legend">
+    <span class="sw" style="background:#155e3a"></span> strong +
+    <span class="sw" style="background:#1d3f2f"></span> +
+    <span class="sw" style="background:#232b4a"></span> flat
+    <span class="sw" style="background:#3f2530"></span> −
+    <span class="sw" style="background:#5e1f28"></span> strong −
+  </div>
+</div>
+
+<div class="panel" id="detail" style="display:none">
+  <h3 id="dtitle" style="font-size:14px"></h3>
+  <div id="dtbl"></div>
+</div>
+
+<script>
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function bg(pct){
+  var a = Math.min(1, Math.abs(pct)/2.5);
+  return pct >= 0
+    ? 'rgba(34,197,94,'+(0.10+a*0.42).toFixed(3)+')'
+    : 'rgba(239,68,68,'+(0.10+a*0.42).toFixed(3)+')';
+}
+var DATA = [];
+function load(){
+  fetch('/api/heatmap').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok){
+      document.getElementById('grid').innerHTML = '<div class="err">'+esc(d.error||'load fail')+'</div>'+
+        (d.hint?'<div class="mut" style="margin-top:6px">'+esc(d.hint)+'</div>':'');
+      document.getElementById('hdr').textContent='';
+      return;
+    }
+    DATA = d.sectors||[];
+    document.getElementById('hdr').innerHTML =
+      '<b>'+d.total_stocks+'</b> scanned stocks · <b>'+DATA.length+'</b> sectors'+
+      (d.generated_at?' · scan generated '+esc(d.generated_at):'')+
+      ' <span class="mut">(sector click karke stocks dekho)</span>';
+    document.getElementById('grid').innerHTML = DATA.map(function(s,i){
+      return '<div class="cell" data-i="'+i+'" style="background:'+bg(s.avg_change)+'">'+
+        (s.n<3?'<span class="thin">n='+s.n+'</span>':'')+
+        '<h3>'+esc(s.sector)+'</h3>'+
+        '<div class="pct '+(s.avg_change>0?'green':(s.avg_change<0?'red':'mut'))+'">'+
+          (s.avg_change>=0?'+':'')+s.avg_change.toFixed(2)+'%</div>'+
+        '<div class="sm">n='+s.n+' · med '+s.median_change.toFixed(2)+'% · '+s.adv+'↑ '+s.dec+'↓ '+s.unch+'→</div>'+
+        '<div class="sm">best '+esc(s.best.symbol)+' '+s.best.change_pct.toFixed(2)+'%</div>'+
+        '</div>';
+    }).join('');
+    document.querySelectorAll('.cell').forEach(function(c){
+      c.addEventListener('click', function(){ show(+c.getAttribute('data-i')); });
+    });
+  }).catch(function(e){
+    document.getElementById('grid').innerHTML = '<div class="err">fetch fail: '+esc(e)+'</div>';
+  });
+}
+function show(i){
+  var s = DATA[i]; if(!s) return;
+  document.getElementById('detail').style.display='block';
+  document.getElementById('dtitle').textContent = s.sector+' — '+s.n+' stocks';
+  document.getElementById('dtbl').innerHTML =
+    '<table><thead><tr><th>Symbol</th><th>Price</th><th>Chg %</th><th>RSI</th><th>Signal</th></tr></thead><tbody>'+
+    s.stocks.map(function(x){
+      return '<tr><td><a href="/?s='+encodeURIComponent(x.symbol)+'">'+esc(x.symbol)+'</a></td>'+
+        '<td>'+(x.price!=null?Number(x.price).toFixed(2):'—')+'</td>'+
+        '<td class="'+(x.change_pct>0?'green':(x.change_pct<0?'red':'mut'))+'">'+
+          (x.change_pct>=0?'+':'')+Number(x.change_pct).toFixed(2)+'%</td>'+
+        '<td class="mut">'+(x.rsi!=null?Number(x.rsi).toFixed(0):'—')+'</td>'+
+        '<td class="mut">'+esc(x.ensemble||'—')+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+load();
+</script>
+</body>
+</html>

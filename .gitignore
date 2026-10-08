@@ -59,3 +59,7 @@ deep_*.json
 
 # Node (JS render tests — npm i jsdom)
 node_modules/
+
+# FIX-90/92: per-user runtime state — repo me nahi jaana chahiye
+watchlist.json
+alerts.json

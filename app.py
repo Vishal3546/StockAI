@@ -5185,6 +5185,307 @@ def _harden_response(resp):
     return resp
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-89b/90/91/92 — BACKTEST · WATCHLIST · HEATMAP · ALERTS
+# ═══════════════════════════════════════════════════════════════════════════
+import statistics as _st89
+import math as _m89
+import threading as _th89
+
+_ROOT89 = os.path.dirname(os.path.abspath(__file__))
+_BACKTEST_FILES = {'NSE': os.path.join(_ROOT89, 'backtest_history_nse.json'),
+                   'BSE': os.path.join(_ROOT89, 'backtest_history_bse.json')}
+_BACKTEST_CACHE = {}
+_STORE_LOCK = _th89.RLock()
+WATCHLIST_FILE = os.path.join(_ROOT89, 'watchlist.json')
+ALERTS_FILE = os.path.join(_ROOT89, 'alerts.json')
+_MIN_BAND_N = 30          # isse kam samples par "insufficient" — statistically jhooth nahi bolenge
+_T_SIG = 2.0              # |t| >= 2 ~ 95% (rough, normal approx)
+
+
+def _bt_load(exchange):
+    """Backtest artifact padho (memoised). Missing ho to None — 500 nahi."""
+    ex = str(exchange or 'NSE').strip().upper()
+    if ex not in _BACKTEST_FILES:
+        return None
+    if ex in _BACKTEST_CACHE:
+        return _BACKTEST_CACHE[ex]
+    try:
+        art = json.loads(open(_BACKTEST_FILES[ex], encoding='utf-8').read())
+    except FileNotFoundError:
+        return None
+    except Exception:                                            # noqa: BLE001
+        return None
+    _BACKTEST_CACHE[ex] = art
+    return art
+
+
+def _bt_bands(art):
+    """10-point bands -> n, mean/SE/t per horizon, %positive. Honest stats."""
+    horizons = [str(h) for h in (art.get('horizons') or [1, 3, 5, 10, 20])]
+    groups = {}
+    for r in (art.get('rows') or []):
+        sc = r.get('score')
+        if not isinstance(sc, (int, float)):
+            continue
+        b = '%d-%d' % ((int(max(0, min(100, sc))) // 10) * 10,
+                       (int(max(0, min(100, sc))) // 10) * 10 + 10)
+        groups.setdefault(b, []).append(r)
+    out = []
+    for b in sorted(groups, key=lambda x: int(x.split('-')[0])):
+        rows = groups[b]
+        rec = {'band': b, 'n': len(rows), 'thin': len(rows) < _MIN_BAND_N, 'h': {}}
+        for h in horizons:
+            v = [r['fwd'][h] for r in rows
+                 if isinstance(r.get('fwd'), dict) and isinstance(r['fwd'].get(h), (int, float))]
+            if len(v) < 2:
+                rec['h'][h] = {'n': len(v), 'mean': None, 'se': None, 't': None,
+                               'median': None, 'pos_pct': None}
+                continue
+            mean = _st89.mean(v)
+            sd = _st89.stdev(v)
+            se = sd / _m89.sqrt(len(v)) if len(v) > 1 else None
+            rec['h'][h] = {
+                'n': len(v),
+                'mean': round(mean, 3),
+                'se': round(se, 3) if se else None,
+                't': round(mean / se, 2) if se else None,
+                'median': round(_st89.median(v), 3),
+                'pos_pct': round(100.0 * sum(1 for x in v if x > 0) / len(v), 1),
+            }
+        out.append(rec)
+    return out
+
+
+@app.route('/api/backtest')
+def api_backtest():
+    """Score-band forward returns — real historical distribution, prediction nahi."""
+    ex = (request.args.get('ex') or 'NSE').strip().upper()
+    if ex not in ('NSE', 'BSE'):
+        ex = 'NSE'
+    art = _bt_load(ex)
+    if not art:
+        return jsonify({'ok': False,
+                        'error': 'backtest_history_%s.json nahi mila.' % ex.lower(),
+                        'hint': 'Banane ke liye: python tools/build_backtest_history.py --exchange %s' % ex}), 200
+    return jsonify({'ok': True, 'exchange': ex, 'bands': _bt_bands(art),
+                    'meta': {k: art.get(k) for k in
+                             ('generated_at', 'source', 'model', 'sessions', 'samples',
+                              'first_session', 'last_session', 'lookback_bars')},
+                    'universe': art.get('universe'),
+                    'horizons': art.get('horizons'),
+                    'min_band_n': _MIN_BAND_N, 't_sig': _T_SIG,
+                    # Ye disclosure UI me hamesha dikhegi — score predictive nahi hai.
+                    'verdict': ('Score ek relative/confluence RANK hai, predictor nahi. '
+                                'Neeche real historical distribution hai — |t| < %g wale '
+                                'bands statistically noise hain, aur n < %d wale bands par '
+                                'koi bhi nikaalna jhooth hoga.' % (_T_SIG, _MIN_BAND_N))}), 200
+
+
+# ── shared tiny JSON store (watchlist + alerts) ─────────────────────────────
+def _store_read(path, default):
+    try:
+        with _STORE_LOCK:
+            return json.loads(open(path, encoding='utf-8').read())
+    except FileNotFoundError:
+        return default
+    except Exception:                                            # noqa: BLE001
+        return default
+
+
+def _store_write(path, data):
+    tmp = path + '.tmp'
+    with _STORE_LOCK:
+        f = open(tmp, 'w', encoding='utf-8')
+        try:
+            f.write(json.dumps(data, ensure_ascii=False, indent=1))
+        finally:
+            f.close()
+        os.replace(tmp, path)
+
+
+# ── WATCHLIST ───────────────────────────────────────────────────────────────
+@app.route('/api/watchlist', methods=['GET'])
+def api_watchlist_get():
+    items = _store_read(WATCHLIST_FILE, [])
+    return jsonify({'ok': True, 'items': items if isinstance(items, list) else []}), 200
+
+
+@app.route('/api/watchlist', methods=['POST'])
+def api_watchlist_post():
+    body = request.get_json(silent=True) or {}
+    sym = str(body.get('symbol') or '').strip().upper()
+    ex = str(body.get('exchange') or 'NSE').strip().upper()
+    if not sym:
+        return jsonify({'ok': False, 'error': 'symbol chahiye'}), 400
+    if ex not in ('NSE', 'BSE'):
+        return jsonify({'ok': False, 'error': "exchange 'NSE' ya 'BSE' hona chahiye"}), 400
+    items = _store_read(WATCHLIST_FILE, [])
+    if not isinstance(items, list):
+        items = []
+    if any(i.get('symbol') == sym and i.get('exchange') == ex for i in items):
+        return jsonify({'ok': False, 'error': '%s (%s) pehle se watchlist me hai' % (sym, ex)}), 409
+    items.append({'symbol': sym, 'exchange': ex, 'note': str(body.get('note') or '')[:120],
+                  'added_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
+    _store_write(WATCHLIST_FILE, items)
+    return jsonify({'ok': True, 'items': items}), 200
+
+
+@app.route('/api/watchlist', methods=['DELETE'])
+def api_watchlist_delete():
+    sym = (request.args.get('symbol') or '').strip().upper()
+    ex = (request.args.get('exchange') or '').strip().upper()
+    items = _store_read(WATCHLIST_FILE, [])
+    if not isinstance(items, list):
+        items = []
+    keep = [i for i in items
+            if not (i.get('symbol') == sym and (i.get('exchange') or 'NSE') == ex)]
+    if len(keep) == len(items):
+        return jsonify({'ok': False, 'error': 'mila nahi'}), 404
+    _store_write(WATCHLIST_FILE, keep)
+    return jsonify({'ok': True, 'items': keep}), 200
+
+
+# ── SECTOR HEATMAP ──────────────────────────────────────────────────────────
+@app.route('/api/heatmap')
+def api_heatmap():
+    """Sector-wise performance scan_results.json se. Kuch bhi invent nahi hota —
+    jis row me sector nahi hai wo 'Unknown' me jaata hai, chhupaya nahi jaata."""
+    path = os.path.join(_ROOT89, 'scan_results.json')
+    if not os.path.exists(path):
+        return jsonify({'ok': False, 'error': 'scan_results.json nahi mila',
+                        'hint': 'python nifty_scanner.py chalao, ya Screener par Refresh dabao'}), 200
+    try:
+        raw = json.loads(open(path, encoding='utf-8').read())
+    except Exception as e:                                       # noqa: BLE001
+        return jsonify({'ok': False, 'error': 'scan_results.json parse fail: %s' % e}), 200
+    rows = raw if isinstance(raw, list) else (raw.get('results') or raw.get('rows') or [])
+    sectors = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        sec = (r.get('sector') or 'Unknown') or 'Unknown'
+        ch = r.get('change_pct')
+        if not isinstance(ch, (int, float)):
+            continue
+        sectors.setdefault(sec, []).append({'symbol': r.get('symbol'), 'change_pct': ch,
+                                            'price': r.get('price'),
+                                            'ensemble': r.get('ensemble'),
+                                            'rsi': r.get('rsi')})
+    out = []
+    for sec, rs in sectors.items():
+        chs = [x['change_pct'] for x in rs]
+        out.append({'sector': sec, 'n': len(rs),
+                    'avg_change': round(_st89.mean(chs), 2),
+                    'median_change': round(_st89.median(chs), 2),
+                    'adv': sum(1 for c in chs if c > 0),
+                    'dec': sum(1 for c in chs if c < 0),
+                    'unch': sum(1 for c in chs if c == 0),
+                    'best': max(rs, key=lambda x: x['change_pct']),
+                    'worst': min(rs, key=lambda x: x['change_pct']),
+                    'stocks': sorted(rs, key=lambda x: -x['change_pct'])})
+    out.sort(key=lambda x: -x['avg_change'])
+    return jsonify({'ok': True, 'sectors': out, 'total_stocks': len(rows),
+                    'generated_at': (raw.get('generated_at') if isinstance(raw, dict) else None),
+                    'note': ('Sector average sirf scanned stocks ka hai — poore sector ka '
+                             'index nahi. Chhote n wale sectors par average noise hota hai.')}), 200
+
+
+# ── PRICE ALERTS ────────────────────────────────────────────────────────────
+def _alerts_list():
+    a = _store_read(ALERTS_FILE, [])
+    return a if isinstance(a, list) else []
+
+
+@app.route('/api/alerts', methods=['GET'])
+def api_alerts_get():
+    return jsonify({'ok': True, 'alerts': _alerts_list()}), 200
+
+
+@app.route('/api/alerts', methods=['POST'])
+def api_alerts_post():
+    body = request.get_json(silent=True) or {}
+    sym = str(body.get('symbol') or '').strip().upper()
+    ex = str(body.get('exchange') or 'NSE').strip().upper()
+    cond = str(body.get('condition') or '').strip().lower()
+    try:
+        level = float(body.get('level'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'level number hona chahiye'}), 400
+    if not sym:
+        return jsonify({'ok': False, 'error': 'symbol chahiye'}), 400
+    if ex not in ('NSE', 'BSE'):
+        return jsonify({'ok': False, 'error': "exchange 'NSE' ya 'BSE' hona chahiye"}), 400
+    if cond not in ('above', 'below'):
+        return jsonify({'ok': False, 'error': "condition 'above' ya 'below' hona chahiye"}), 400
+    if level <= 0:
+        return jsonify({'ok': False, 'error': 'level 0 se bada hona chahiye'}), 400
+    items = _alerts_list()
+    items.append({'id': int(time.time() * 1000) % 10 ** 9, 'symbol': sym, 'exchange': ex,
+                  'condition': cond, 'level': level, 'fired': False,
+                  'fired_at': None, 'created_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
+    _store_write(ALERTS_FILE, items)
+    return jsonify({'ok': True, 'alerts': items}), 200
+
+
+@app.route('/api/alerts', methods=['DELETE'])
+def api_alerts_delete():
+    try:
+        aid = int(request.args.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'id number hona chahiye'}), 400
+    items = _alerts_list()
+    keep = [a for a in items if a.get('id') != aid]
+    if len(keep) == len(items):
+        return jsonify({'ok': False, 'error': 'alert nahi mila'}), 404
+    _store_write(ALERTS_FILE, keep)
+    return jsonify({'ok': True, 'alerts': keep}), 200
+
+
+@app.route('/api/alerts/check', methods=['POST'])
+def api_alerts_check():
+    """Pending alerts ko current quote se check karo. Frontend poll karta hai —
+    server khud background loop nahi chalata (resource leak se bachne ke liye)."""
+    items = _alerts_list()
+    pending = [a for a in items if not a.get('fired')]
+    checked, errors = 0, []
+    now = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+    for a in pending:
+        sym, ex = a.get('symbol'), (a.get('exchange') or 'NSE').upper()
+        try:
+            q = get_live_quote(sym, prefer_exch=ex)
+        except Exception as e:                                   # noqa: BLE001
+            errors.append('%s: %s' % (sym, type(e).__name__))
+            q = None
+        if not q or not isinstance(q.get('price'), (int, float)):
+            errors.append('%s: quote nahi mila' % sym)
+            continue
+        checked += 1
+        price = float(q['price'])
+        a['last_price'] = price
+        a['checked_at'] = now
+        hit = (price >= a['level']) if a.get('condition') == 'above' else (price <= a['level'])
+        if hit:
+            a['fired'] = True
+            a['fired_at'] = now
+            a['fired_price'] = price
+    _store_write(ALERTS_FILE, items)
+    return jsonify({'ok': True, 'alerts': items, 'checked': checked,
+                    'fired_now': [a for a in items if a.get('fired_at') == now],
+                    'errors': errors[:8]}), 200
+
+
+# ── page routes ─────────────────────────────────────────────────────────────
+for _pg89 in ('Backtest', 'Watchlist', 'Heatmap', 'Alerts'):
+    def _mk89(name):
+        def _view():
+            return send_from_directory(_ROOT89, name + '.html')
+        _view.__name__ = 'page_' + name.lower()
+        return _view
+    app.add_url_rule('/' + _pg89.lower(), 'page_' + _pg89.lower(), _mk89(_pg89))
+
+
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 5000))
     HOST = os.environ.get('STOCKAI_HOST', '0.0.0.0')

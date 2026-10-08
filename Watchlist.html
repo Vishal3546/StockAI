@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Watchlist</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .panel h2{font-size:15px;margin-bottom:8px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  th{text-align:left;font-weight:500;color:var(--mut);font-size:11px;padding:5px 6px;border-bottom:1px solid var(--line)}
+  td{padding:6px 6px;border-bottom:1px solid var(--line)}
+  td:not(:first-child),th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}
+  .err{color:var(--red);font-size:12.5px}
+  input,select,button{font:13px system-ui;background:#0e1428;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 10px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--cyan)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .x{cursor:pointer;color:var(--mut);padding:2px 8px;border:1px solid var(--line);border-radius:6px}
+  .x:hover{color:var(--red);border-color:var(--red)}
+  .srch{position:relative}
+  .sugg{position:absolute;top:100%;left:0;right:0;background:#0e1428;border:1px solid var(--line);border-radius:8px;z-index:9;max-height:260px;overflow:auto;display:none}
+  .sugg div{padding:6px 10px;cursor:pointer;font-size:12.5px;border-bottom:1px solid var(--line)}
+  .sugg div:hover{background:#16203c}
+  .exb{display:inline-block;padding:1px 6px;border-radius:5px;font-size:10px;border:1px solid var(--line);color:var(--mut);margin-left:5px}
+  .stale{color:var(--amber);font-size:10px}
+  .disc{padding:9px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:11.5px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<h1>⭐ Watchlist</h1>
+<div class="sub">Apne stocks ek jagah · server-side saved ·
+  <a href="/">← Dashboard</a> · <a href="/screener">Screener</a> ·
+  <a href="/timeframes">Timeframes</a> · <a href="/backtest">Backtest</a> ·
+  <a href="/heatmap">Heatmap</a> · <a href="/alerts">Alerts</a>
+</div>
+
+<div class="disc">⚠️ Prices live source se aate hain. <b>is_realtime=False</b> wale rows ka matlab
+  us stock ka last trade purana hai (illiquid ya holiday) — price stale hai, guess nahi.</div>
+
+<div class="panel">
+  <h2>Add karo</h2>
+  <div class="row">
+    <div class="srch">
+      <input id="q" placeholder="symbol ya company naam likho…" autocomplete="off" style="min-width:260px">
+      <div class="sugg" id="sugg"></div>
+    </div>
+    <button id="add">+ Add</button>
+    <span class="mut" id="pick"></span>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Meri list <span class="mut" id="cnt"></span>
+    <button id="ref" style="float:right;padding:4px 10px;font-size:12px">🔄 Refresh</button>
+  </h2>
+  <div id="tbl"><span class="mut">Load ho raha hai…</span></div>
+</div>
+
+<script>
+var items = [], sel = null;
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function loadList(){
+  fetch('/api/watchlist').then(function(r){return r.json();}).then(function(d){
+    items = d.items||[];
+    document.getElementById('cnt').textContent = '('+items.length+')';
+    if(!items.length){
+      document.getElementById('tbl').innerHTML = '<span class="mut">List khaali hai — upar se stock add karo.</span>';
+      return;
+    }
+    var html='<table><thead><tr><th>Symbol</th><th>Ex</th><th>LTP</th><th>Chg</th><th>%</th>'+
+             '<th>Realtime</th><th>Source</th><th></th></tr></thead><tbody>';
+    items.forEach(function(it,i){
+      html += '<tr id="r'+i+'"><td><a href="/?s='+encodeURIComponent(it.symbol)+'&ex='+it.exchange+'">'+
+              esc(it.symbol)+'</a></td><td><span class="exb">'+esc(it.exchange)+'</span></td>'+
+              '<td class="mut" id="p'+i+'">…</td><td class="mut" id="c'+i+'">…</td>'+
+              '<td class="mut" id="pc'+i+'">…</td><td class="mut" id="rt'+i+'">…</td>'+
+              '<td class="mut" id="sr'+i+'">…</td>'+
+              '<td><span class="x" data-s="'+esc(it.symbol)+'" data-e="'+esc(it.exchange)+'">✕</span></td></tr>';
+    });
+    html+='</tbody></table>';
+    document.getElementById('tbl').innerHTML = html;
+    document.querySelectorAll('.x').forEach(function(x){
+      x.addEventListener('click', function(){
+        fetch('/api/watchlist?symbol='+encodeURIComponent(x.getAttribute('data-s'))+
+              '&exchange='+encodeURIComponent(x.getAttribute('data-e')), {method:'DELETE'})
+          .then(function(){ loadList(); });
+      });
+    });
+    items.forEach(function(it,i){ fillQuote(it,i); });
+  });
+}
+
+function fillQuote(it,i){
+  fetch('/api/quote/'+encodeURIComponent(it.symbol)+'?ex='+it.exchange)
+    .then(function(r){return r.json();}).then(function(q){
+      function set(id,v,cl){ var e=document.getElementById(id+i); if(e){ e.textContent=v; if(cl) e.className=cl; } }
+      if(!q || q.price===null || q.price===undefined){
+        set('p','—','mut'); set('c','—','mut'); set('pc','—','mut');
+        set('rt','n/a','mut'); set('sr','quote nahi mila','mut'); return;
+      }
+      var cl = q.change>0?'green':(q.change<0?'red':'mut');
+      set('p', Number(q.price).toFixed(2), '');
+      set('c', (q.change>=0?'+':'')+Number(q.change).toFixed(2), cl);
+      set('pc',(q.pChange>=0?'+':'')+Number(q.pChange).toFixed(2)+'%', cl);
+      set('rt', q.is_realtime ? 'live' : 'stale', q.is_realtime?'green':'stale');
+      set('sr', String(q.source||'?'), 'mut');
+    }).catch(function(){
+      var e=document.getElementById('p'+i); if(e) e.textContent='err';
+    });
+}
+
+var tmr=null;
+document.getElementById('q').addEventListener('input', function(){
+  var v=this.value.trim();
+  clearTimeout(tmr);
+  if(v.length<1){ document.getElementById('sugg').style.display='none'; return; }
+  tmr=setTimeout(function(){
+    fetch('/api/search?q='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(rows){
+      var box=document.getElementById('sugg');
+      if(!rows.length){ box.style.display='none'; return; }
+      box.innerHTML = rows.slice(0,12).map(function(r){
+        return '<div data-s="'+esc(r.sym)+'" data-e="'+esc(r.ex||'')+'">'+esc(r.sym)+
+               '<span class="exb">'+(r.ex?esc(r.ex):'?')+'</span> <span class="mut">'+esc(r.name||'')+'</span></div>';
+      }).join('');
+      box.style.display='block';
+      box.querySelectorAll('div').forEach(function(d){
+        d.addEventListener('click', function(){
+          sel = {symbol:d.getAttribute('data-s'), exchange:d.getAttribute('data-e')||'NSE'};
+          document.getElementById('q').value = sel.symbol;
+          document.getElementById('pick').textContent = sel.symbol+' ('+sel.exchange+')';
+          box.style.display='none';
+        });
+      });
+    });
+  }, 220);
+});
+
+document.getElementById('add').addEventListener('click', function(){
+  var sym = (sel && sel.symbol) ? sel.symbol : document.getElementById('q').value.trim().toUpperCase();
+  var ex  = (sel && sel.exchange) ? sel.exchange : 'NSE';
+  if(!sym){ alert('pehle symbol chuno'); return; }
+  fetch('/api/watchlist', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({symbol:sym, exchange:ex})})
+    .then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
+    .then(function(o){
+      if(!o.j.ok){ alert(o.j.error||'add fail'); return; }
+      sel=null; document.getElementById('q').value=''; document.getElementById('pick').textContent='';
+      loadList();
+    });
+});
+document.getElementById('ref').addEventListener('click', loadList);
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.srch')) document.getElementById('sugg').style.display='none';
+});
+loadList();
+setInterval(loadList, 30000);
+</script>
+</body>
+</html>

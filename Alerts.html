@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockAI · Price Alerts</title>
+<style>
+  :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  a{color:var(--cyan);text-decoration:none}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .panel h2{font-size:15px;margin-bottom:8px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  th{text-align:left;font-weight:500;color:var(--mut);font-size:11px;padding:5px 6px;border-bottom:1px solid var(--line)}
+  td{padding:6px 6px;border-bottom:1px solid var(--line)}
+  td:not(:first-child),th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .green{color:var(--green)}.amber{color:var(--amber)}.red{color:var(--red)}.mut{color:var(--mut)}
+  input,select,button{font:13px system-ui;background:#0e1428;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 10px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--cyan)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .x{cursor:pointer;color:var(--mut);padding:2px 8px;border:1px solid var(--line);border-radius:6px}
+  .x:hover{color:var(--red);border-color:var(--red)}
+  .srch{position:relative}
+  .sugg{position:absolute;top:100%;left:0;right:0;background:#0e1428;border:1px solid var(--line);border-radius:8px;z-index:9;max-height:240px;overflow:auto;display:none}
+  .sugg div{padding:6px 10px;cursor:pointer;font-size:12.5px;border-bottom:1px solid var(--line)}
+  .sugg div:hover{background:#16203c}
+  .exb{display:inline-block;padding:1px 6px;border-radius:5px;font-size:10px;border:1px solid var(--line);color:var(--mut);margin-left:5px}
+  .disc{padding:9px 12px;border:1px solid var(--amber);border-radius:10px;color:var(--amber);font-size:11.5px;margin-bottom:14px}
+  .fired{background:rgba(34,197,94,.07)}
+  .toggle{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--mut)}
+</style>
+</head>
+<body>
+<h1>🔔 Price Alerts</h1>
+<div class="sub">Level cross hone par browser notification ·
+  <a href="/">← Dashboard</a> · <a href="/screener">Screener</a> ·
+  <a href="/watchlist">Watchlist</a> · <a href="/backtest">Backtest</a> ·
+  <a href="/heatmap">Heatmap</a>
+</div>
+
+<div class="disc">⚠️ Alerts <b>isi browser ke khule rehne par</b> check hote hain (page 30s me ek baar
+  server se poochta hai). Server background me khud loop nahi chalata. SMS/email nahi — koi API key nahi chahiye.<br>
+  Price us exchange ka hota hai jo aapne chuna; NSE aur BSE ke prices alag hote hain.</div>
+
+<div class="panel">
+  <h2>Alert banao</h2>
+  <div class="row">
+    <div class="srch">
+      <input id="q" placeholder="symbol ya naam…" autocomplete="off" style="min-width:230px">
+      <div class="sugg" id="sugg"></div>
+    </div>
+    <select id="cond"><option value="above">crosses above ▲</option><option value="below">crosses below ▼</option></select>
+    <input id="lvl" type="number" step="0.05" min="0.01" placeholder="level ₹" style="width:110px">
+    <button id="add">+ Add alert</button>
+    <span class="mut" id="pick"></span>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Alerts <span class="mut" id="cnt"></span>
+    <span class="toggle" style="float:right">
+      <label><input type="checkbox" id="notif" style="vertical-align:middle"> browser notifications</label>
+      <button id="chk" style="padding:4px 10px;font-size:12px">🔄 Check now</button>
+    </span>
+  </h2>
+  <div id="tbl"><span class="mut">Load ho raha hai…</span></div>
+  <div id="stat" class="mut" style="margin-top:8px"></div>
+</div>
+
+<script>
+var sel=null, alerts=[];
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function notify(a){
+  if(!document.getElementById('notif').checked) return;
+  if(!('Notification' in window)) return;
+  if(Notification.permission!=='granted'){ Notification.requestPermission(); return; }
+  try{ new Notification(a.symbol+' ('+a.exchange+') — alert fired',
+    {body: a.condition+' ₹'+a.level+'  →  LTP ₹'+(a.fired_price!=null?a.fired_price:'?')}); }catch(e){}
+}
+
+function load(){
+  fetch('/api/alerts').then(function(r){return r.json();}).then(function(d){
+    alerts = d.alerts||[];
+    var pend = alerts.filter(function(a){return !a.fired;}).length;
+    document.getElementById('cnt').textContent = '('+alerts.length+' total, '+pend+' pending)';
+    if(!alerts.length){
+      document.getElementById('tbl').innerHTML='<span class="mut">Koi alert nahi — upar se banao.</span>';
+      return;
+    }
+    var html='<table><thead><tr><th>Symbol</th><th>Ex</th><th>Condition</th><th>Level</th>'+
+             '<th>Last price</th><th>Status</th><th>Checked</th><th></th></tr></thead><tbody>';
+    alerts.forEach(function(a){
+      html+='<tr'+(a.fired?' class="fired"':'')+'>'+
+        '<td><a href="/?s='+encodeURIComponent(a.symbol)+'&ex='+a.exchange+'">'+esc(a.symbol)+'</a></td>'+
+        '<td><span class="exb">'+esc(a.exchange)+'</span></td>'+
+        '<td>'+(a.condition==='above'?'▲ above':'▼ below')+'</td>'+
+        '<td>₹'+Number(a.level).toFixed(2)+'</td>'+
+        '<td>'+(a.last_price!=null?'₹'+Number(a.last_price).toFixed(2):'—')+'</td>'+
+        '<td class="'+(a.fired?'green':'mut')+'">'+(a.fired?('FIRED @ ₹'+Number(a.fired_price||0).toFixed(2)):'waiting')+'</td>'+
+        '<td class="mut">'+esc(a.checked_at||a.fired_at||'—')+'</td>'+
+        '<td><span class="x" data-id="'+a.id+'">✕</span></td></tr>';
+    });
+    html+='</tbody></table>';
+    document.getElementById('tbl').innerHTML=html;
+    document.querySelectorAll('.x').forEach(function(x){
+      x.addEventListener('click', function(){
+        fetch('/api/alerts?id='+x.getAttribute('data-id'),{method:'DELETE'}).then(load);
+      });
+    });
+  });
+}
+
+function check(){
+  document.getElementById('stat').textContent='checking…';
+  fetch('/api/alerts/check',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+    (d.fired_now||[]).forEach(notify);
+    document.getElementById('stat').textContent =
+      'checked '+d.checked+' alert(s)'+((d.errors&&d.errors.length)?' · '+d.errors.length+' error(s): '+d.errors.slice(0,3).join(', '):'');
+    load();
+  }).catch(function(e){ document.getElementById('stat').textContent='check fail: '+e; });
+}
+
+var tmr=null;
+document.getElementById('q').addEventListener('input', function(){
+  var v=this.value.trim(); clearTimeout(tmr);
+  if(!v){ document.getElementById('sugg').style.display='none'; return; }
+  tmr=setTimeout(function(){
+    fetch('/api/search?q='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(rows){
+      var box=document.getElementById('sugg');
+      if(!rows.length){ box.style.display='none'; return; }
+      box.innerHTML=rows.slice(0,12).map(function(r){
+        return '<div data-s="'+esc(r.sym)+'" data-e="'+esc(r.ex||'')+'">'+esc(r.sym)+
+          '<span class="exb">'+(r.ex?esc(r.ex):'?')+'</span> <span class="mut">'+esc(r.name||'')+'</span></div>';
+      }).join('');
+      box.style.display='block';
+      box.querySelectorAll('div').forEach(function(d){
+        d.addEventListener('click', function(){
+          sel={symbol:d.getAttribute('data-s'),exchange:d.getAttribute('data-e')||'NSE'};
+          document.getElementById('q').value=sel.symbol;
+          document.getElementById('pick').textContent=sel.symbol+' ('+sel.exchange+')';
+          box.style.display='none';
+        });
+      });
+    });
+  },220);
+});
+
+document.getElementById('add').addEventListener('click', function(){
+  var sym=(sel&&sel.symbol)?sel.symbol:document.getElementById('q').value.trim().toUpperCase();
+  var ex=(sel&&sel.exchange)?sel.exchange:'NSE';
+  var lvl=parseFloat(document.getElementById('lvl').value);
+  if(!sym){ alert('pehle symbol chuno'); return; }
+  if(!(lvl>0)){ alert('level 0 se bada hona chahiye'); return; }
+  fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({symbol:sym,exchange:ex,condition:document.getElementById('cond').value,level:lvl})})
+    .then(function(r){return r.json().then(function(j){return {s:r.status,j:j};});})
+    .then(function(o){
+      if(!o.j.ok){ alert(o.j.error||'add fail'); return; }
+      sel=null; document.getElementById('q').value=''; document.getElementById('lvl').value='';
+      document.getElementById('pick').textContent='';
+      load();
+    });
+});
+
+document.getElementById('notif').addEventListener('change', function(){
+  if(this.checked && 'Notification' in window && Notification.permission!=='granted')
+    Notification.requestPermission();
+});
+document.getElementById('chk').addEventListener('click', check);
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.srch')) document.getElementById('sugg').style.display='none';
+});
+load();
+setInterval(check, 30000);
+</script>
+</body>
+</html>
