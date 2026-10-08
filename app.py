@@ -2789,6 +2789,219 @@ def calculate_kpi_scores(df, fund_data):
         }
     }
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIX-93: TRADE PLAN — 2026 execution layer (stop / target / RR / MTF / squeeze)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# calculate_kpi_scores() DIRECTION batata hai. Ye function batata hai agar trade
+# lena hi ho to stop kahan, target kahan, aur trade layak hai ya nahi. Dono
+# jaan-bujh kar alag rakhe gaye hain — 2026 practice bhi "signal" aur "trade
+# management" ko alag treat karti hai, aur alag rakhne se purana score (jis par
+# screener + FIX-89a backtest bane hain) chhedna nahi pada.
+#
+# Thresholds — Oct-2026 Indian sources (stoxra Mar-26, univest Apr-26,
+# icfmindia Apr-26, onetradejournal Jul-26, gettogetherfinance Sep-26):
+#   • ATR(14) se stop sizing            — 1.5 × ATR
+#   • risk:reward >= 1:2                — stated core rule
+#   • weekly chart MTF confirmation     — daily + weekly dono
+#   • Bollinger squeeze                 — BB width apni history ke tightest 20% me
+#   • ADV > 5 lakh shares/day           — liquidity screen
+#   • 52W high se 15-40% neeche         — swing screening band
+#   • 2-4 indicators, 10+ nahi          — depth over breadth
+#
+# HONESTY (ye zaroori hai): ye conventions LOSS CAP karte hain, win-rate NAHI
+# badhate. FIX-89a ne 289 sessions / 8667 samples par measure kiya tha ki score
+# ka 5-day predictive edge detectable hi nahi hai. Isliye yahan koi accuracy ya
+# probability claim nahi — sirf position sizing aur exit discipline.
+TP_ATR_STOP = 1.5
+TP_ATR_T1, TP_ATR_T2, TP_ATR_T3 = 1.0, 2.0, 3.0
+TP_RR_MIN = 2.0            # 2026: risk:reward >= 1:2
+TP_SQUEEZE_PCT = 20.0      # BB width, tightest 20% of its own history
+TP_ADV_MIN = 500000        # 5 lakh shares/day
+TP_HI52_LOW, TP_HI52_HIGH = -40.0, -15.0    # 15-40% below 52W high
+TP_HI52_BARS = 252         # ~52 trading weeks
+TP_CONF_CHECKS = 8         # confluence kitne indicators se ginta hai
+TP_MIN_WEEKLY = 50         # MTF ke liye kam se kam weekly bars
+TP_MTF_FLAT_TOL = 0.001    # EMA20/EMA50 isse kam alag hon to FLAT, warna tie ko
+                           # galti se DOWN keh dete (0.1% se kam gap = flat)
+TP_MIN_BARS = 20           # isse kam par plan banega hi nahi
+
+
+def _rnd(v, nd=2):
+    """round() jo None passthrough kare aur junk par exception na fekna."""
+    try:
+        return None if v is None else round(float(v), nd)
+    except Exception:
+        return None
+
+
+def calculate_trade_plan(dfi):
+    """(dict) Execution layer. Missing input → key absent + note, kabhi guess nahi.
+
+    Har number ke saath uska RULE bhi jaata hai, taaki user dekh sake ki ye
+    kahan se aaya — koi magic number nahi.
+    """
+    out = {'ok': False, 'notes': [],
+           'disclosure': ('Ye levels ATR se bane RISK-MANAGEMENT conventions '
+                          'hain — loss cap karte hain, jeetne ki sambhavna '
+                          'NAHI badhate. Koi accuracy ya probability claim '
+                          'nahi. Score ek relative rank hai (FIX-89a me '
+                          'measure hua: 5-day par predictive edge detectable '
+                          'nahi tha).')}
+    if dfi is None or len(dfi) < TP_MIN_BARS:
+        out['notes'].append(f'{TP_MIN_BARS} se kam bars — plan banane layak '
+                            f'data nahi ({0 if dfi is None else len(dfi)} hain)')
+        return out
+
+    L = dfi.iloc[-1]
+    px = sfx(L.get('Close'))
+    atr = sfx(L.get('ATR'))
+    bbw = sfx(L.get('BB_Width'))
+    pctb = sfx(L.get('BB_PctB'))
+    if px is None:
+        out['notes'].append('Close missing — plan skip')
+        return out
+    out['price'] = _rnd(px)
+
+    # ── 1. ATR(14) se stop + targets + risk:reward ──────────────────────────
+    if atr is not None and atr > 0:
+        risk = atr * TP_ATR_STOP
+        out['atr'] = _rnd(atr)
+        out['atr_pct'] = _rnd(atr / px * 100.0)
+        out['stop_rule'] = f'{TP_ATR_STOP} × ATR(14)'
+        out['risk_per_share'] = _rnd(risk)
+        out['rr_min'] = TP_RR_MIN
+        out['long'] = {'stop': _rnd(px - risk),
+                       't1': _rnd(px + atr * TP_ATR_T1),
+                       't2': _rnd(px + atr * TP_ATR_T2),
+                       't3': _rnd(px + atr * TP_ATR_T3),
+                       'rr_t1': _rnd(TP_ATR_T1 / TP_ATR_STOP),
+                       'rr_t2': _rnd(TP_ATR_T2 / TP_ATR_STOP),
+                       'rr_t3': _rnd(TP_ATR_T3 / TP_ATR_STOP),
+                       'meets_1_2': bool((TP_ATR_T3 / TP_ATR_STOP) >= TP_RR_MIN)}
+        out['short'] = {'stop': _rnd(px + risk),
+                        't1': _rnd(px - atr * TP_ATR_T1),
+                        't2': _rnd(px - atr * TP_ATR_T2),
+                        't3': _rnd(px - atr * TP_ATR_T3)}
+        out['rr_note'] = (f'1:{TP_RR_MIN:.0f} tabhi milta hai jab T3 '
+                          f'({TP_ATR_T3}×ATR) tak hold kiya jaye — T1 par RR '
+                          f'sirf 1:{_rnd(TP_ATR_T1 / TP_ATR_STOP)} hai.')
+    else:
+        out['notes'].append('ATR(14) missing ya 0 — stop/target nahi banaye')
+
+    # ── 2. Bollinger squeeze ────────────────────────────────────────────────
+    if bbw is not None and 'BB_Width' in dfi:
+        hist = dfi['BB_Width'].dropna().tail(TP_HI52_BARS)
+        if len(hist) >= 60:
+            rank = float((hist < bbw).sum()) / len(hist) * 100.0
+            out['bb'] = {'width': _rnd(bbw), 'width_rank_pct': _rnd(rank, 1),
+                         'pctb': _rnd(pctb), 'n_bars': int(len(hist)),
+                         'squeeze': bool(rank <= TP_SQUEEZE_PCT),
+                         'rule': (f'width apni {len(hist)}-bar history ke '
+                                  f'tightest {TP_SQUEEZE_PCT:.0f}% me')}
+            if rank <= TP_SQUEEZE_PCT:
+                out['notes'].append('Bollinger SQUEEZE — breakout ka setup, par '
+                                    'direction squeeze se pata nahi chalta')
+        else:
+            out['notes'].append(f'BB history sirf {len(hist)} bars — squeeze '
+                                'percentile reliable nahi (60+ chahiye)')
+    else:
+        out['notes'].append('BB_Width missing — squeeze check skip')
+
+    # ── 3. 52-week high se doori (swing screening band) ─────────────────────
+    if 'High' in dfi:
+        hi = sfx(dfi['High'].tail(TP_HI52_BARS).max())
+        if hi and hi > 0:
+            d = (px / hi - 1.0) * 100.0
+            out['hi52'] = {'value': _rnd(hi), 'dist_pct': _rnd(d),
+                           'in_swing_band': bool(TP_HI52_LOW <= d <= TP_HI52_HIGH),
+                           'rule': (f'{abs(TP_HI52_HIGH):.0f}-'
+                                    f'{abs(TP_HI52_LOW):.0f}% below 52W high')}
+        else:
+            out['notes'].append('52W high compute nahi hua')
+    else:
+        out['notes'].append('High column missing — 52W high skip')
+
+    # ── 4. Weekly MTF confirmation ──────────────────────────────────────────
+    try:
+        w = dfi.resample('W-FRI').agg({'Close': 'last'}).dropna()
+        if len(w) >= TP_MIN_WEEKLY:
+            wc = w['Close']
+            e20 = float(wc.ewm(span=20, adjust=False).mean().iloc[-1])
+            e50 = float(wc.ewm(span=50, adjust=False).mean().iloc[-1])
+            # Tie ko DOWN na kahein — flat market ko bearish dikhana jhooth hai.
+            if e50 and abs(e20 - e50) <= abs(e50) * TP_MTF_FLAT_TOL:
+                trend = 'FLAT'
+            else:
+                trend = 'UP' if e20 > e50 else 'DOWN'
+            out['mtf'] = {'weekly_ema20': _rnd(e20), 'weekly_ema50': _rnd(e50),
+                          'weekly_trend': trend,
+                          'weekly_bars': int(len(w)),
+                          'flat_tol_pct': _rnd(TP_MTF_FLAT_TOL * 100.0, 2),
+                          'rule': (f'weekly EMA20 vs EMA50 '
+                                   f'(±{TP_MTF_FLAT_TOL * 100:.1f}% = FLAT)')}
+        else:
+            out['notes'].append(f'weekly bars sirf {len(w)} — MTF ke liye kam '
+                                f'se kam {TP_MIN_WEEKLY} chahiye')
+    except Exception as e:
+        out['notes'].append(f'weekly resample fail: {type(e).__name__}')
+
+    # ── 5. Confluence count ─────────────────────────────────────────────────
+    votes = []
+    vwap = sfx(L.get('VWAP'))
+    e9, e21 = sfx(L.get('EMA_9')), sfx(L.get('EMA_21'))
+    sma50, sma200 = sfx(L.get('SMA_50')), sfx(L.get('SMA_200'))
+    macd, msig = sfx(L.get('MACD')), sfx(L.get('MACD_Signal'))
+    rsi = sfx(L.get('RSI'))
+    std = six(L.get('ST_Direction'))
+    obv, oe = sfx(L.get('OBV')), sfx(L.get('OBV_EMA'))
+    if vwap is not None:
+        votes.append(px > vwap)
+    if e9 is not None and e21 is not None:
+        votes.append(e9 > e21)
+    if e21 is not None and sma50 is not None:
+        votes.append(e21 > sma50)
+    if sma200 is not None:
+        votes.append(px > sma200)
+    if macd is not None and msig is not None:
+        votes.append(macd > msig)
+    if rsi is not None:
+        votes.append(rsi > 50)
+    if std is not None:
+        votes.append(std == 1)
+    if obv is not None and oe is not None:
+        votes.append(obv > oe)
+    if votes:
+        bull = sum(1 for b in votes if b)
+        bear = len(votes) - bull
+        top = max(bull, bear)
+        pct = top / len(votes) * 100.0
+        out['confluence'] = {'agree': int(top), 'measured': int(len(votes)),
+                             'pct': _rnd(pct, 1), 'bull': int(bull),
+                             'bear': int(bear),
+                             'side': 'BULLISH' if bull >= bear else 'BEARISH',
+                             'label': ('STRONG' if pct >= 75.0 else
+                                       'MODERATE' if pct >= 62.5 else 'WEAK')}
+    else:
+        out['notes'].append('confluence ke liye koi indicator available nahi')
+
+    # ── 6. Liquidity (ADV > 5 lakh) ─────────────────────────────────────────
+    if 'Volume' in dfi:
+        adv = sfx(dfi['Volume'].tail(20).mean())
+        if adv is not None:
+            out['adv'] = {'value': _rnd(adv, 0), 'lakh': _rnd(adv / 100000.0, 2),
+                          'meets_5lakh': bool(adv >= TP_ADV_MIN),
+                          'rule': f'20-day ADV vs {TP_ADV_MIN // 100000} lakh'}
+        else:
+            out['notes'].append('ADV compute nahi hua')
+    else:
+        out['notes'].append('Volume missing — ADV skip')
+
+    out['ok'] = True
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  6 INSTITUTIONAL TRADING ENGINES
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4975,6 +5188,10 @@ def kpi_scores_for(symbol, prefer_exch='NSE'):
         'last_session': str(frame_last_date(dfi) or ''),
         'price': sfx(last.get('Close')),
         'kpi': kpi,
+        # FIX-93: execution layer — score (direction) ke saath stop/target/RR/
+        # squeeze/MTF/confluence. Alag field isliye ki purana score chheda na
+        # jaye (screener + FIX-89a backtest usi par bane hain).
+        'plan': calculate_trade_plan(dfi),
         'fund_data': fd,
         'fund_note': ('PE / ROE / D/E Yahoo .info se. Koi value None ho to us '
                       'indicator ka vote SKIP hota hai (FIX-32) — isi liye '

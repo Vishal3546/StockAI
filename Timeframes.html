@@ -69,6 +69,15 @@
   <div class="muted" id="fundtxt"></div>
 </div>
 
+<!-- FIX-93: Trade Plan — 2026 execution layer. Score (upar) DIRECTION batata hai;
+     ye section batata hai trade lena ho to stop kahan, target kahan, aur trade
+     layak hai ya nahi. -->
+<div class="panel" id="planbox" style="display:none;border-color:var(--cyan)">
+  <h2 style="margin:0 0 8px">🎯 Trade Plan <span class="mut" style="font-weight:400;font-size:12px">— ATR(14) stop · risk:reward · Bollinger squeeze · weekly MTF · confluence · liquidity</span></h2>
+  <div id="planbody"></div>
+  <div class="mut" id="plandisc" style="margin-top:10px;line-height:1.5"></div>
+</div>
+
 <div class="disc">
   <strong>Ye score kya hai:</strong> har horizon ka score ek <strong>rule-based composite</strong>
   hai — jo indicators measure ho paye unke votes ka jod. <em>"basis"</em> batata hai ki kitne
@@ -92,6 +101,102 @@ function card(k){
     '<div class="basis">'+(k.basis||'')+'</div>';
 }
 
+// ── FIX-93: Trade Plan render ──────────────────────────────────────────────
+function esc(s){ return String(s===null||s===undefined?'':s).replace(/[&<>"']/g, function(ch){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
+function num(v, d){ return (v===null||v===undefined) ? '—' : Number(v).toFixed(d===undefined?2:d); }
+function yn(b, yes, no, bad){
+  return b ? '<b style="color:var(--green)">'+esc(yes)+'</b>'
+           : '<b style="color:'+(bad?'var(--red)':'var(--amber)')+'">'+esc(no)+'</b>'; }
+function row(label, value, rule){
+  return '<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07);flex-wrap:wrap">'+
+    '<span class="mut" style="flex:0 0 190px">'+esc(label)+'</span>'+
+    '<span style="flex:1 1 260px">'+value+'</span>'+
+    '<span class="mut" style="flex:0 1 auto;font-size:11px">'+esc(rule||'')+'</span></div>';
+}
+function head(n, t, sub){
+  return '<div style="font-weight:700;margin:14px 0 4px">'+n+' · '+esc(t)+
+         (sub?' <span class="mut" style="font-weight:400">— '+esc(sub)+'</span>':'')+'</div>';
+}
+
+function renderPlan(p){
+  var box = document.getElementById('planbox');
+  if(!p || p.ok !== true){ box.style.display='none'; return; }
+  var h = '', i;
+
+  if(p.long){
+    var L = p.long, S = p.short || {};
+    h += head(1, 'Stop & targets', p.stop_rule||'');
+    h += row('ATR(14)', '₹'+num(p.atr)+' <span class="mut">('+num(p.atr_pct)+'% of price)</span>', 'volatility');
+    h += row('Risk per share', '₹'+num(p.risk_per_share), p.stop_rule||'');
+    h += row('LONG · stop → T1/T2/T3',
+      '<span style="color:var(--red)">₹'+num(L.stop)+'</span> → ₹'+num(L.t1)+' / ₹'+num(L.t2)+
+      ' / <b>₹'+num(L.t3)+'</b>', '');
+    h += row('LONG · risk:reward',
+      'T1 1:'+num(L.rr_t1)+' · T2 1:'+num(L.rr_t2)+' · T3 <b>1:'+num(L.rr_t3)+'</b> &nbsp;'+
+      yn(L.meets_1_2, '1:'+num(p.rr_min,0)+' ✔', '1:'+num(p.rr_min,0)+' ✘', true), '2026 core rule');
+    h += row('SHORT · stop → T1/T2/T3',
+      '<span style="color:var(--red)">₹'+num(S.stop)+'</span> → ₹'+num(S.t1)+' / ₹'+num(S.t2)+
+      ' / ₹'+num(S.t3), '');
+    if(p.rr_note) h += '<div class="mut" style="padding:4px 0">↪ '+esc(p.rr_note)+'</div>';
+  }
+
+  if(p.bb){
+    h += head(2, 'Bollinger squeeze');
+    h += row('BB width', num(p.bb.width)+'% <span class="mut">(history ka '+num(p.bb.width_rank_pct,1)+
+             'th percentile · '+p.bb.n_bars+' bars)</span>', p.bb.rule||'');
+    h += row('Squeeze?', yn(p.bb.squeeze, 'HAAN — breakout setup', 'nahi'),
+             'direction squeeze se pata nahi chalta');
+    h += row('%B', num(p.bb.pctb), '0 = lower band, 1 = upper band');
+  }
+
+  if(p.hi52){
+    h += head(3, '52-week high');
+    h += row('52W high', '₹'+num(p.hi52.value), p.hi52.rule||'');
+    h += row('Abhi kitna neeche', num(p.hi52.dist_pct)+'%', '');
+    h += row('Swing band me?', yn(p.hi52.in_swing_band, 'HAAN', 'nahi'), '2026 swing screen');
+  }
+
+  if(p.mtf){
+    var tc = {UP: 'var(--green)', DOWN: 'var(--red)', FLAT: 'var(--amber)'}[p.mtf.weekly_trend]
+             || 'var(--amber)';
+    h += head(4, 'Weekly confirmation (MTF)');
+    h += row('Weekly EMA20 vs EMA50', '₹'+num(p.mtf.weekly_ema20)+' vs ₹'+num(p.mtf.weekly_ema50),
+             p.mtf.rule||'');
+    h += row('Weekly trend',
+      '<b style="color:'+tc+'">'+esc(p.mtf.weekly_trend)+'</b>'+
+      ' <span class="mut">('+p.mtf.weekly_bars+' weekly bars)</span>',
+      p.mtf.weekly_trend === 'FLAT' ? 'dono EMA barabar — trend confirm nahi'
+                                    : 'daily trade iske against ho to risk zyada');
+  }
+
+  if(p.confluence){
+    var c = p.confluence;
+    var cc = c.pct >= 75 ? 'var(--green)' : (c.pct >= 62.5 ? 'var(--amber)' : 'var(--red)');
+    h += head(5, 'Confluence', 'kitne indicators ek taraf hain');
+    h += row('Agreement',
+      '<b style="color:'+cc+'">'+c.agree+'/'+c.measured+' '+esc(c.side)+' ('+num(c.pct,1)+'%)</b> — '+esc(c.label),
+      c.bull+' bullish / '+c.bear+' bearish');
+  }
+
+  if(p.adv){
+    h += head(6, 'Liquidity');
+    h += row('20-day ADV', num(p.adv.lakh)+' lakh shares', p.adv.rule||'');
+    h += row('5 lakh se zyada?', yn(p.adv.meets_5lakh, 'HAAN', 'NAHI — illiquid', true), '2026 swing screen');
+  }
+
+  if(p.notes && p.notes.length){
+    h += '<div style="margin-top:12px;padding:8px;border-left:3px solid var(--amber);background:rgba(255,180,0,.07)">';
+    for(i=0; i<p.notes.length; i++) h += '<div>⚠ '+esc(p.notes[i])+'</div>';
+    h += '</div>';
+  }
+
+  document.getElementById('planbody').innerHTML = h;
+  document.getElementById('plandisc').innerHTML = '<b>Note:</b> '+esc(p.disclosure||'');
+  box.style.display = 'block';
+}
+
+
 function load(){
   var sym = document.getElementById('sym').value.trim();
   var ex = document.getElementById('exch').value;
@@ -102,6 +207,7 @@ function load(){
   document.getElementById('exwarn').style.display='none';
   m.innerHTML = '<span class="spin">🔄</span> '+sym+' load ho raha hai…';
   cards.style.display='none'; fund.style.display='none';
+  document.getElementById('planbox').style.display='none';
 
   fetch('/api/timeframe/'+encodeURIComponent(sym)+'?exch='+encodeURIComponent(ex))
     .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); })
@@ -126,6 +232,7 @@ function load(){
         }
         m.textContent = '';
         cards.style.display='none'; fund.style.display='none';
+        document.getElementById('planbox').style.display='none';
         return;
       }
       var xw = document.getElementById('exwarn');
@@ -140,6 +247,8 @@ function load(){
         document.getElementById('h_'+h).innerHTML = card(k[h]);
       });
       cards.style.display='grid';
+      // FIX-93: execution layer render (score se alag section)
+      renderPlan(j.plan);
       var price = (j.price===null||j.price===undefined) ? '—' : Number(j.price).toFixed(2);
       m.innerHTML = '<b>'+j.symbol+'</b> · ₹'+price+
         ' · '+j.bars+' daily bars · source: '+(j.source||'—')+
@@ -157,6 +266,7 @@ function load(){
     .catch(function(err){
       e.style.display='block'; e.className='err'; e.textContent='Load fail: '+err.message;
       m.textContent=''; cards.style.display='none'; fund.style.display='none';
+      document.getElementById('planbox').style.display='none';
       document.getElementById('exwarn').style.display='none';
     });
 }

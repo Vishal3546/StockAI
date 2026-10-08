@@ -73,6 +73,11 @@ function render(url, payload, mode = 'ok') {
         fundtxt: d.getElementById('fundtxt').textContent.replace(/\s+/g, ' ').trim(),
         exwarn: d.getElementById('exwarn').textContent.replace(/\s+/g, ' ').trim(),
         exwarnShown: d.getElementById('exwarn').style.display !== 'none',
+        // FIX-93: trade plan panel
+        planShown: d.getElementById('planbox').style.display === 'block',
+        planbody: d.getElementById('planbody').textContent.replace(/\s+/g, ' ').trim(),
+        planhtml: d.getElementById('planbody').innerHTML,
+        plandisc: d.getElementById('plandisc').textContent.replace(/\s+/g, ' ').trim(),
         h: {}, html: {},
       };
       for (const k of ['intraday', 'swing', 'longterm', 'master']) {
@@ -217,6 +222,124 @@ const PLAIN = 'http://localhost/timeframes';
   s = await render(DEEP, base({ exchange_mismatch: false, exchange_note: null }));
   check('strict miss ke baad normal request par warning saaf hai',
     s.exwarnShown === false && s.cardsShown === true);
+
+  // ── FIX-93: Trade Plan (2026 execution layer) ──────────────────────────────
+  // Ye numbers /api/timeframe/RELIANCE?exch=NSE se ASLI me nikale gaye hain
+  // (08-Oct-2026), invent nahi kiye.
+  const PLAN = {
+    ok: true, price: 1187.9, atr: 21.53, atr_pct: 1.81,
+    stop_rule: '1.5 × ATR(14)', risk_per_share: 32.3, rr_min: 2.0,
+    long: { stop: 1155.61, t1: 1209.43, t2: 1230.96, t3: 1252.48,
+            rr_t1: 0.67, rr_t2: 1.33, rr_t3: 2.0, meets_1_2: true },
+    short: { stop: 1220.19, t1: 1166.37, t2: 1144.84, t3: 1123.32 },
+    rr_note: '1:2 tabhi milta hai jab T3 (3.0×ATR) tak hold kiya jaye — T1 par RR sirf 1:0.67 hai.',
+    bb: { width: 10.31, width_rank_pct: 70.6, pctb: 0.25, n_bars: 252,
+          squeeze: false, rule: 'width apni 252-bar history ke tightest 20% me' },
+    hi52: { value: 1611.8, dist_pct: -26.3, in_swing_band: true,
+            rule: '15-40% below 52W high' },
+    mtf: { weekly_ema20: 1282.34, weekly_ema50: 1335.86, weekly_trend: 'DOWN',
+           weekly_bars: 106, rule: 'weekly EMA20 vs EMA50' },
+    confluence: { agree: 8, measured: 8, pct: 100.0, bull: 0, bear: 8,
+                  side: 'BEARISH', label: 'STRONG' },
+    adv: { value: 12610000, lakh: 126.1, meets_5lakh: true,
+           rule: '20-day ADV vs 5 lakh' },
+    notes: [],
+    disclosure: ('Ye levels ATR se bane RISK-MANAGEMENT conventions hain — loss cap '
+                 + 'karte hain, jeetne ki sambhavna NAHI badhate.'),
+  };
+
+  console.log('');
+  console.log('─'.repeat(84));
+  console.log(' FIX-93: Trade Plan panel (ATR stop · RR · squeeze · MTF · confluence · ADV)');
+  console.log('─'.repeat(84));
+
+  s = await render(DEEP, base({ plan: PLAN }));
+  check('FIX-93: plan ok:true -> panel DIKHTA hai', s.planShown === true);
+  check('FIX-93: ATR(14) value render hoti hai', s.planbody.includes('21.53'), '₹21.53');
+  check('FIX-93: ATR price ka % bhi dikhta hai', s.planbody.includes('1.81'));
+  check('FIX-93: stop rule dikhta hai (magic number nahi)',
+    s.planbody.includes('1.5 × ATR(14)'), 'rule visible');
+  check('FIX-93: LONG stop render hota hai', s.planbody.includes('1155.61'));
+  check('FIX-93: T3 render hota hai', s.planbody.includes('1252.48'));
+  check('FIX-93: SHORT stop bhi render hota hai', s.planbody.includes('1220.19'));
+  check('FIX-93: teeno RR ratios dikhte hain',
+    s.planbody.includes('1:0.67') && s.planbody.includes('1:1.33') && s.planbody.includes('1:2.00'));
+  check('FIX-93: 1:2 rule ka verdict dikhta hai (✔)', s.planbody.includes('1:2 ✔'));
+  check('FIX-93: rr_note dikhta hai — T1 par 1:2 nahi milta, ye chhupaya nahi gaya',
+    s.planbody.includes('T1 par RR sirf'));
+  check('FIX-93: BB width + percentile dikhta hai',
+    s.planbody.includes('10.31') && s.planbody.includes('70.6'));
+  check('FIX-93: squeeze=false -> "nahi" dikhta hai (jhootha HAAN nahi)',
+    s.planbody.includes('Squeeze?') && !s.planbody.includes('HAAN — breakout setup'));
+  check('FIX-93: %B render hota hai', s.planbody.includes('0.25'));
+  check('FIX-93: 52W high value dikhti hai', s.planbody.includes('1611.80'));
+  check('FIX-93: 52W se doori % me dikhti hai', s.planbody.includes('-26.30%'));
+  check('FIX-93: swing band verdict HAAN (kyunki -26.3 band me hai)',
+    s.planbody.includes('Swing band me?') && s.planbody.includes('HAAN'));
+  check('FIX-93: weekly MTF trend DOWN dikhta hai', s.planbody.includes('DOWN'));
+  check('FIX-93: weekly bars count dikhta hai (106)', s.planbody.includes('106'));
+  check('FIX-93: confluence 8/8 BEARISH dikhta hai',
+    s.planbody.includes('8/8 BEARISH') && s.planbody.includes('100.0%'));
+  check('FIX-93: confluence ka bull/bear split dikhta hai',
+    s.planbody.includes('0 bullish / 8 bearish'));
+  check('FIX-93: ADV lakh me dikhta hai', s.planbody.includes('126.10 lakh'));
+  check('FIX-93: 5-lakh liquidity verdict HAAN', s.planbody.includes('5 lakh se zyada?'));
+  check('FIX-93: HONESTY — disclosure me "NAHI badhate" saaf likha hai',
+    s.plandisc.includes('NAHI badhate'), s.plandisc.slice(0, 90));
+  check('FIX-93: disclosure me accuracy/probability claim NAHI hai',
+    !/accuracy|probability|guarantee/i.test(s.plandisc) || s.plandisc.includes('nahi'));
+  check('FIX-93: sab 6 sections numbered hain',
+    ['1 ·', '2 ·', '3 ·', '4 ·', '5 ·', '6 ·'].every((t) => s.planbody.includes(t)));
+
+  // squeeze TRUE wala case — alag branch
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, {
+    bb: Object.assign({}, PLAN.bb, { width_rank_pct: 12.5, squeeze: true }),
+  })}));
+  check('FIX-93: squeeze=true -> "HAAN — breakout setup" dikhta hai',
+    s.planbody.includes('HAAN — breakout setup'));
+
+  // weekly FLAT — tie ko DOWN kehna flat market ko bearish dikhana hoga
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, {
+    mtf: Object.assign({}, PLAN.mtf, { weekly_trend: 'FLAT', weekly_ema20: 1300.00,
+                                       weekly_ema50: 1300.00 }),
+  })}));
+  check('FIX-93: weekly FLAT render hota hai (DOWN nahi)', s.planbody.includes('FLAT'));
+  check('FIX-93: FLAT par "trend confirm nahi" note dikhta hai',
+    s.planbody.includes('trend confirm nahi'));
+  check('FIX-93: FLAT amber me hai, red me nahi',
+    s.planhtml.includes('var(--amber)">FLAT'));
+
+  // notes (missing-data warnings) render hone chahiye — chhupne nahi chahiye
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, {
+    notes: ['ATR(14) missing ya 0 — stop/target nahi banaye',
+            'weekly bars sirf 12 — MTF ke liye kam se kam 50 chahiye'],
+  })}));
+  check('FIX-93: notes render hote hain (missing data chhupta nahi)',
+    s.planbody.includes('ATR(14) missing') && s.planbody.includes('weekly bars sirf 12'));
+
+  // XSS: note string me HTML ho to escape hona chahiye
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, {
+    notes: ['<img src=x onerror=alert(1)>'],
+  })}));
+  check('FIX-93: note me HTML inject ho to escape hota hai (XSS safe)',
+    !s.planhtml.includes('<img') && s.planbody.includes('<img src=x onerror=alert(1)>'));
+
+  // plan absent / ok:false -> panel chhupna chahiye (jhootha plan nahi)
+  s = await render(DEEP, base({}));
+  check('FIX-93: plan field absent -> panel CHHUPA rehta hai', s.planShown === false);
+  s = await render(DEEP, base({ plan: { ok: false, notes: ['kam bars'] } }));
+  check('FIX-93: plan.ok=false -> panel chhupa (adhura plan nahi dikhaya)',
+    s.planShown === false);
+
+  // error / reject par panel chhupna chahiye
+  s = await render(DEEP, base({ plan: PLAN }), 'http500');
+  check('FIX-93: HTTP 500 par plan panel chhupta hai', s.planShown === false);
+  s = await render(DEEP, base({ plan: PLAN }), 'reject');
+  check('FIX-93: fetch reject par plan panel chhupta hai', s.planShown === false);
+
+  // no external CDN (sandbox preview me bhi chalna chahiye)
+  check('FIX-93: Timeframes.html me koi external CDN/script nahi',
+    !/(https?:)?\/\/(?!localhost)[^"'\s]*\.(js|css)/.test(html.replace(/<!--[\s\S]*?-->/g, '')));
 
   const passed = results.filter(Boolean).length;
   console.log('='.repeat(84));
