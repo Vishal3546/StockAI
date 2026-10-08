@@ -223,6 +223,30 @@ function renderPlan(p){
     h += row('5 lakh se zyada?', yn(p.adv.meets_5lakh, 'HAAN', 'NAHI — illiquid', true), '2026 swing screen');
   }
 
+  // ── FIX-97: 2026 selection filters (beta / ATR% / gap) ──
+  if(p.filters){
+    var F = p.filters, R = F.rules || {}, BE = (R.beta_ideal || [0,0]);
+    h += head(7, 'Selection filters', 'beta · ATR% · gap — stock intraday ke LIYE layak hai?');
+    h += row('Beta vs NIFTY',
+      (F.beta === null || F.beta === undefined)
+        ? '<b class="mut">measure nahi hua</b> — ' + esc(F.beta_note || '')
+        : '<b>' + num(F.beta) + '</b>'
+          + ((F.beta_corr === null || F.beta_corr === undefined) ? '' : ' <span class="mut">(corr ' + num(F.beta_corr) + ')</span>')
+          + ' — ' + esc(F.beta_note || ''),
+      (F.beta_n || 0) + ' daily returns · rules: ≥' + R.beta_min + ', ideal '
+        + BE[0] + '–' + BE[1] + ', >' + R.beta_max + ' erratic');
+    h += row('ATR% ≥ ' + num(R.atr_pct_min, 1) + '%?',
+      (F.atr_pct_ok === null || F.atr_pct_ok === undefined) ? '<b class="mut">n/a</b>'
+        : yn(F.atr_pct_ok, 'HAAN (' + num(F.atr_pct) + '%)',
+             'NAHI (' + num(F.atr_pct) + '%) — costs ke baad move bachta nahi', true),
+      'ATR(14) / close');
+    h += row('Gap ≤ ' + num(R.gap_skip_pct, 1) + '%?',
+      (F.gap_skip === null || F.gap_skip === undefined) ? '<b class="mut">n/a</b>'
+        : yn(!F.gap_skip, 'HAAN (' + num(F.gap_pct) + '%)',
+             'NAHI (' + num(F.gap_pct) + '%) — 2026 morning routine: skip', true),
+      'overnight gap vs prev close');
+  }
+
   if(p.notes && p.notes.length){
     h += '<div style="margin-top:12px;padding:8px;border-left:3px solid var(--amber);background:rgba(255,180,0,.07)">';
     for(i=0; i<p.notes.length; i++) h += '<div>⚠ '+esc(p.notes[i])+'</div>';
@@ -288,6 +312,9 @@ function renderJournal(d){
       + kv('Net P&L (cost ke baad)', money(s.net_pnl))
       + '</div>'
       + '<div class="muted" style="margin-top:8px">'+esc(s.disclosure || '')+'</div>'
+      + (d.dropped_rows ? '<div class="muted" style="color:var(--amber);margin-top:6px">⚠ '
+          + d.dropped_rows + ' row trade_journal.json me valid record nahi the — hata diye '
+          + 'gaye (file hand-edit hui thi?).</div>' : '')
       + (s.stop_breaches ? '<div class="muted" style="color:var(--amber)">⚠ '+s.stop_breaches
           +' trade −1R se bure — matlab stop miss / gap / widened SL (execution leak).</div>' : '');
   }

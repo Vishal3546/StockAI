@@ -178,6 +178,32 @@ check('file hatne ke baad POST phir chalta hai',
       C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG', 'entry': 100,
                                    'stop': 90, 'qty': 1}).status_code == 200)
 
+# FIX-97a: valid JSON list ho par rows dict na hon (hand-edited file) — pehle
+# DELETE par AttributeError se 500 aata tha.
+with open(A.JOURNAL_FILE, 'w', encoding='utf-8') as f:
+    json.dump([{'id': 'ok1', 'symbol': 'X', 'side': 'LONG', 'entry': 100,
+                'stop': 90, 'qty': 1, 'r': None}, 'junk-string-row', 42, None], f)
+_jg = C.get('/api/journal').get_json()
+check('junk rows: GET 200 (crash nahi)', _jg is not None and _jg['ok'] is True)
+check('junk rows: sirf valid dict row bacha', len(_jg['items']) == 1, str(len(_jg['items'])))
+check('junk rows: dropped_rows=3 report hota hai (chup-chaap nahi)',
+      _jg['dropped_rows'] == 3, str(_jg.get('dropped_rows')))
+_jp = C.post('/api/journal', json={'symbol': 'Z', 'side': 'LONG', 'entry': 100,
+                                   'stop': 90, 'qty': 1})
+check('junk rows: POST 200 + dropped_rows carry hota hai',
+      _jp.status_code == 200 and _jp.get_json()['dropped_rows'] == 3,
+      str((_jp.status_code, _jp.get_json().get('dropped_rows'))))
+_after = json.load(open(A.JOURNAL_FILE, encoding='utf-8'))
+check('junk rows: rewrite ke baad file me sirf dicts',
+      all(isinstance(x, dict) for x in _after), str([type(x).__name__ for x in _after]))
+check('junk rows: ab dropped_rows 0 (file saaf ho gayi)',
+      C.get('/api/journal').get_json()['dropped_rows'] == 0)
+_jd = C.delete('/api/journal?id=ok1')
+check('junk rows: DELETE 500 NAHI hota (FIX-97a)', _jd.status_code == 200, str(_jd.status_code))
+check('junk rows: DELETE ke baad 1 item bacha (posted Z)',
+      len(_jd.get_json()['items']) == 1, str(len(_jd.get_json()['items'])))
+os.remove(A.JOURNAL_FILE)
+
 print("\n── D. Honesty ────────────────────────────────────────────────────")
 d0 = A.journal_stats([])['disclosure']
 check('disclosure: "aapke khud log kiye trades"', 'aapke khud log kiye trades' in d0)
