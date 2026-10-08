@@ -356,6 +356,38 @@ const PLAIN = 'http://localhost/timeframes';
   s = await render(DEEP, base({ plan: PLAN }), 'reject');
   check('FIX-93: fetch reject par plan panel chhupta hai', s.planShown === false);
 
+  // ── FIX-97: selection filters (beta / ATR% / gap) render ────────────────
+  const FILT = { beta: 1.45, beta_corr: 0.88, beta_n: 60, beta_ok: true,
+    beta_ideal_ok: true,
+    beta_note: 'beta ≥ 0.8 — market ke saath move karta hai | ideal band 1.2–1.8 ke andar',
+    atr_pct: 1.91, atr_pct_ok: true, gap_pct: -2.64, gap_skip: true,
+    rules: { beta_min: 0.8, beta_ideal: [1.2, 1.8], beta_max: 2.0, atr_pct_min: 1.5,
+             gap_skip_pct: 1.5, beta_bars: 60, beta_min_bars: 30 } };
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, { filters: FILT }) }));
+  check('FIX-97: filters section render hota hai', s.planbody.includes('Selection filters'));
+  check('FIX-97: beta value + corr dikhte hain',
+    s.planbody.includes('1.45') && s.planbody.includes('corr 0.88'));
+  check('FIX-97: beta note (ideal band) dikhta hai', s.planbody.includes('ideal band 1.2'));
+  check('FIX-97: ATR% par HAAN + value', s.planbody.includes('HAAN (1.91%)'));
+  check('FIX-97: gap > 1.5% par NAHI + skip advice',
+    s.planbody.includes('NAHI (-2.64%)') && s.planbody.includes('skip'));
+  check('FIX-97: thresholds (rules) dikhte hain, chhupe nahi',
+    s.planbody.includes('≥0.8') && s.planbody.includes('>2 erratic')
+    && s.planbody.includes('60 daily returns'));
+
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, { filters: Object.assign({}, FILT,
+    { beta: null, beta_corr: null, beta_n: 0, beta_ok: null,
+      beta_note: 'index fetch fail: Timeout' }) }) }));
+  check('FIX-97: beta null -> "measure nahi hua" + reason (0.0/1.0 guess nahi)',
+    s.planbody.includes('measure nahi hua') && s.planbody.includes('index fetch fail: Timeout'));
+  const _brow = s.planhtml.split('Beta vs NIFTY')[1].split('ATR%')[0];
+  check('FIX-97: beta null -> us row me HAAN/NAHI ka jhootha verdict nahi',
+    _brow.length > 0 && !/HAAN|NAHI/.test(_brow));
+
+  s = await render(DEEP, base({ plan: PLAN }));
+  check('FIX-97: filters absent -> section chhupa rehta hai',
+    !s.planbody.includes('Selection filters'));
+
   // ── FIX-96: Trade Journal (panel hamesha dikhta hai, plan se independent) ──
   function journalDom(payload, initial) {
     return new Promise((resolve) => {
@@ -429,6 +461,10 @@ const PLAIN = 'http://localhost/timeframes';
   check('FIX-96: corrupt file par RED warning (chup-chaap khaali nahi)',
     js.stats.includes('corrupt hai') && js.statsHtml.includes('var(--red)'));
   check('FIX-96: corrupt par write-block bataya jaata hai', js.stats.includes('write block'));
+
+  js = await journalDom({ ok: true, items: [], corrupt: false, dropped_rows: 3, stats: JSTATS0 });
+  check('FIX-97a: dropped_rows par amber warning (chup-chaap rows nahi jaate)',
+    js.stats.includes('3 row trade_journal.json') && js.statsHtml.includes('var(--amber)'));
 
   js = await journalDom({ ok: true, corrupt: false, items: [
     { id: 'x1', symbol: '<img src=x onerror=alert(1)>', exchange: 'NSE', side: 'LONG',

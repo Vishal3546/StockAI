@@ -353,6 +353,65 @@ src = inspect.getsource(A.kpi_scores_for)
 check("kpi_scores_for 'plan' field return karta hai", "'plan'" in src)
 check('plan calculate_trade_plan se aata hai', 'calculate_trade_plan(dfi)' in src)
 
+sec('E · Selection filters — beta / ATR% / gap (FIX-97)')
+# Synthetic index + stock frames (koi network nahi): stock = 1.5x index move
+_n = 120
+_idx = pd.bdate_range('2025-01-01', periods=_n)
+_rng = np.random.default_rng(7)
+_ir = _rng.normal(0.0, 0.01, _n)
+_index_close = pd.Series(22000.0 * np.cumprod(1.0 + _ir), index=_idx)
+_stock_close = pd.Series(1000.0 * np.cumprod(1.0 + 1.5 * _ir), index=_idx)
+_b, _c, _nn = A.calculate_beta(_stock_close, _index_close)
+check('beta ~1.5 jab stock 1.5x index move karta hai', _b is not None and abs(_b - 1.5) < 0.02, str(_b))
+check('corr ~1.0 (perfect linear relation)', _c is not None and abs(_c - 1.0) < 0.001, str(_c))
+check('beta_n = overlapping returns (>= min)', _nn >= A.TP_BETA_MIN, str(_nn))
+check('same series -> beta exactly 1.0', A.calculate_beta(_index_close, _index_close)[0] == 1.0,
+      str(A.calculate_beta(_index_close, _index_close)[0]))
+_bs, _cs, _ns = A.calculate_beta(_stock_close.iloc[:10], _index_close.iloc[:10])
+check('10 bars -> beta None (guess nahi), n bataya', _bs is None and _ns < A.TP_BETA_MIN,
+      f'beta={_bs} n={_ns}')
+_flat = pd.Series([100.0] * 60, index=pd.bdate_range('2025-01-01', periods=60))
+check('flat index (var=0) -> beta None, ZeroDivision nahi',
+      A.calculate_beta(_stock_close.iloc[:60], _flat)[0] is None)
+_bl = A.calculate_beta(list(_stock_close), list(_index_close))[0]
+check('list input (tests) par bhi beta banta hai', _bl is not None and abs(_bl - 1.5) < 0.02, str(_bl))
+_idxdf = pd.DataFrame({'Close': _index_close})
+_pf = A.calculate_trade_plan(make_df(price=1000.0), index_frame=_idxdf)
+_F = _pf.get('filters')
+check('plan me filters section aata hai', _F is not None)
+check('rules disclosed (beta_min/atr_pct_min/gap_skip_pct)',
+      _F and _F['rules']['beta_min'] == A.TP_BETA_MIN_OK
+      and _F['rules']['atr_pct_min'] == A.TP_ATR_PCT_MIN
+      and _F['rules']['gap_skip_pct'] == A.TP_GAP_SKIP_PCT)
+check('beta measure hua jab index frame diya', _F and isinstance(_F['beta'], float),
+      str(_F and _F['beta']))
+check('beta_n > 0', _F and _F['beta_n'] > 0, str(_F and _F['beta_n']))
+check('beta_ok boolean hai (None nahi) jab measure hua', _F and isinstance(_F['beta_ok'], bool))
+check('ATR 20/1000 = 2.0% -> atr_pct_ok True', _F and _F['atr_pct_ok'] is True,
+      str(_F and (_F['atr_pct'], _F['atr_pct_ok'])))
+_p_lo = A.calculate_trade_plan(make_df(price=1000.0, atr=5.0), index_frame=_idxdf)
+check('ATR 5/1000 = 0.5% -> atr_pct_ok False', _p_lo['filters']['atr_pct_ok'] is False,
+      str(_p_lo['filters']['atr_pct']))
+# gap > 1.5% wala frame: close[i] = price + ramp*i -> gap = ramp/prev_close
+_p_gap = A.calculate_trade_plan(make_df(n=60, price=2160.0, ramp=-20.0), index_frame=_idxdf)
+check('ramp wala frame: gap ~-2.0% measure hua',
+      _p_gap['filters']['gap_pct'] is not None and abs(_p_gap['filters']['gap_pct'] + 2.0) < 0.05,
+      str(_p_gap['filters']['gap_pct']))
+check('|gap| > 1.5% -> gap_skip True', _p_gap['filters']['gap_skip'] is True)
+check('constant frame: gap 0 -> gap_skip False', _F and _F['gap_skip'] is False)
+# fail-soft: index unavailable
+import time as _t97
+A._INDEX_CACHE.update(time=_t97.time(), df=None, err='TEST: index unavailable')
+_F2 = A.calculate_trade_plan(make_df(price=1000.0)).get('filters')
+check('index na mile -> beta None (0.0/1.0 guess NAHI)', _F2 and _F2['beta'] is None,
+      str(_F2 and _F2['beta']))
+check('  reason note ke saath aata hai',
+      _F2 and 'TEST: index unavailable' in (_F2.get('beta_note') or ''),
+      str(_F2 and _F2.get('beta_note')))
+check('  beta_ok None — HAAN/NAHI nahi bola', _F2 and _F2['beta_ok'] is None)
+check('  beta_n 0', _F2 and _F2['beta_n'] == 0)
+A._INDEX_CACHE.update(time=0.0, df=None, err=None)      # cache reset
+
 passed = sum(1 for r in RESULTS if r)
 print('\n' + '=' * 78)
 print(' %d / %d checks passed' % (passed, len(RESULTS)))

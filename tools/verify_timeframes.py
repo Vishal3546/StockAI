@@ -63,11 +63,13 @@ class _StubFetch:
     """Sirf NETWORK stub hota hai — baaki sab asli code chalta hai."""
     def __init__(self, df, src='Yahoo Finance (NSE)'):
         self.df, self.src, self.calls = df, src, 0
+        self.all = []          # FIX-97: ek se zyada fetch hote hain (stock + index)
 
     def __call__(self, symbol, period='2y', interval='1d', prefer_exch='NSE',
                  strict_exch=False):
         self.calls += 1
         self.last = (symbol, period, interval, prefer_exch, strict_exch)
+        self.all.append(self.last)
         return (self.df.copy() if self.df is not None else None), self.src
 
 
@@ -111,8 +113,13 @@ try:
               payload['kpi']['intraday']['score'] + payload['kpi']['swing']['score']
               + payload['kpi']['longterm']['score']) / 3),
           str(payload['kpi']['master']['score']))
-    check('fetch 2y/1d maangta hai', stub.last[1] == '2y' and stub.last[2] == '1d',
-          str(stub.last))
+    _stock_calls = [c for c in stub.all if c[0] == 'STUBSYM']
+    check('STOCK fetch 2y/1d maangta hai (EMA-200 ke liye zaroori)',
+          bool(_stock_calls) and all(c[1] == '2y' and c[2] == '1d' for c in _stock_calls),
+          str(_stock_calls))
+    _idx_calls = [c for c in stub.all if c[0] == 'NIFTY']
+    check('INDEX/beta fetch 1y/1d — jaan-boojh kar chhota window (60-day beta ke liye kaafi)',
+          all(c[1] == '1y' and c[2] == '1d' for c in _idx_calls), str(_idx_calls))
     check('payload me price/bars/source/last_session hain',
           all(k in payload for k in ('price', 'bars', 'source', 'last_session')))
     check('bars = frame ki length', payload['bars'] == len(df0), str(payload['bars']))
@@ -145,6 +152,9 @@ try:
           str(p3.get('error'))[:70])
 finally:
     A.DATA_MANAGER.smart_fetch = orig_fetch
+    # FIX-97: stub ke dauran synthetic NIFTY frame _INDEX_CACHE me chala jaata hai
+    # (TTL 1h) — warna aage ke LIVE sections usi synthetic index se beta banate.
+    A._INDEX_CACHE.update(time=0.0, df=None, err=None)
     A._tf_fund_data = orig_fund
     A.resolve_symbol = orig_resolve
 

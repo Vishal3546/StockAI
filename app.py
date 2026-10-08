@@ -2821,6 +2821,15 @@ TP_SQUEEZE_PCT = 20.0      # BB width, tightest 20% of its own history
 TP_ADV_MIN = 500000        # 5 lakh shares/day
 TP_HI52_LOW, TP_HI52_HIGH = -40.0, -15.0    # 15-40% below 52W high
 TP_GAP_FLAT_PCT = 0.2      # |gap| < 0.2% -> FLAT (rounding-level gap nahi ginete)
+# FIX-97: 2026 stock-SELECTION filters (intraday checklists se — sources commit msg me)
+TP_ATR_PCT_MIN = 1.5       # ATR(14) >= 1.5% of close, warna costs ke baad move bachta nahi
+TP_GAP_SKIP_PCT = 1.5      # morning routine: 1.5% se bada gap = candidate skip
+TP_BETA_MIN_OK = 0.8       # isse kam beta = market ke saath move hi nahi karta
+TP_BETA_IDEAL = (1.2, 1.8)  # ideal intraday band
+TP_BETA_MAX_OK = 2.0       # isse upar erratic moves, risk manage karna mushkil
+TP_BETA_BARS = 60          # ~3 mahine ke daily returns se beta
+TP_BETA_MIN = 30           # isse kam overlapping returns -> beta None (guess nahi)
+TP_INDEX_TTL = 3600        # NIFTY frame cache, 1 ghanta
 TP_HI52_BARS = 252         # ~52 trading weeks
 TP_CONF_CHECKS = 8         # confluence kitne indicators se ginta hai
 TP_MIN_WEEKLY = 50         # MTF ke liye kam se kam weekly bars
@@ -2837,7 +2846,79 @@ def _rnd(v, nd=2):
         return None
 
 
-def calculate_trade_plan(dfi):
+_INDEX_CACHE = {'time': 0.0, 'df': None, 'err': None}
+
+
+def _index_frame(symbol='NIFTY', ttl=TP_INDEX_TTL):
+    """(df, err) — benchmark ka daily frame, cached. Fail-soft: kabhi raise nahi.
+
+    Beta ke liye chahiye. Har plan par network hit na ho isliye TTL cache; fail
+    hone par bhi TTL tak wahi reason dobara dete hain (baar-baar retry nahi).
+    """
+    if (time.time() - _INDEX_CACHE['time']) < ttl:
+        if _INDEX_CACHE['df'] is not None:
+            return _INDEX_CACHE['df'], None
+        if _INDEX_CACHE['err']:
+            return None, _INDEX_CACHE['err']
+    try:
+        df, _src = DATA_MANAGER.smart_fetch(symbol, period='1y', interval='1d',
+                                            prefer_exch='NSE')
+    except Exception as e:                                           # noqa: BLE001
+        _INDEX_CACHE.update(time=time.time(), df=None,
+                            err=f'index fetch fail: {type(e).__name__}')
+        return None, _INDEX_CACHE['err']
+    if df is None or getattr(df, 'empty', True) or 'Close' not in df.columns:
+        _INDEX_CACHE.update(time=time.time(), df=None,
+                            err='index frame khali hai ya Close column nahi')
+        return None, _INDEX_CACHE['err']
+    _INDEX_CACHE.update(time=time.time(), df=df, err=None)
+    return df, None
+
+
+def calculate_beta(stock_close, index_close, bars=TP_BETA_BARS, min_bars=TP_BETA_MIN):
+    """(beta, corr, n) — daily returns par cov/var. Kam data -> (None, None, n).
+
+    Do input shapes accept karta hai: DatetimeIndex wali pandas Series (asli
+    frames — session date par align hote hain) ya equal-length sequences (tests).
+    Beta 1.0 ka matlab "market jitna hi move", <0.8 sluggish, >2.0 erratic.
+    """
+    try:
+        if isinstance(stock_close, pd.Series) and isinstance(index_close, pd.Series):
+            a = stock_close.copy()
+            b = index_close.copy()
+            a.index = pd.to_datetime(a.index).normalize()
+            b.index = pd.to_datetime(b.index).normalize()
+            j = pd.concat([a.rename('s'), b.rename('i')], axis=1, join='inner').dropna()
+            sp = pd.to_numeric(j['s'], errors='coerce')
+            ip = pd.to_numeric(j['i'], errors='coerce')
+        else:
+            s_list = list(stock_close)
+            i_list = list(index_close)
+            n = min(len(s_list), len(i_list))
+            j = pd.DataFrame({'s': s_list[-n:], 'i': i_list[-n:]})
+            sp = pd.to_numeric(j['s'], errors='coerce')
+            ip = pd.to_numeric(j['i'], errors='coerce')
+        both = pd.concat([sp, ip], axis=1, keys=('s', 'i')).dropna()
+        rets = pd.concat([both['s'].pct_change(), both['i'].pct_change()],
+                         axis=1, keys=('s', 'i')).dropna()
+        if len(rets) > bars:
+            rets = rets.iloc[-bars:]
+        n = len(rets)
+        if n < min_bars:
+            return None, None, n
+        var = float(rets['i'].var(ddof=1))
+        if not var or var <= 0:
+            return None, None, n
+        cov = float(rets['s'].cov(rets['i'], ddof=1))
+        sd_s = float(rets['s'].std(ddof=1))
+        sd_i = float(rets['i'].std(ddof=1))
+        corr = (cov / (sd_s * sd_i)) if (sd_s > 0 and sd_i > 0) else None
+        return round(cov / var, 2), (round(corr, 2) if corr is not None else None), n
+    except Exception:                                                # noqa: BLE001
+        return None, None, 0
+
+
+def calculate_trade_plan(dfi, index_frame=None):
     """(dict) Execution layer. Missing input → key absent + note, kabhi guess nahi.
 
     Har number ke saath uska RULE bhi jaata hai, taaki user dekh sake ki ye
@@ -3019,6 +3100,48 @@ def calculate_trade_plan(dfi):
             out['notes'].append('ADV compute nahi hua')
     else:
         out['notes'].append('Volume missing — ADV skip')
+
+    # ── FIX-97: 2026 stock-SELECTION filters (beta / ATR% / gap) ───────────
+    # Plan batata tha stop/target kahan hai; ye batata hai ki stock intraday ke
+    # LIYE layak hai ya nahi. Sab kuch existing data se — jo measure na ho paye
+    # wo None + reason ke saath jaata hai (0 ya 1.0 guess nahi karte).
+    flt = {'rules': {'beta_min': TP_BETA_MIN_OK, 'beta_ideal': list(TP_BETA_IDEAL),
+                     'beta_max': TP_BETA_MAX_OK, 'atr_pct_min': TP_ATR_PCT_MIN,
+                     'gap_skip_pct': TP_GAP_SKIP_PCT, 'beta_bars': TP_BETA_BARS,
+                     'beta_min_bars': TP_BETA_MIN}}
+    _ierr = None
+    if index_frame is None:
+        index_frame, _ierr = _index_frame()
+    beta = corr = None
+    beta_n = 0
+    if index_frame is not None and 'Close' in getattr(index_frame, 'columns', []):
+        beta, corr, beta_n = calculate_beta(dfi['Close'], index_frame['Close'])
+    flt['beta'] = beta
+    flt['beta_corr'] = corr
+    flt['beta_n'] = beta_n
+    if beta is None:
+        flt['beta_ok'] = None
+        flt['beta_note'] = (_ierr or (f'beta ke liye {TP_BETA_MIN} overlapping daily '
+                                      f'returns chahiye — mile {beta_n}'))
+    else:
+        flt['beta_ok'] = bool(beta >= TP_BETA_MIN_OK)
+        flt['beta_ideal_ok'] = bool(TP_BETA_IDEAL[0] <= beta <= TP_BETA_IDEAL[1])
+        flt['beta_note'] = (f'beta ≥ {TP_BETA_MIN_OK} — market ke saath move karta hai'
+                            if flt['beta_ok'] else
+                            f'beta < {TP_BETA_MIN_OK} — market ke saath move nahi karta, '
+                            'intraday ke liye sluggish')
+        if beta > TP_BETA_MAX_OK:
+            flt['beta_note'] += (f' | > {TP_BETA_MAX_OK} = erratic moves, '
+                                 'risk manage karna mushkil')
+        if flt['beta_ideal_ok']:
+            flt['beta_note'] += f' | ideal band {TP_BETA_IDEAL[0]}–{TP_BETA_IDEAL[1]} ke andar'
+    _ap = out.get('atr_pct')
+    flt['atr_pct'] = _ap
+    flt['atr_pct_ok'] = None if _ap is None else bool(_ap >= TP_ATR_PCT_MIN)
+    _gp = (out.get('prevday') or {}).get('gap_pct')
+    flt['gap_pct'] = _gp
+    flt['gap_skip'] = None if _gp is None else bool(abs(_gp) > TP_GAP_SKIP_PCT)
+    out['filters'] = flt
 
     out['ok'] = True
     return out
@@ -5737,23 +5860,30 @@ JN_STOP_R = -1.0      # exact stop-out = -1R
 
 
 def _journal_read():
-    """(items, corrupt). Corrupt file par chup-chaap khali list NAHI dikhate —
-    warna user ko lagega journal khaali hai aur wo dobara save karke purana data
-    overwrite kar dega."""
+    """(items, corrupt, dropped).
+
+    Corrupt file par chup-chaap khali list NAHI dikhate — warna user ko lagega
+    journal khaali hai aur wo dobara save karke purana data overwrite kar dega.
+    FIX-97a: valid JSON list ho par usme non-dict rows hon (hand-edited file) to
+    wo rows DROP hote hain aur count `dropped` me jaata hai. Pehle ye rows aage
+    jaakar `t.get('id')` par AttributeError dete the → DELETE 500. Chup-chaap
+    drop nahi karte: count API response tak jaata hai.
+    """
     try:
         with open(JOURNAL_FILE, encoding='utf-8') as f:
             raw = f.read()
     except FileNotFoundError:
-        return [], False
+        return [], False, 0
     except Exception:                                            # noqa: BLE001
-        return [], True
+        return [], True, 0
     try:
         data = json.loads(raw)
     except Exception:                                            # noqa: BLE001
-        return [], True
+        return [], True, 0
     if not isinstance(data, list):
-        return [], True
-    return data, False
+        return [], True, 0
+    rows = [t for t in data if isinstance(t, dict)]
+    return rows, False, (len(data) - len(rows))
 
 
 def journal_r_multiple(entry, stop, exit_price, side):
@@ -5832,9 +5962,9 @@ def journal_stats(items):
 
 @app.route('/api/journal', methods=['GET'])
 def api_journal_get():
-    items, corrupt = _journal_read()
+    items, corrupt, dropped = _journal_read()
     return jsonify({'ok': True, 'items': items, 'stats': journal_stats(items),
-                    'corrupt': corrupt,
+                    'corrupt': corrupt, 'dropped_rows': dropped,
                     'cost_note': ('net P&L round-trip cost ke baad hai '
                                   '(research/costs.py, notional-aware)')}), 200
 
@@ -5905,7 +6035,7 @@ def api_journal_post():
         'note': str(body.get('note') or '')[:240],
         'logged_at': _naive_ist(None).strftime('%Y-%m-%d %H:%M'),
     }
-    items, corrupt = _journal_read()
+    items, corrupt, dropped = _journal_read()
     if corrupt:
         # Fail-closed: corrupt file ke upar likhna = purana journal gayab.
         return jsonify({'ok': False, 'error': (
@@ -5915,20 +6045,24 @@ def api_journal_post():
     items.append(rec)
     _store_write(JOURNAL_FILE, items)
     return jsonify({'ok': True, 'item': rec, 'items': items,
-                    'stats': journal_stats(items), 'corrupt': False}), 200
+                    'stats': journal_stats(items), 'corrupt': False,
+                    'dropped_rows': dropped}), 200
 
 
 @app.route('/api/journal', methods=['DELETE'])
 def api_journal_delete():
     tid = str(request.args.get('id') or '').strip()
-    items, corrupt = _journal_read()
+    items, corrupt, dropped = _journal_read()
     if corrupt:
         return jsonify({'ok': False, 'error': 'trade_journal.json corrupt hai'}), 409
+    # items ab sirf dicts hain (FIX-97a) — pehle yahan non-dict row par
+    # AttributeError se 500 aata tha.
     keep = [t for t in items if str(t.get('id')) != tid]
     if len(keep) == len(items):
         return jsonify({'ok': False, 'error': 'id nahi mili'}), 404
     _store_write(JOURNAL_FILE, keep)
-    return jsonify({'ok': True, 'items': keep, 'stats': journal_stats(keep)}), 200
+    return jsonify({'ok': True, 'items': keep, 'stats': journal_stats(keep),
+                    'dropped_rows': dropped}), 200
 
 
 # ── page routes ─────────────────────────────────────────────────────────────
