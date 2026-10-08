@@ -184,6 +184,40 @@ check('High column hi absent -> alag note (guess nahi)',
       'hi52' not in p_nhc and any('High column' in n for n in p_nhc['notes']),
       str(p_nhc['notes']))
 
+sec('D2 · Prev session H/L/C + gap (FIX-95)')
+p_pd = A.calculate_trade_plan(make_df(price=1000.0, hi_mult=1.30))
+pdv = p_pd.get('prevday')
+check('prevday present (multi-bar frame)', pdv is not None)
+check('prev close == price (constant frame) -> gap 0.0', pdv and pdv['gap_pct'] == 0.0,
+      str(pdv and pdv['gap_pct']))
+check('|gap| < %.1f%% -> FLAT' % A.TP_GAP_FLAT_PCT, pdv and pdv['gap'] == 'FLAT',
+      pdv and pdv['gap'])
+check('prev high = price×1.3', pdv and pdv['high'] == 1300.0, str(pdv and pdv['high']))
+check('prev low = price×0.99', pdv and pdv['low'] == 990.0, str(pdv and pdv['low']))
+check('price prev high se neeche -> above_prev_high False',
+      pdv and pdv['above_prev_high'] is False)
+check('price prev low se upar -> below_prev_low False', pdv and pdv['below_prev_low'] is False)
+check('gap_pct = (px/prev_close − 1)×100',
+      pdv and pdv['gap_pct'] == round((1000.0 / 1000.0 - 1) * 100, 2))
+
+p_up = A.calculate_trade_plan(make_df(price=1000.0, ramp=20.0))
+check('uptrend frame -> gap UP (>+0.2%)', p_up['prevday']['gap'] == 'UP',
+      str(p_up['prevday']['gap_pct']))
+p_dn = A.calculate_trade_plan(make_df(price=10000.0, ramp=-20.0))  # positive rahe
+check('downtrend frame -> gap DOWN (<-0.2%)', p_dn['prevday']['gap'] == 'DOWN',
+      str(p_dn['prevday']['gap_pct']))
+p_brk = A.calculate_trade_plan(make_df(price=1000.0, ramp=5.0, hi_mult=1.0))
+check('rally (hi_mult 1.0) -> price prev high ke upar (breakout flag)',
+      p_brk['prevday']['above_prev_high'] is True)
+
+df_pc = make_df()
+df_pc.iloc[-2, df_pc.columns.get_loc('Close')] = np.nan
+p_pcm = A.calculate_trade_plan(df_pc)
+check('prev close NaN -> prevday nahi, note ke saath (guess nahi)',
+      'prevday' not in p_pcm and any('prev close' in n for n in p_pcm['notes']),
+      str(p_pcm['notes']))
+check('TP_GAP_FLAT_PCT = 0.2', A.TP_GAP_FLAT_PCT == 0.2)
+
 sec('E · Weekly MTF')
 p_flat = A.calculate_trade_plan(make_df(n=300))          # constant price -> tie
 check('mtf present hai', 'mtf' in p_flat)

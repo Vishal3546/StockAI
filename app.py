@@ -2820,6 +2820,7 @@ TP_RR_MIN = 2.0            # 2026: risk:reward >= 1:2
 TP_SQUEEZE_PCT = 20.0      # BB width, tightest 20% of its own history
 TP_ADV_MIN = 500000        # 5 lakh shares/day
 TP_HI52_LOW, TP_HI52_HIGH = -40.0, -15.0    # 15-40% below 52W high
+TP_GAP_FLAT_PCT = 0.2      # |gap| < 0.2% -> FLAT (rounding-level gap nahi ginete)
 TP_HI52_BARS = 252         # ~52 trading weeks
 TP_CONF_CHECKS = 8         # confluence kitne indicators se ginta hai
 TP_MIN_WEEKLY = 50         # MTF ke liye kam se kam weekly bars
@@ -2922,6 +2923,27 @@ def calculate_trade_plan(dfi):
             out['notes'].append('52W high compute nahi hua')
     else:
         out['notes'].append('High column missing — 52W high skip')
+
+    # ── 3b. Prev session H/L/C + gap (intraday ke key S/R — 2026 checklist #2/3)
+    # 2026 sources (isfm Sep-26, reentrynow Jul-26, scribd institutional checklist)
+    # sab "previous day high/low mark karo" aur "gap up/down note karo" kehte hain.
+    # Ye pure daily-frame data hai — koi external key nahi, isliye guess-free.
+    if len(dfi) >= 2:
+        P = dfi.iloc[-2]
+        pc, ph, pl = sfx(P.get('Close')), sfx(P.get('High')), sfx(P.get('Low'))
+        if pc is not None and pc > 0:
+            gap = (px / pc - 1.0) * 100.0
+            out['prevday'] = {'close': _rnd(pc), 'high': _rnd(ph), 'low': _rnd(pl),
+                              'gap_pct': _rnd(gap),
+                              'gap': ('UP' if gap > TP_GAP_FLAT_PCT else
+                                      'DOWN' if gap < -TP_GAP_FLAT_PCT else 'FLAT'),
+                              'above_prev_high': bool(ph is not None and px > ph),
+                              'below_prev_low': bool(pl is not None and px < pl),
+                              'rule': 'prev session H/L/C — intraday key S/R'}
+        else:
+            out['notes'].append('prev close missing — gap nahi nikala')
+    else:
+        out['notes'].append('sirf 1 bar — prev session levels skip')
 
     # ── 4. Weekly MTF confirmation ──────────────────────────────────────────
     try:

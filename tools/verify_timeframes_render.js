@@ -309,6 +309,25 @@ const PLAIN = 'http://localhost/timeframes';
   check('FIX-93: FLAT amber me hai, red me nahi',
     s.planhtml.includes('var(--amber)">FLAT'));
 
+  // FIX-95: prev session H/L/C + gap render
+  s = await render(DEEP, base({ plan: Object.assign({}, PLAN, {
+    prevday: { close: 1187.0, high: 1210.5, low: 1175.0, gap_pct: -0.8, gap: 'DOWN',
+               above_prev_high: false, below_prev_low: false,
+               rule: 'prev session H/L/C — intraday key S/R' },
+  })}));
+  check('FIX-95: prev high/low/close render hote hain',
+    s.planbody.includes('1210.50') && s.planbody.includes('1175.00') && s.planbody.includes('1187.00'));
+  check('FIX-95: gap DOWN red me render hota hai', s.planbody.includes('DOWN -0.80%'));
+  check('FIX-95: "Previous session" section header dikhta hai',
+    s.planbody.includes('Previous session'));
+  check('FIX-95: breakout/breakdown flags render hote hain',
+    s.planbody.includes('prev high ke upar') && s.planbody.includes('prev low ke neeche'));
+
+  // prevday absent -> section nahi dikhta (jhootha S/R nahi)
+  s = await render(DEEP, base({ plan: PLAN }));
+  check('FIX-95: prevday absent -> section chhupa rehta hai',
+    !s.planbody.includes('Previous session'));
+
   // notes (missing-data warnings) render hone chahiye — chhupne nahi chahiye
   s = await render(DEEP, base({ plan: Object.assign({}, PLAN, {
     notes: ['ATR(14) missing ya 0 — stop/target nahi banaye',

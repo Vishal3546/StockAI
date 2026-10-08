@@ -157,6 +157,20 @@ function renderPlan(p){
     h += row('Swing band me?', yn(p.hi52.in_swing_band, 'HAAN', 'nahi'), '2026 swing screen');
   }
 
+  // FIX-95: prev session H/L/C + gap — intraday ke key support/resistance
+  if(p.prevday){
+    var g = p.prevday, gc = {UP:'var(--green)', DOWN:'var(--red)', FLAT:'var(--amber)'}[g.gap]||'var(--amber)';
+    h += head('3b', 'Previous session (intraday S/R)');
+    h += row('Prev high / low / close',
+      '<b>₹'+num(g.high)+'</b> / ₹'+num(g.low)+' / ₹'+num(g.close), g.rule||'');
+    h += row('Gap', '<b style="color:'+gc+'">'+esc(g.gap)+' '+num(g.gap_pct)+'%</b>',
+             '±'+0.2+'% se kam = FLAT');
+    h += row('Price prev high ke upar?', yn(g.above_prev_high, 'HAAN — strength', 'nahi'),
+             'breakout confirmation');
+    h += row('Price prev low ke neeche?', yn(g.below_prev_low, 'HAAN — weakness', 'nahi', true),
+             'breakdown confirmation');
+  }
+
   if(p.mtf){
     var tc = {UP: 'var(--green)', DOWN: 'var(--red)', FLAT: 'var(--amber)'}[p.mtf.weekly_trend]
              || 'var(--amber)';
