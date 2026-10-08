@@ -188,8 +188,27 @@ def _brief(k):
 
 
 for sym, k1, k2 in LIVE:
-    check(f'{sym}: timeframe kpi == stock kpi (charo horizon)', k1 == k2,
-          f'timeframe[{_brief(k1)}] vs stock[{_brief(k2)}]')
+    same = (k1 == k2)
+    note = ''
+    if not same:
+        # Market khula ho to do calls ke beech in-progress daily bar ka close
+        # badal jaata hai (aur tier bhi switch ho sakta hai), isliye ek threshold
+        # par khada indicator palat sakta hai. Ye ASLI divergence nahi — isliye
+        # cache clear karke ek fresh retry. Phir bhi alag rahe to wo genuine
+        # divergence hai (do pages par do numbers) aur fail hi hona chahiye.
+        A._TF_CACHE.clear()
+        try:
+            _j1 = (c.get(f'/api/timeframe/{sym}').get_json() or {}).get('kpi')
+            _j2 = (c.get(f'/api/stock/{sym}').get_json() or {}).get('kpi')
+            if _j1 and _j2:
+                same = (_j1 == _j2)
+                note = (f' | fresh retry (cache cleared): timeframe[{_brief(_j1)}] '
+                        f'vs stock[{_brief(_j2)}]')
+                k1, k2 = _j1, _j2
+        except Exception as e:                                   # noqa: BLE001
+            note = f' | retry fail: {type(e).__name__}: {e}'
+    check(f'{sym}: timeframe kpi == stock kpi (charo horizon)', same,
+          f'timeframe[{_brief(k1)}] vs stock[{_brief(k2)}]' + note)
 if LIVE:
     check('dono symbols live verify hue', len(LIVE) == 2, str([s for s, _, _ in LIVE]))
 
