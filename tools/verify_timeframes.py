@@ -218,11 +218,36 @@ check('page auto-fetch NAHI karta (sirf ?sym= par)',
       'auto-fetch NAHI' in page or 'auto-fetch nahi' in page.lower())
 check('page cached hone par batata hai', 'cache se' in page)
 
-for label, s in (('app.py FIX-77 block', blk77), ('Timeframes.html', page)):
+# FIX-96: journal panel me "Win rate" USER ke apne logged trades ka factual stat
+# hai — model/score ka claim nahi. Isliye ye blunt tripwire page ke MODEL/SCORE
+# copy par waisa hi chalta hai (FIX-96 journal code hataa kar), aur journal block
+# par ulta zyada sakht check lagta hai: wahan "apne trades" framing zaroori hai.
+def _strip_fix96(txt):
+    out = txt
+    for _a, _b in (('<!-- FIX-96: Trade Journal', '<div class="disc">'),
+                   ('// ── FIX-96: Trade Journal', 'function load(){')):
+        i = out.find(_a)
+        j = out.find(_b, i + 1) if i >= 0 else -1
+        if i >= 0 and j > i:                    # marker na mile to strip nahi hoga
+            out = out[:i] + out[j:]             # → guard full page par fail karega (loud)
+    return out
+
+
+page_model_copy = _strip_fix96(page)
+for label, s in (('app.py FIX-77 block', blk77),
+                 ('Timeframes.html (model/score copy)', page_model_copy)):
     bad = [k for k in ('78% accuracy', 'win rate', 'winrate', 'guaranteed profit',
                        'guaranteed return', 'sure shot', 'will go up',
                        'confirmed breakout', 'accuracy of') if k.lower() in s.lower()]
     check(f'{label} me fake accuracy/guarantee claim nahi', not bad, str(bad))
+
+_jd = A.journal_stats([])['disclosure']
+check('FIX-96: journal "Win rate" apne-trades framing ke saath hai',
+      'Win rate' in page and 'aapke khud log kiye trades' in _jd)
+check('FIX-96: journal disclosure model/score ki accuracy MANA karta hai',
+      'accuracy nahi' in _jd and 'prediction' in _jd)
+check('FIX-96: FIX-96 markers mile (strip chup-chaap skip nahi hua)',
+      'Win rate' not in page_model_copy and page_model_copy != page)
 
 passed = sum(1 for _, ok, _ in results if ok)
 print('=' * 84)

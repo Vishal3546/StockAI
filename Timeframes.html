@@ -76,6 +76,29 @@
   <h2 style="margin:0 0 8px">🎯 Trade Plan <span class="mut" style="font-weight:400;font-size:12px">— ATR(14) stop · risk:reward · Bollinger squeeze · weekly MTF · confluence · liquidity</span></h2>
   <div id="planbody"></div>
   <div class="mut" id="plandisc" style="margin-top:10px;line-height:1.5"></div>
+  <button id="jfill" style="margin-top:10px">📓 Plan ko journal form me bharo</button>
+</div>
+
+<!-- FIX-96: Trade Journal — 2026 checklist ka aakhri item ("trade logged?").
+     Metric R-multiple + expectancy hai (win rate akela misleading hota hai), aur
+     chhote sample par stats ko ANECDOTE likha jaata hai — chhupaya nahi jaata.
+     Sirf user ke khud log kiye trades; koi predicted number nahi. -->
+<div class="panel" id="journalbox">
+  <h2 style="margin:0 0 6px">📓 Trade Journal <span class="mut" style="font-weight:400;font-size:12px">— R-multiple · expectancy · aapke apne logged trades</span></h2>
+  <div id="jstats" class="muted">journal load ho raha hai…</div>
+  <div class="row" style="margin-top:10px">
+    <div style="flex:1 1 110px"><label>Symbol</label><input id="j_sym" placeholder="RELIANCE"></div>
+    <div style="flex:0 1 96px"><label>Side</label><select id="j_side"><option>LONG</option><option>SHORT</option></select></div>
+    <div style="flex:0 1 96px"><label>Entry</label><input id="j_entry" inputmode="decimal" placeholder="1177.4"></div>
+    <div style="flex:0 1 96px"><label>Stop</label><input id="j_stop" inputmode="decimal" placeholder="1142.1"></div>
+    <div style="flex:0 1 76px"><label>Qty</label><input id="j_qty" inputmode="numeric" placeholder="10"></div>
+    <div style="flex:0 1 104px"><label>Exit (baad me bhi)</label><input id="j_exit" inputmode="decimal" placeholder="khali = open"></div>
+    <div style="flex:0 1 112px"><label>Mode</label><select id="j_mode"><option value="intraday">Intraday</option><option value="delivery">Delivery</option></select></div>
+    <div style="flex:2 1 170px"><label>Setup / reason</label><input id="j_setup" maxlength="60" placeholder="prev-low bounce + RVOL 2.1"></div>
+    <button id="jadd">➕ Log karein</button>
+  </div>
+  <div class="err" id="jerr" style="display:none;margin-top:8px"></div>
+  <div id="jtable" style="margin-top:10px"></div>
 </div>
 
 <div class="disc">
@@ -122,6 +145,7 @@ function head(n, t, sub){
 function renderPlan(p){
   var box = document.getElementById('planbox');
   if(!p || p.ok !== true){ box.style.display='none'; return; }
+  LASTPLAN = p;   // FIX-96: journal form isi se prefill hota hai
   var h = '', i;
 
   if(p.long){
@@ -211,6 +235,167 @@ function renderPlan(p){
 }
 
 
+// ── FIX-96: Trade Journal ──────────────────────────────────────────────────
+// Backend /api/journal me R-multiple/expectancy banta hai; yahan sirf render.
+// Do baatein jaan-boojh kar: (1) n chhota ho to disclosure me ANECDOTE dikhta
+// hai, (2) corrupt file par red warning — chup-chaap khaali journal nahi.
+var LASTPLAN = null;
+
+function kv(l, v){ return '<div><span>'+esc(l)+'</span><b>'+v+'</b></div>'; }
+function rr(v){
+  if(v === null || v === undefined){ return '—'; }
+  var n = Number(v);
+  var c = n > 0 ? 'var(--green)' : (n < 0 ? 'var(--red)' : 'var(--mut)');
+  return '<span style="color:'+c+'">'+(n>0?'+':'')+n.toFixed(2)+'R</span>';
+}
+function pct(v){ return (v === null || v === undefined) ? '—' : Number(v).toFixed(1)+'%'; }
+function money(v){ return '₹'+Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:0}); }
+
+function journalFill(){
+  if(!LASTPLAN){ return; }
+  var p = LASTPLAN, c = p.confluence || {};
+  var side = (c.side === 'BULLISH') ? 'LONG' : 'SHORT';
+  var leg = (side === 'LONG') ? (p.long || {}) : (p.short || {});
+  document.getElementById('j_sym').value = document.getElementById('sym').value.trim().toUpperCase();
+  document.getElementById('j_side').value = side;
+  document.getElementById('j_entry').value = (p.price === null || p.price === undefined) ? '' : p.price;
+  document.getElementById('j_stop').value  = (leg.stop === null || leg.stop === undefined) ? '' : leg.stop;
+  document.getElementById('j_exit').value  = '';
+  document.getElementById('j_setup').value = 'plan '+(c.side||'?')+' '+(c.agree||0)+'/'+(c.measured||0);
+}
+
+function renderJournal(d){
+  d = d || {};
+  var s = d.stats || {}, items = d.items || [], i, t;
+  var box = document.getElementById('jstats');
+  if(d.corrupt){
+    box.innerHTML = '<b style="color:var(--red)">⚠ trade_journal.json corrupt hai</b> — '
+      + 'file ko rename/delete karein, phir dobara log karein. Purana data '
+      + 'overwrite na ho isliye write block hai.';
+  } else {
+    box.innerHTML =
+      '<div class="kv">'
+      + kv('Closed trades', String(s.closed === undefined ? 0 : s.closed))
+      + kv('Open', String(s.open === undefined ? 0 : s.open))
+      + kv('Win rate', pct(s.win_rate))
+      + kv('Avg win', rr(s.avg_win_r))
+      + kv('Avg loss', rr(s.avg_loss_r))
+      + kv('Expectancy', rr(s.expectancy_r))
+      + kv('Profit factor', (s.profit_factor === null || s.profit_factor === undefined)
+                            ? '—' : Number(s.profit_factor).toFixed(2))
+      + kv('Worst R', rr(s.worst_r))
+      + kv('Stop breaches (&lt; −1R)', String(s.stop_breaches === undefined ? 0 : s.stop_breaches))
+      + kv('Net P&L (cost ke baad)', money(s.net_pnl))
+      + '</div>'
+      + '<div class="muted" style="margin-top:8px">'+esc(s.disclosure || '')+'</div>'
+      + (s.stop_breaches ? '<div class="muted" style="color:var(--amber)">⚠ '+s.stop_breaches
+          +' trade −1R se bure — matlab stop miss / gap / widened SL (execution leak).</div>' : '');
+  }
+
+  if(!items.length){
+    document.getElementById('jtable').innerHTML =
+      '<div class="muted">Abhi koi trade log nahi hua. Plan banayein, phir '
+      + '"📓 Plan ko journal form me bharo" — entry/stop/side apne aap bhar jaate hain.</div>';
+    return;
+  }
+  var h = '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+    + '<tr style="color:var(--mut);text-align:left">'
+    + '<th style="padding:4px 6px">Trade</th><th>Side</th><th>Entry</th><th>Stop</th>'
+    + '<th>Qty</th><th>Risk ₹</th><th>Exit</th><th>R</th><th>Net ₹</th><th>Logged</th><th></th>'
+    + '</tr>';
+  for(i = items.length - 1; i >= 0; i--){
+    t = items[i];
+    h += '<tr style="border-top:1px solid rgba(255,255,255,.07)">'
+      + '<td style="padding:4px 6px"><b>'+esc(t.symbol)+'</b> <span class="mut">'+esc(t.exchange||'')+'</span>'
+        + (t.setup ? '<div class="mut" style="font-size:11px">'+esc(t.setup)+'</div>' : '')+'</td>'
+      + '<td style="color:'+(t.side === 'LONG' ? 'var(--green)' : 'var(--red)')+'">'+esc(t.side)+'</td>'
+      + '<td>'+num(t.entry)+'</td><td>'+num(t.stop)+'</td><td>'+esc(t.qty)+'</td>'
+      + '<td>'+money(t.risk_rupees)+'</td>'
+      + '<td>'+(t.exit ? num(t.exit)
+             : '<input id="x_'+esc(t.id)+'" style="width:86px;padding:4px 6px" inputmode="decimal" placeholder="exit">')+'</td>'
+      + '<td>'+rr(t.r)+'</td>'
+      + '<td>'+(t.pnl_net === null || t.pnl_net === undefined ? '—' : money(t.pnl_net))+'</td>'
+      + '<td class="mut">'+esc(t.logged_at||'')+'</td>'
+      + '<td style="white-space:nowrap">'
+        + (t.exit ? '' : '<button data-close="'+esc(t.id)+'">close</button> ')
+        + '<button data-del="'+esc(t.id)+'">✕</button></td>'
+      + '</tr>';
+  }
+  document.getElementById('jtable').innerHTML = h + '</table>';
+}
+
+function jfail(msg){
+  var e = document.getElementById('jerr');
+  e.style.display = msg ? 'block' : 'none';
+  e.textContent = msg || '';
+}
+
+function journalSend(method, url, body){
+  return fetch(url, {method: method,
+                     headers: {'Content-Type': 'application/json'},
+                     body: body ? JSON.stringify(body) : undefined})
+    .then(function(r){ return r.json().then(function(j){ return {status: r.status, j: j}; }); })
+    .then(function(res){
+      if(res.j && res.j.ok){ jfail(''); renderJournal(res.j); return res.j; }
+      jfail((res.j && res.j.error) || ('Save fail: HTTP ' + res.status));
+      return null;
+    })
+    .catch(function(err){ jfail('Network error: ' + err); return null; });
+}
+
+function journalAdd(){
+  var b = {
+    symbol: document.getElementById('j_sym').value.trim(),
+    side:   document.getElementById('j_side').value,
+    entry:  document.getElementById('j_entry').value.trim(),
+    stop:   document.getElementById('j_stop').value.trim(),
+    qty:    document.getElementById('j_qty').value.trim(),
+    exit:   document.getElementById('j_exit').value.trim(),
+    mode:   document.getElementById('j_mode').value,
+    setup:  document.getElementById('j_setup').value.trim()
+  };
+  if(!b.symbol){ jfail('Symbol likho.'); return; }
+  journalSend('POST', '/api/journal', b).then(function(j){
+    if(j){ ['j_entry','j_stop','j_qty','j_exit','j_setup'].forEach(function(id){
+      document.getElementById(id).value = ''; }); }
+  });
+}
+
+function loadJournal(){
+  fetch('/api/journal')
+    .then(function(r){ return r.json(); })
+    .then(renderJournal)
+    .catch(function(err){
+      document.getElementById('jstats').innerHTML =
+        '<span class="mut">journal load nahi hua: '+esc(err)+'</span>';
+    });
+}
+
+document.getElementById('jadd').addEventListener('click', journalAdd);
+document.getElementById('jfill').addEventListener('click', journalFill);
+document.getElementById('jtable').addEventListener('click', function(ev){
+  var b = ev.target;
+  if(!b || !b.getAttribute){ return; }
+  var cid = b.getAttribute('data-close'), did = b.getAttribute('data-del');
+  if(cid){
+    var inp = document.getElementById('x_' + cid);
+    var x = inp ? inp.value.trim() : '';
+    if(!x){ jfail('Exit price likho, phir close karein.'); return; }
+    var row = null, cur = null;
+    fetch('/api/journal').then(function(r){ return r.json(); }).then(function(d){
+      (d.items || []).forEach(function(t){ if(String(t.id) === String(cid)){ cur = t; } });
+      if(!cur){ jfail('trade nahi mila'); return; }
+      row = {symbol: cur.symbol, exchange: cur.exchange, side: cur.side, entry: cur.entry,
+             stop: cur.stop, qty: cur.qty, exit: x, mode: cur.mode, setup: cur.setup};
+      journalSend('DELETE', '/api/journal?id=' + encodeURIComponent(cid))
+        .then(function(){ return journalSend('POST', '/api/journal', row); });
+    });
+    return;
+  }
+  if(did){ journalSend('DELETE', '/api/journal?id=' + encodeURIComponent(did)); }
+});
+
+
 function load(){
   var sym = document.getElementById('sym').value.trim();
   var ex = document.getElementById('exch').value;
@@ -289,6 +474,8 @@ document.getElementById('go').addEventListener('click', load);
 document.getElementById('sym').addEventListener('keydown', function(ev){
   if(ev.key === 'Enter') load();
 });
+// FIX-96: journal hamesha load hota hai (symbol se independent, per-user state).
+loadJournal();
 // Page khulte hi auto-fetch NAHI karte (har page-view par Yahoo hit na ho).
 // Par ?sym=RELIANCE se deep-link ho sakta hai — tab auto-load hota hai.
 (function(){

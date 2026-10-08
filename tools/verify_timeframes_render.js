@@ -356,6 +356,115 @@ const PLAIN = 'http://localhost/timeframes';
   s = await render(DEEP, base({ plan: PLAN }), 'reject');
   check('FIX-93: fetch reject par plan panel chhupta hai', s.planShown === false);
 
+  // ── FIX-96: Trade Journal (panel hamesha dikhta hai, plan se independent) ──
+  function journalDom(payload, initial) {
+    return new Promise((resolve) => {
+      const dom = new JSDOM(html, {
+        runScripts: 'dangerously', pretendToBeVisual: true, url: PLAIN,
+        beforeParse(w) {
+          w.fetch = () => Promise.resolve({ ok: true, status: 200,
+            json: () => Promise.resolve(initial || { ok: true, items: [], stats: {}, corrupt: false }) });
+        },
+      });
+      setTimeout(() => {
+        dom.window.renderJournal(payload);
+        const d = dom.window.document;
+        resolve({ stats: d.getElementById('jstats').textContent.replace(/\s+/g, ' ').trim(),
+                  statsHtml: d.getElementById('jstats').innerHTML,
+                  table: d.getElementById('jtable').textContent.replace(/\s+/g, ' ').trim(),
+                  tableHtml: d.getElementById('jtable').innerHTML });
+      }, 80);
+    });
+  }
+
+  const JSTATS0 = { closed: 0, open: 0, win_rate: null, avg_win_r: null, avg_loss_r: null,
+    expectancy_r: null, profit_factor: null, worst_r: null, stop_breaches: 0, net_pnl: 0,
+    confidence: 'anecdote',
+    disclosure: ('0 closed trades — 20 se kam, isliye ye ANECDOTE hai: ek-do trade poora '
+      + 'average hila dete hain. Pattern mat nikalo. Ye aapke khud log kiye trades ka '
+      + 'record hai — kisi model/score ki accuracy nahi, aur na hi koi prediction.') };
+
+  let js = await journalDom({ ok: true, items: [], stats: JSTATS0, corrupt: false });
+  check('FIX-96: khali journal par honest empty-state (jhootha 0% nahi)',
+    js.table.includes('Abhi koi trade log nahi hua'));
+  check('FIX-96: n=0 par metrics "—" (0.00R fake nahi)',
+    js.stats.includes('Expectancy') && js.stats.includes('—'));
+  check('FIX-96: ANECDOTE disclosure dikhta hai', js.stats.includes('ANECDOTE'));
+  check('FIX-96: "aapke khud log kiye trades" saaf likha',
+    js.stats.includes('aapke khud log kiye trades'));
+
+  const J2 = { ok: true, corrupt: false, items: [
+    { id: 'a1', symbol: 'RELIANCE', exchange: 'NSE', side: 'LONG', entry: 1000, stop: 950,
+      qty: 10, exit: 1100, r: 2.0, pnl_gross: 1000, pnl_net: 977.5, risk_rupees: 500,
+      setup: 'prev-low bounce', logged_at: '2026-10-08 14:10' },
+    { id: 'b2', symbol: 'TCS', exchange: 'BSE', side: 'SHORT', entry: 2000, stop: 2050,
+      qty: 5, exit: null, r: null, pnl_net: null, risk_rupees: 250, setup: '',
+      logged_at: '2026-10-08 14:20' }],
+    stats: { closed: 1, open: 1, wins: 1, losses: 0, win_rate: 100.0, avg_win_r: 2.0,
+      avg_loss_r: null, expectancy_r: 2.0, profit_factor: null, worst_r: 2.0,
+      stop_breaches: 0, net_pnl: 977.5, confidence: 'anecdote',
+      disclosure: '1 closed trades — ANECDOTE' } };
+  js = await journalDom(J2);
+  check('FIX-96: dono trades table me dikhte hain',
+    js.table.includes('RELIANCE') && js.table.includes('TCS'));
+  check('FIX-96: closed trade ka R "+2.00R"', js.table.includes('+2.00R'));
+  check('FIX-96: open trade ka R "—" (0 nahi)', js.table.includes('—'));
+  check('FIX-96: open row par exit input + close button',
+    js.tableHtml.includes('id="x_b2"') && js.tableHtml.includes('data-close="b2"'));
+  check('FIX-96: closed row par close button NAHI (dobara close nahi)',
+    !js.tableHtml.includes('data-close="a1"'));
+  check('FIX-96: delete button har row par',
+    (js.tableHtml.match(/data-del=/g) || []).length === 2);
+  check('FIX-96: stats me closed/open alag dikhte hain',
+    js.stats.includes('Closed trades') && js.stats.includes('Open'));
+  check('FIX-96: net P&L ₹ me (cost ke baad)', js.stats.includes('₹'));
+  check('FIX-96: expectancy +2.00R stats me', js.stats.includes('+2.00R'));
+
+  js = await journalDom({ ok: true, items: [], corrupt: false,
+    stats: Object.assign({}, JSTATS0, { stop_breaches: 2 }) });
+  check('FIX-96: −1R se bure trades par execution-leak warning',
+    js.stats.includes('execution leak'));
+
+  js = await journalDom({ ok: true, items: [], corrupt: true, stats: JSTATS0 });
+  check('FIX-96: corrupt file par RED warning (chup-chaap khaali nahi)',
+    js.stats.includes('corrupt hai') && js.statsHtml.includes('var(--red)'));
+  check('FIX-96: corrupt par write-block bataya jaata hai', js.stats.includes('write block'));
+
+  js = await journalDom({ ok: true, corrupt: false, items: [
+    { id: 'x1', symbol: '<img src=x onerror=alert(1)>', exchange: 'NSE', side: 'LONG',
+      entry: 100, stop: 90, qty: 1, exit: null, r: null, pnl_net: null, risk_rupees: 10,
+      setup: '<b>bold</b>', logged_at: 'now' }], stats: JSTATS0 });
+  check('FIX-96: symbol/setup me HTML inject ho to escape (XSS safe)',
+    !js.tableHtml.includes('<img') && js.tableHtml.includes('&lt;img')
+    && js.tableHtml.includes('&lt;b&gt;')
+    && js.table.includes('<img src=x onerror=alert(1)>'));
+
+  // journalFill — plan se prefill (BEARISH plan → SHORT + short leg ka stop)
+  await new Promise((resolve) => {
+    const dom = new JSDOM(html, {
+      runScripts: 'dangerously', pretendToBeVisual: true, url: PLAIN,
+      beforeParse(w) { w.fetch = () => Promise.resolve({ ok: true, status: 200,
+        json: () => Promise.resolve({ ok: true, items: [], stats: {}, corrupt: false }) }); },
+    });
+    setTimeout(() => {
+      const d = dom.window.document;
+      dom.window.renderPlan(PLAN);
+      d.getElementById('sym').value = 'reliance';
+      d.getElementById('jfill').click();
+      check('FIX-96: jfill par side confluence se (BEARISH→SHORT)',
+        d.getElementById('j_side').value === 'SHORT', d.getElementById('j_side').value);
+      check('FIX-96: entry plan.price se bharta hai',
+        d.getElementById('j_entry').value === String(PLAN.price), d.getElementById('j_entry').value);
+      check('FIX-96: stop SHORT leg ke stop se bharta hai',
+        d.getElementById('j_stop').value === String(PLAN.short.stop), d.getElementById('j_stop').value);
+      check('FIX-96: symbol uppercase ho jaata hai',
+        d.getElementById('j_sym').value === 'RELIANCE', d.getElementById('j_sym').value);
+      check('FIX-96: setup me confluence count (8/8)',
+        d.getElementById('j_setup').value.includes('8/8'), d.getElementById('j_setup').value);
+      resolve();
+    }, 80);
+  });
+
   // no external CDN (sandbox preview me bhi chalna chahiye)
   check('FIX-93: Timeframes.html me koi external CDN/script nahi',
     !/(https?:)?\/\/(?!localhost)[^"'\s]*\.(js|css)/.test(html.replace(/<!--[\s\S]*?-->/g, '')));
