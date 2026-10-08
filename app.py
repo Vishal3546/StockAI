@@ -43,6 +43,7 @@ from typing import Any
 import score_calibration as SCORE_CAL
 
 from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
+from flask.json.provider import DefaultJSONProvider
 import numpy as np
 import pandas as pd
 import requests as http_requests
@@ -52,6 +53,36 @@ warnings.filterwarnings('ignore')
 
 # Initialize Flask Web Application
 app = Flask(__name__)
+
+
+# ── FIX-98: NaN / Infinity JSON me leak na ho ──────────────────────────────
+# Flask ka default encoder `NaN` / `Infinity` LITERAL emit karta hai — measure
+# kiya: app.json.dumps({'x': float('nan')}) → '{"x": NaN}'. Wo JSON spec me hai
+# hi nahi, isliye browser ka JSON.parse throw karta hai aur poora panel chup-chaap
+# khaali reh jaata hai. Koi bhi 0-division / 0-variance path ye kar sakta hai,
+# isliye guard app-level hai:
+#   • fast path: allow_nan=False — koi NaN nahi to output bilkul pehle jaisa
+#   • NaN/Inf mile to wo None ban jaata hai (jhootha 0.0 nahi — "measure nahi hua")
+def _strip_nonfinite(obj):
+    if isinstance(obj, dict):
+        return {k: _strip_nonfinite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_strip_nonfinite(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
+
+
+class _SafeJSONProvider(DefaultJSONProvider):
+    def dumps(self, obj, **kwargs):
+        kwargs['allow_nan'] = False
+        try:
+            return super().dumps(obj, **kwargs)
+        except ValueError:
+            return super().dumps(_strip_nonfinite(obj), **kwargs)
+
+
+app.json = _SafeJSONProvider(app)
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIX-36: .env support — har baar $env:… set karne ki zaroorat nahi
@@ -5560,6 +5591,10 @@ _BACKTEST_FILES = {'NSE': os.path.join(_ROOT89, 'backtest_history_nse.json'),
                    'BSE': os.path.join(_ROOT89, 'backtest_history_bse.json')}
 _BACKTEST_CACHE = {}
 _STORE_LOCK = _th89.RLock()
+# FIX-98: identifier ki length cap — 200k char ka "symbol" accept ho raha tha
+# (measure kiya) aur per-user JSON file ko bloat kar sakta tha. Truncate karke
+# galat symbol banana usse bura hai, isliye reject.
+SYMBOL_MAX_LEN = 24
 WATCHLIST_FILE = os.path.join(_ROOT89, 'watchlist.json')
 ALERTS_FILE = os.path.join(_ROOT89, 'alerts.json')
 _MIN_BAND_N = 30          # isse kam samples par "insufficient" — statistically jhooth nahi bolenge
@@ -5683,14 +5718,18 @@ def api_watchlist_post():
         return jsonify({'ok': False, 'error': 'symbol chahiye'}), 400
     if ex not in ('NSE', 'BSE'):
         return jsonify({'ok': False, 'error': "exchange 'NSE' ya 'BSE' hona chahiye"}), 400
-    items = _store_read(WATCHLIST_FILE, [])
-    if not isinstance(items, list):
-        items = []
-    if any(i.get('symbol') == sym and i.get('exchange') == ex for i in items):
-        return jsonify({'ok': False, 'error': '%s (%s) pehle se watchlist me hai' % (sym, ex)}), 409
-    items.append({'symbol': sym, 'exchange': ex, 'note': str(body.get('note') or '')[:120],
-                  'added_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
-    _store_write(WATCHLIST_FILE, items)
+    if len(sym) > SYMBOL_MAX_LEN:                              # FIX-98
+        return jsonify({'ok': False,
+                        'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 400
+    with _STORE_LOCK:                                          # FIX-98: RMW atomic
+        # non-dict rows filter — warna hand-edited file par i.get() se 500 aata tha
+        items = [i for i in _store_read(WATCHLIST_FILE, []) if isinstance(i, dict)]
+        if any(i.get('symbol') == sym and i.get('exchange') == ex for i in items):
+            return jsonify({'ok': False,
+                            'error': '%s (%s) pehle se watchlist me hai' % (sym, ex)}), 409
+        items.append({'symbol': sym, 'exchange': ex, 'note': str(body.get('note') or '')[:120],
+                      'added_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
+        _store_write(WATCHLIST_FILE, items)
     return jsonify({'ok': True, 'items': items}), 200
 
 
@@ -5698,14 +5737,13 @@ def api_watchlist_post():
 def api_watchlist_delete():
     sym = (request.args.get('symbol') or '').strip().upper()
     ex = (request.args.get('exchange') or '').strip().upper()
-    items = _store_read(WATCHLIST_FILE, [])
-    if not isinstance(items, list):
-        items = []
-    keep = [i for i in items
-            if not (i.get('symbol') == sym and (i.get('exchange') or 'NSE') == ex)]
-    if len(keep) == len(items):
-        return jsonify({'ok': False, 'error': 'mila nahi'}), 404
-    _store_write(WATCHLIST_FILE, keep)
+    with _STORE_LOCK:                                          # FIX-98: RMW atomic
+        items = [i for i in _store_read(WATCHLIST_FILE, []) if isinstance(i, dict)]
+        keep = [i for i in items
+                if not (i.get('symbol') == sym and (i.get('exchange') or 'NSE') == ex)]
+        if len(keep) == len(items):
+            return jsonify({'ok': False, 'error': 'mila nahi'}), 404
+        _store_write(WATCHLIST_FILE, keep)
     return jsonify({'ok': True, 'items': keep}), 200
 
 
@@ -5783,11 +5821,15 @@ def api_alerts_post():
         return jsonify({'ok': False, 'error': "condition 'above' ya 'below' hona chahiye"}), 400
     if level <= 0:
         return jsonify({'ok': False, 'error': 'level 0 se bada hona chahiye'}), 400
-    items = _alerts_list()
-    items.append({'id': int(time.time() * 1000) % 10 ** 9, 'symbol': sym, 'exchange': ex,
-                  'condition': cond, 'level': level, 'fired': False,
-                  'fired_at': None, 'created_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
-    _store_write(ALERTS_FILE, items)
+    if len(sym) > SYMBOL_MAX_LEN:                              # FIX-98
+        return jsonify({'ok': False,
+                        'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 400
+    with _STORE_LOCK:                                          # FIX-98: RMW atomic
+        items = [a for a in _alerts_list() if isinstance(a, dict)]
+        items.append({'id': int(time.time() * 1000) % 10 ** 9, 'symbol': sym, 'exchange': ex,
+                      'condition': cond, 'level': level, 'fired': False,
+                      'fired_at': None, 'created_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
+        _store_write(ALERTS_FILE, items)
     return jsonify({'ok': True, 'alerts': items}), 200
 
 
@@ -5797,11 +5839,12 @@ def api_alerts_delete():
         aid = int(request.args.get('id'))
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': 'id number hona chahiye'}), 400
-    items = _alerts_list()
-    keep = [a for a in items if a.get('id') != aid]
-    if len(keep) == len(items):
-        return jsonify({'ok': False, 'error': 'alert nahi mila'}), 404
-    _store_write(ALERTS_FILE, keep)
+    with _STORE_LOCK:                                          # FIX-98: RMW atomic
+        items = [a for a in _alerts_list() if isinstance(a, dict)]
+        keep = [a for a in items if a.get('id') != aid]
+        if len(keep) == len(items):
+            return jsonify({'ok': False, 'error': 'alert nahi mila'}), 404
+        _store_write(ALERTS_FILE, keep)
     return jsonify({'ok': True, 'alerts': keep}), 200
 
 
@@ -5809,10 +5852,11 @@ def api_alerts_delete():
 def api_alerts_check():
     """Pending alerts ko current quote se check karo. Frontend poll karta hai —
     server khud background loop nahi chalata (resource leak se bachne ke liye)."""
-    items = _alerts_list()
-    pending = [a for a in items if not a.get('fired')]
+    snapshot = [a for a in _alerts_list() if isinstance(a, dict)]
+    pending = [a for a in snapshot if not a.get('fired')]
     checked, errors = 0, []
     now = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+    seen = {}          # id -> update; network calls lock ke BAHAR hote hain
     for a in pending:
         sym, ex = a.get('symbol'), (a.get('exchange') or 'NSE').upper()
         try:
@@ -5825,14 +5869,21 @@ def api_alerts_check():
             continue
         checked += 1
         price = float(q['price'])
-        a['last_price'] = price
-        a['checked_at'] = now
+        upd = {'last_price': price, 'checked_at': now}
         hit = (price >= a['level']) if a.get('condition') == 'above' else (price <= a['level'])
         if hit:
-            a['fired'] = True
-            a['fired_at'] = now
-            a['fired_price'] = price
-    _store_write(ALERTS_FILE, items)
+            upd.update({'fired': True, 'fired_at': now, 'fired_price': price})
+        seen[a.get('id')] = upd
+    # FIX-98: write lock ke andar aur FRESH list par. Pehle network calls ke
+    # dauraan wala snapshot hi write hota tha — beech me add/delete hua alert
+    # kho jaata, aur do parallel /check ek doosre ka update mita dete.
+    with _STORE_LOCK:
+        items = [a for a in _alerts_list() if isinstance(a, dict)]
+        for a in items:
+            upd = seen.get(a.get('id'))
+            if upd:
+                a.update(upd)
+        _store_write(ALERTS_FILE, items)
     return jsonify({'ok': True, 'alerts': items, 'checked': checked,
                     'fired_now': [a for a in items if a.get('fired_at') == now],
                     'errors': errors[:8]}), 200
@@ -5976,6 +6027,9 @@ def api_journal_post():
     side = str(body.get('side') or '').strip().upper()
     if not sym:
         return jsonify({'ok': False, 'error': 'symbol zaroori hai'}), 422
+    if len(sym) > SYMBOL_MAX_LEN:
+        return jsonify({'ok': False,
+                        'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 422
     if side not in ('LONG', 'SHORT'):
         return jsonify({'ok': False, 'error': 'side LONG ya SHORT hona chahiye'}), 422
     try:
@@ -6035,15 +6089,19 @@ def api_journal_post():
         'note': str(body.get('note') or '')[:240],
         'logged_at': _naive_ist(None).strftime('%Y-%m-%d %H:%M'),
     }
-    items, corrupt, dropped = _journal_read()
-    if corrupt:
-        # Fail-closed: corrupt file ke upar likhna = purana journal gayab.
-        return jsonify({'ok': False, 'error': (
-            'trade_journal.json corrupt hai — us file ko rename/delete karein, '
-            'phir dobara save karein (purana data overwrite na ho isliye write '
-            'block kiya)')}), 409
-    items.append(rec)
-    _store_write(JOURNAL_FILE, items)
+    # FIX-98: poora read-modify-write lock ke ANDAR. Pehle sirf _store_write
+    # locked tha, isliye do parallel POST ek doosre ka record mita dete the —
+    # measure kiya: 12 parallel POST → file me sirf 4 records, 8 lost writes.
+    with _STORE_LOCK:
+        items, corrupt, dropped = _journal_read()
+        if corrupt:
+            # Fail-closed: corrupt file ke upar likhna = purana journal gayab.
+            return jsonify({'ok': False, 'error': (
+                'trade_journal.json corrupt hai — us file ko rename/delete karein, '
+                'phir dobara save karein (purana data overwrite na ho isliye write '
+                'block kiya)')}), 409
+        items.append(rec)
+        _store_write(JOURNAL_FILE, items)
     return jsonify({'ok': True, 'item': rec, 'items': items,
                     'stats': journal_stats(items), 'corrupt': False,
                     'dropped_rows': dropped}), 200
@@ -6052,15 +6110,16 @@ def api_journal_post():
 @app.route('/api/journal', methods=['DELETE'])
 def api_journal_delete():
     tid = str(request.args.get('id') or '').strip()
-    items, corrupt, dropped = _journal_read()
-    if corrupt:
-        return jsonify({'ok': False, 'error': 'trade_journal.json corrupt hai'}), 409
-    # items ab sirf dicts hain (FIX-97a) — pehle yahan non-dict row par
-    # AttributeError se 500 aata tha.
-    keep = [t for t in items if str(t.get('id')) != tid]
-    if len(keep) == len(items):
-        return jsonify({'ok': False, 'error': 'id nahi mili'}), 404
-    _store_write(JOURNAL_FILE, keep)
+    with _STORE_LOCK:                                          # FIX-98: RMW atomic
+        items, corrupt, dropped = _journal_read()
+        if corrupt:
+            return jsonify({'ok': False, 'error': 'trade_journal.json corrupt hai'}), 409
+        # items ab sirf dicts hain (FIX-97a) — pehle yahan non-dict row par
+        # AttributeError se 500 aata tha.
+        keep = [t for t in items if str(t.get('id')) != tid]
+        if len(keep) == len(items):
+            return jsonify({'ok': False, 'error': 'id nahi mili'}), 404
+        _store_write(JOURNAL_FILE, keep)
     return jsonify({'ok': True, 'items': keep, 'stats': journal_stats(keep),
                     'dropped_rows': dropped}), 200
 
