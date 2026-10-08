@@ -5715,6 +5715,222 @@ def api_alerts_check():
                     'errors': errors[:8]}), 200
 
 
+# ── FIX-96: TRADE JOURNAL ───────────────────────────────────────────────────
+# 2026 ke pre-trade checklist ka aakhri item "trade logged?" hota hai, aur
+# journal hi akela aisa record hai jo aapki ASLI execution measure karta hai —
+# backtest edge ka estimate deta hai, journal actual (execution + psychology).
+# Design rules (2026 journal guides: quantum-algo / bouncetrade / journalplus /
+# tradetally — sab isi par agree karte hain):
+#   • primary metric = R-multiple (position-size normalised), win rate akela
+#     misleading hai (40% win rate + 2.5R winners = profitable)
+#   • expectancy = sum(R)/n — edge hai ya nahi, yahi batata hai
+#   • -1R se bura result = stop miss/gap/widened SL → alag count hota hai
+#   • n chhota ho to stats ko ANECDOTE kaha jaata hai — chhupaya nahi jaata
+# Aur sabse zaroori: yahan koi predicted/assumed number nahi hai. Sirf wo trades
+# count hote hain jo user ne khud log kiye. Model/score ki "accuracy" nahi.
+JOURNAL_FILE = os.path.join(_ROOT89, 'trade_journal.json')
+
+JN_ANECDOTE = 20      # <20 closed trades = anecdote (variance dominate karta hai)
+JN_ROUGH = 30         # 30 = expectancy ka rough minimum
+JN_RELIABLE = 100     # 100+ = reliable sample
+JN_STOP_R = -1.0      # exact stop-out = -1R
+
+
+def _journal_read():
+    """(items, corrupt). Corrupt file par chup-chaap khali list NAHI dikhate —
+    warna user ko lagega journal khaali hai aur wo dobara save karke purana data
+    overwrite kar dega."""
+    try:
+        with open(JOURNAL_FILE, encoding='utf-8') as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return [], False
+    except Exception:                                            # noqa: BLE001
+        return [], True
+    try:
+        data = json.loads(raw)
+    except Exception:                                            # noqa: BLE001
+        return [], True
+    if not isinstance(data, list):
+        return [], True
+    return data, False
+
+
+def journal_r_multiple(entry, stop, exit_price, side):
+    """R = outcome / initial risk. Full stop-out = exactly -1R.
+
+    Invalid record (stop entry ke galat taraf, ya koi number nahi) par None —
+    jhootha 0.0 nahi.
+    """
+    try:
+        entry = float(entry)
+        stop = float(stop)
+        exit_price = float(exit_price)
+    except (TypeError, ValueError):
+        return None
+    short = str(side).upper() == 'SHORT'
+    risk = (stop - entry) if short else (entry - stop)
+    if risk <= 0:
+        return None
+    gain = (entry - exit_price) if short else (exit_price - entry)
+    return round(gain / risk, 3)
+
+
+def _journal_confidence(n):
+    if n < JN_ANECDOTE:
+        return 'anecdote'
+    if n < JN_ROUGH:
+        return 'thin'
+    if n < JN_RELIABLE:
+        return 'rough'
+    return 'reliable'
+
+
+_JN_NOTE = {
+    'anecdote': ('%d closed trades — 20 se kam, isliye ye ANECDOTE hai: ek-do '
+                 'trade poora average hila dete hain. Pattern mat nikalo.'),
+    'thin':     ('%d closed trades — direction dikhta hai, par numbers abhi '
+                 'noise hain (20–29).'),
+    'rough':    ('%d closed trades — expectancy ka rough minimum (30). Reliable '
+                 'kehne ke liye 100+ chahiye.'),
+    'reliable': ('%d closed trades — 100+, sample reliable hai.'),
+}
+
+
+def journal_stats(items):
+    """Sirf CLOSED trades se stats. Open trades count me dikhte hain, mix nahi hote."""
+    rows = [t for t in items if isinstance(t, dict)]
+    closed = [t for t in rows if isinstance(t.get('r'), (int, float))]
+    rs = [float(t['r']) for t in closed]
+    n = len(rs)
+    wins = [r for r in rs if r > 0]
+    losses = [r for r in rs if r <= 0]
+    gross_win = sum(wins)
+    gross_loss = -sum(losses)
+    conf = _journal_confidence(n)
+    return {
+        'open': len(rows) - n,
+        'closed': n,
+        'wins': len(wins),
+        'losses': len(losses),
+        'win_rate': round(len(wins) / n * 100, 1) if n else None,
+        'avg_win_r': round(gross_win / len(wins), 3) if wins else None,
+        'avg_loss_r': round(-gross_loss / len(losses), 3) if losses else None,
+        'expectancy_r': round(sum(rs) / n, 3) if n else None,
+        'profit_factor': round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        'worst_r': min(rs) if rs else None,
+        'stop_breaches': sum(1 for r in rs if r < JN_STOP_R - 1e-9),
+        'net_pnl': round(sum(float(t.get('pnl_net') or 0.0) for t in closed), 2),
+        'confidence': conf,
+        'thresholds': {'anecdote_below': JN_ANECDOTE, 'rough_from': JN_ROUGH,
+                       'reliable_from': JN_RELIABLE},
+        'disclosure': (_JN_NOTE[conf] % n) + (' Ye aapke khud log kiye trades ka '
+                       'record hai — kisi model/score ki accuracy nahi, aur na '
+                       'hi koi prediction.'),
+    }
+
+
+@app.route('/api/journal', methods=['GET'])
+def api_journal_get():
+    items, corrupt = _journal_read()
+    return jsonify({'ok': True, 'items': items, 'stats': journal_stats(items),
+                    'corrupt': corrupt,
+                    'cost_note': ('net P&L round-trip cost ke baad hai '
+                                  '(research/costs.py, notional-aware)')}), 200
+
+
+@app.route('/api/journal', methods=['POST'])
+def api_journal_post():
+    body = request.get_json(silent=True) or {}
+    sym = str(body.get('symbol') or '').strip().upper()
+    side = str(body.get('side') or '').strip().upper()
+    if not sym:
+        return jsonify({'ok': False, 'error': 'symbol zaroori hai'}), 422
+    if side not in ('LONG', 'SHORT'):
+        return jsonify({'ok': False, 'error': 'side LONG ya SHORT hona chahiye'}), 422
+    try:
+        entry = float(body.get('entry'))
+        stop = float(body.get('stop'))
+        qty = int(body.get('qty'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False,
+                        'error': 'entry/stop number aur qty integer hona chahiye'}), 422
+    if entry <= 0 or stop <= 0 or qty <= 0:
+        return jsonify({'ok': False,
+                        'error': 'entry/stop/qty teeno positive hone chahiye'}), 422
+    # "Stop before entry" — 2026 checklists ka non-negotiable. Stop galat taraf
+    # ho to risk negative banta hai aur R-multiple ka sign ulta ho jaata hai,
+    # isliye yahan hi reject.
+    if (stop >= entry) if side == 'LONG' else (stop <= entry):
+        return jsonify({'ok': False, 'error': (
+            'LONG me stop entry se NEECHE hona chahiye'
+            if side == 'LONG' else 'SHORT me stop entry se UPAR hona chahiye')}), 422
+    exit_price = body.get('exit')
+    if exit_price in (None, ''):
+        exit_price = None
+    else:
+        try:
+            exit_price = float(exit_price)
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'exit number hona chahiye'}), 422
+        if exit_price <= 0:
+            return jsonify({'ok': False, 'error': 'exit positive hona chahiye'}), 422
+
+    mode = str(body.get('mode') or 'intraday').strip().lower()
+    if mode not in ('intraday', 'delivery'):
+        mode = 'intraday'
+    notional = entry * qty
+    cost = round(trade_cost_pct(mode, notional) / 100.0 * notional, 2)
+    r = journal_r_multiple(entry, stop, exit_price, side) if exit_price else None
+    pnl_gross = pnl_net = None
+    if exit_price:
+        pnl_gross = round(((exit_price - entry) if side == 'LONG'
+                           else (entry - exit_price)) * qty, 2)
+        pnl_net = round(pnl_gross - cost, 2)
+    rec = {
+        'id': '%x%s' % (time.time_ns(), os.urandom(2).hex()),
+        'symbol': sym,
+        'exchange': str(body.get('exchange') or 'NSE').strip().upper(),
+        'side': side,
+        'entry': entry, 'stop': stop, 'qty': qty,
+        'exit': exit_price,
+        'risk_per_share': round(abs(entry - stop), 4),
+        'risk_rupees': round(abs(entry - stop) * qty, 2),
+        'r': r,
+        'pnl_gross': pnl_gross,
+        'pnl_net': pnl_net,
+        'cost': cost,
+        'mode': mode,
+        'setup': str(body.get('setup') or '')[:60],
+        'note': str(body.get('note') or '')[:240],
+        'logged_at': _naive_ist(None).strftime('%Y-%m-%d %H:%M'),
+    }
+    items, corrupt = _journal_read()
+    if corrupt:
+        # Fail-closed: corrupt file ke upar likhna = purana journal gayab.
+        return jsonify({'ok': False, 'error': (
+            'trade_journal.json corrupt hai — us file ko rename/delete karein, '
+            'phir dobara save karein (purana data overwrite na ho isliye write '
+            'block kiya)')}), 409
+    items.append(rec)
+    _store_write(JOURNAL_FILE, items)
+    return jsonify({'ok': True, 'item': rec, 'items': items,
+                    'stats': journal_stats(items), 'corrupt': False}), 200
+
+
+@app.route('/api/journal', methods=['DELETE'])
+def api_journal_delete():
+    tid = str(request.args.get('id') or '').strip()
+    items, corrupt = _journal_read()
+    if corrupt:
+        return jsonify({'ok': False, 'error': 'trade_journal.json corrupt hai'}), 409
+    keep = [t for t in items if str(t.get('id')) != tid]
+    if len(keep) == len(items):
+        return jsonify({'ok': False, 'error': 'id nahi mili'}), 404
+    _store_write(JOURNAL_FILE, keep)
+    return jsonify({'ok': True, 'items': keep, 'stats': journal_stats(keep)}), 200
+
+
 # ── page routes ─────────────────────────────────────────────────────────────
 for _pg89 in ('Backtest', 'Watchlist', 'Heatmap', 'Alerts'):
     def _mk89(name):
