@@ -43,7 +43,6 @@ from typing import Any
 import score_calibration as SCORE_CAL
 
 from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
-from flask.json.provider import DefaultJSONProvider
 import numpy as np
 import pandas as pd
 import requests as http_requests
@@ -53,36 +52,6 @@ warnings.filterwarnings('ignore')
 
 # Initialize Flask Web Application
 app = Flask(__name__)
-
-
-# ── FIX-98: NaN / Infinity JSON me leak na ho ──────────────────────────────
-# Flask ka default encoder `NaN` / `Infinity` LITERAL emit karta hai — measure
-# kiya: app.json.dumps({'x': float('nan')}) → '{"x": NaN}'. Wo JSON spec me hai
-# hi nahi, isliye browser ka JSON.parse throw karta hai aur poora panel chup-chaap
-# khaali reh jaata hai. Koi bhi 0-division / 0-variance path ye kar sakta hai,
-# isliye guard app-level hai:
-#   • fast path: allow_nan=False — koi NaN nahi to output bilkul pehle jaisa
-#   • NaN/Inf mile to wo None ban jaata hai (jhootha 0.0 nahi — "measure nahi hua")
-def _strip_nonfinite(obj):
-    if isinstance(obj, dict):
-        return {k: _strip_nonfinite(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_strip_nonfinite(v) for v in obj]
-    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
-        return None
-    return obj
-
-
-class _SafeJSONProvider(DefaultJSONProvider):
-    def dumps(self, obj, **kwargs):
-        kwargs['allow_nan'] = False
-        try:
-            return super().dumps(obj, **kwargs)
-        except ValueError:
-            return super().dumps(_strip_nonfinite(obj), **kwargs)
-
-
-app.json = _SafeJSONProvider(app)
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIX-36: .env support — har baar $env:… set karne ki zaroorat nahi
@@ -2852,15 +2821,6 @@ TP_SQUEEZE_PCT = 20.0      # BB width, tightest 20% of its own history
 TP_ADV_MIN = 500000        # 5 lakh shares/day
 TP_HI52_LOW, TP_HI52_HIGH = -40.0, -15.0    # 15-40% below 52W high
 TP_GAP_FLAT_PCT = 0.2      # |gap| < 0.2% -> FLAT (rounding-level gap nahi ginete)
-# FIX-97: 2026 stock-SELECTION filters (intraday checklists se — sources commit msg me)
-TP_ATR_PCT_MIN = 1.5       # ATR(14) >= 1.5% of close, warna costs ke baad move bachta nahi
-TP_GAP_SKIP_PCT = 1.5      # morning routine: 1.5% se bada gap = candidate skip
-TP_BETA_MIN_OK = 0.8       # isse kam beta = market ke saath move hi nahi karta
-TP_BETA_IDEAL = (1.2, 1.8)  # ideal intraday band
-TP_BETA_MAX_OK = 2.0       # isse upar erratic moves, risk manage karna mushkil
-TP_BETA_BARS = 60          # ~3 mahine ke daily returns se beta
-TP_BETA_MIN = 30           # isse kam overlapping returns -> beta None (guess nahi)
-TP_INDEX_TTL = 3600        # NIFTY frame cache, 1 ghanta
 TP_HI52_BARS = 252         # ~52 trading weeks
 TP_CONF_CHECKS = 8         # confluence kitne indicators se ginta hai
 TP_MIN_WEEKLY = 50         # MTF ke liye kam se kam weekly bars
@@ -2877,79 +2837,7 @@ def _rnd(v, nd=2):
         return None
 
 
-_INDEX_CACHE = {'time': 0.0, 'df': None, 'err': None}
-
-
-def _index_frame(symbol='NIFTY', ttl=TP_INDEX_TTL):
-    """(df, err) — benchmark ka daily frame, cached. Fail-soft: kabhi raise nahi.
-
-    Beta ke liye chahiye. Har plan par network hit na ho isliye TTL cache; fail
-    hone par bhi TTL tak wahi reason dobara dete hain (baar-baar retry nahi).
-    """
-    if (time.time() - _INDEX_CACHE['time']) < ttl:
-        if _INDEX_CACHE['df'] is not None:
-            return _INDEX_CACHE['df'], None
-        if _INDEX_CACHE['err']:
-            return None, _INDEX_CACHE['err']
-    try:
-        df, _src = DATA_MANAGER.smart_fetch(symbol, period='1y', interval='1d',
-                                            prefer_exch='NSE')
-    except Exception as e:                                           # noqa: BLE001
-        _INDEX_CACHE.update(time=time.time(), df=None,
-                            err=f'index fetch fail: {type(e).__name__}')
-        return None, _INDEX_CACHE['err']
-    if df is None or getattr(df, 'empty', True) or 'Close' not in df.columns:
-        _INDEX_CACHE.update(time=time.time(), df=None,
-                            err='index frame khali hai ya Close column nahi')
-        return None, _INDEX_CACHE['err']
-    _INDEX_CACHE.update(time=time.time(), df=df, err=None)
-    return df, None
-
-
-def calculate_beta(stock_close, index_close, bars=TP_BETA_BARS, min_bars=TP_BETA_MIN):
-    """(beta, corr, n) — daily returns par cov/var. Kam data -> (None, None, n).
-
-    Do input shapes accept karta hai: DatetimeIndex wali pandas Series (asli
-    frames — session date par align hote hain) ya equal-length sequences (tests).
-    Beta 1.0 ka matlab "market jitna hi move", <0.8 sluggish, >2.0 erratic.
-    """
-    try:
-        if isinstance(stock_close, pd.Series) and isinstance(index_close, pd.Series):
-            a = stock_close.copy()
-            b = index_close.copy()
-            a.index = pd.to_datetime(a.index).normalize()
-            b.index = pd.to_datetime(b.index).normalize()
-            j = pd.concat([a.rename('s'), b.rename('i')], axis=1, join='inner').dropna()
-            sp = pd.to_numeric(j['s'], errors='coerce')
-            ip = pd.to_numeric(j['i'], errors='coerce')
-        else:
-            s_list = list(stock_close)
-            i_list = list(index_close)
-            n = min(len(s_list), len(i_list))
-            j = pd.DataFrame({'s': s_list[-n:], 'i': i_list[-n:]})
-            sp = pd.to_numeric(j['s'], errors='coerce')
-            ip = pd.to_numeric(j['i'], errors='coerce')
-        both = pd.concat([sp, ip], axis=1, keys=('s', 'i')).dropna()
-        rets = pd.concat([both['s'].pct_change(), both['i'].pct_change()],
-                         axis=1, keys=('s', 'i')).dropna()
-        if len(rets) > bars:
-            rets = rets.iloc[-bars:]
-        n = len(rets)
-        if n < min_bars:
-            return None, None, n
-        var = float(rets['i'].var(ddof=1))
-        if not var or var <= 0:
-            return None, None, n
-        cov = float(rets['s'].cov(rets['i'], ddof=1))
-        sd_s = float(rets['s'].std(ddof=1))
-        sd_i = float(rets['i'].std(ddof=1))
-        corr = (cov / (sd_s * sd_i)) if (sd_s > 0 and sd_i > 0) else None
-        return round(cov / var, 2), (round(corr, 2) if corr is not None else None), n
-    except Exception:                                                # noqa: BLE001
-        return None, None, 0
-
-
-def calculate_trade_plan(dfi, index_frame=None):
+def calculate_trade_plan(dfi):
     """(dict) Execution layer. Missing input → key absent + note, kabhi guess nahi.
 
     Har number ke saath uska RULE bhi jaata hai, taaki user dekh sake ki ye
@@ -3131,48 +3019,6 @@ def calculate_trade_plan(dfi, index_frame=None):
             out['notes'].append('ADV compute nahi hua')
     else:
         out['notes'].append('Volume missing — ADV skip')
-
-    # ── FIX-97: 2026 stock-SELECTION filters (beta / ATR% / gap) ───────────
-    # Plan batata tha stop/target kahan hai; ye batata hai ki stock intraday ke
-    # LIYE layak hai ya nahi. Sab kuch existing data se — jo measure na ho paye
-    # wo None + reason ke saath jaata hai (0 ya 1.0 guess nahi karte).
-    flt = {'rules': {'beta_min': TP_BETA_MIN_OK, 'beta_ideal': list(TP_BETA_IDEAL),
-                     'beta_max': TP_BETA_MAX_OK, 'atr_pct_min': TP_ATR_PCT_MIN,
-                     'gap_skip_pct': TP_GAP_SKIP_PCT, 'beta_bars': TP_BETA_BARS,
-                     'beta_min_bars': TP_BETA_MIN}}
-    _ierr = None
-    if index_frame is None:
-        index_frame, _ierr = _index_frame()
-    beta = corr = None
-    beta_n = 0
-    if index_frame is not None and 'Close' in getattr(index_frame, 'columns', []):
-        beta, corr, beta_n = calculate_beta(dfi['Close'], index_frame['Close'])
-    flt['beta'] = beta
-    flt['beta_corr'] = corr
-    flt['beta_n'] = beta_n
-    if beta is None:
-        flt['beta_ok'] = None
-        flt['beta_note'] = (_ierr or (f'beta ke liye {TP_BETA_MIN} overlapping daily '
-                                      f'returns chahiye — mile {beta_n}'))
-    else:
-        flt['beta_ok'] = bool(beta >= TP_BETA_MIN_OK)
-        flt['beta_ideal_ok'] = bool(TP_BETA_IDEAL[0] <= beta <= TP_BETA_IDEAL[1])
-        flt['beta_note'] = (f'beta ≥ {TP_BETA_MIN_OK} — market ke saath move karta hai'
-                            if flt['beta_ok'] else
-                            f'beta < {TP_BETA_MIN_OK} — market ke saath move nahi karta, '
-                            'intraday ke liye sluggish')
-        if beta > TP_BETA_MAX_OK:
-            flt['beta_note'] += (f' | > {TP_BETA_MAX_OK} = erratic moves, '
-                                 'risk manage karna mushkil')
-        if flt['beta_ideal_ok']:
-            flt['beta_note'] += f' | ideal band {TP_BETA_IDEAL[0]}–{TP_BETA_IDEAL[1]} ke andar'
-    _ap = out.get('atr_pct')
-    flt['atr_pct'] = _ap
-    flt['atr_pct_ok'] = None if _ap is None else bool(_ap >= TP_ATR_PCT_MIN)
-    _gp = (out.get('prevday') or {}).get('gap_pct')
-    flt['gap_pct'] = _gp
-    flt['gap_skip'] = None if _gp is None else bool(abs(_gp) > TP_GAP_SKIP_PCT)
-    out['filters'] = flt
 
     out['ok'] = True
     return out
@@ -5591,10 +5437,6 @@ _BACKTEST_FILES = {'NSE': os.path.join(_ROOT89, 'backtest_history_nse.json'),
                    'BSE': os.path.join(_ROOT89, 'backtest_history_bse.json')}
 _BACKTEST_CACHE = {}
 _STORE_LOCK = _th89.RLock()
-# FIX-98: identifier ki length cap — 200k char ka "symbol" accept ho raha tha
-# (measure kiya) aur per-user JSON file ko bloat kar sakta tha. Truncate karke
-# galat symbol banana usse bura hai, isliye reject.
-SYMBOL_MAX_LEN = 24
 WATCHLIST_FILE = os.path.join(_ROOT89, 'watchlist.json')
 ALERTS_FILE = os.path.join(_ROOT89, 'alerts.json')
 _MIN_BAND_N = 30          # isse kam samples par "insufficient" — statistically jhooth nahi bolenge
@@ -5718,18 +5560,14 @@ def api_watchlist_post():
         return jsonify({'ok': False, 'error': 'symbol chahiye'}), 400
     if ex not in ('NSE', 'BSE'):
         return jsonify({'ok': False, 'error': "exchange 'NSE' ya 'BSE' hona chahiye"}), 400
-    if len(sym) > SYMBOL_MAX_LEN:                              # FIX-98
-        return jsonify({'ok': False,
-                        'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 400
-    with _STORE_LOCK:                                          # FIX-98: RMW atomic
-        # non-dict rows filter — warna hand-edited file par i.get() se 500 aata tha
-        items = [i for i in _store_read(WATCHLIST_FILE, []) if isinstance(i, dict)]
-        if any(i.get('symbol') == sym and i.get('exchange') == ex for i in items):
-            return jsonify({'ok': False,
-                            'error': '%s (%s) pehle se watchlist me hai' % (sym, ex)}), 409
-        items.append({'symbol': sym, 'exchange': ex, 'note': str(body.get('note') or '')[:120],
-                      'added_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
-        _store_write(WATCHLIST_FILE, items)
+    items = _store_read(WATCHLIST_FILE, [])
+    if not isinstance(items, list):
+        items = []
+    if any(i.get('symbol') == sym and i.get('exchange') == ex for i in items):
+        return jsonify({'ok': False, 'error': '%s (%s) pehle se watchlist me hai' % (sym, ex)}), 409
+    items.append({'symbol': sym, 'exchange': ex, 'note': str(body.get('note') or '')[:120],
+                  'added_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
+    _store_write(WATCHLIST_FILE, items)
     return jsonify({'ok': True, 'items': items}), 200
 
 
@@ -5737,13 +5575,14 @@ def api_watchlist_post():
 def api_watchlist_delete():
     sym = (request.args.get('symbol') or '').strip().upper()
     ex = (request.args.get('exchange') or '').strip().upper()
-    with _STORE_LOCK:                                          # FIX-98: RMW atomic
-        items = [i for i in _store_read(WATCHLIST_FILE, []) if isinstance(i, dict)]
-        keep = [i for i in items
-                if not (i.get('symbol') == sym and (i.get('exchange') or 'NSE') == ex)]
-        if len(keep) == len(items):
-            return jsonify({'ok': False, 'error': 'mila nahi'}), 404
-        _store_write(WATCHLIST_FILE, keep)
+    items = _store_read(WATCHLIST_FILE, [])
+    if not isinstance(items, list):
+        items = []
+    keep = [i for i in items
+            if not (i.get('symbol') == sym and (i.get('exchange') or 'NSE') == ex)]
+    if len(keep) == len(items):
+        return jsonify({'ok': False, 'error': 'mila nahi'}), 404
+    _store_write(WATCHLIST_FILE, keep)
     return jsonify({'ok': True, 'items': keep}), 200
 
 
@@ -5821,15 +5660,11 @@ def api_alerts_post():
         return jsonify({'ok': False, 'error': "condition 'above' ya 'below' hona chahiye"}), 400
     if level <= 0:
         return jsonify({'ok': False, 'error': 'level 0 se bada hona chahiye'}), 400
-    if len(sym) > SYMBOL_MAX_LEN:                              # FIX-98
-        return jsonify({'ok': False,
-                        'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 400
-    with _STORE_LOCK:                                          # FIX-98: RMW atomic
-        items = [a for a in _alerts_list() if isinstance(a, dict)]
-        items.append({'id': int(time.time() * 1000) % 10 ** 9, 'symbol': sym, 'exchange': ex,
-                      'condition': cond, 'level': level, 'fired': False,
-                      'fired_at': None, 'created_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
-        _store_write(ALERTS_FILE, items)
+    items = _alerts_list()
+    items.append({'id': int(time.time() * 1000) % 10 ** 9, 'symbol': sym, 'exchange': ex,
+                  'condition': cond, 'level': level, 'fired': False,
+                  'fired_at': None, 'created_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
+    _store_write(ALERTS_FILE, items)
     return jsonify({'ok': True, 'alerts': items}), 200
 
 
@@ -5839,12 +5674,11 @@ def api_alerts_delete():
         aid = int(request.args.get('id'))
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': 'id number hona chahiye'}), 400
-    with _STORE_LOCK:                                          # FIX-98: RMW atomic
-        items = [a for a in _alerts_list() if isinstance(a, dict)]
-        keep = [a for a in items if a.get('id') != aid]
-        if len(keep) == len(items):
-            return jsonify({'ok': False, 'error': 'alert nahi mila'}), 404
-        _store_write(ALERTS_FILE, keep)
+    items = _alerts_list()
+    keep = [a for a in items if a.get('id') != aid]
+    if len(keep) == len(items):
+        return jsonify({'ok': False, 'error': 'alert nahi mila'}), 404
+    _store_write(ALERTS_FILE, keep)
     return jsonify({'ok': True, 'alerts': keep}), 200
 
 
@@ -5852,11 +5686,10 @@ def api_alerts_delete():
 def api_alerts_check():
     """Pending alerts ko current quote se check karo. Frontend poll karta hai —
     server khud background loop nahi chalata (resource leak se bachne ke liye)."""
-    snapshot = [a for a in _alerts_list() if isinstance(a, dict)]
-    pending = [a for a in snapshot if not a.get('fired')]
+    items = _alerts_list()
+    pending = [a for a in items if not a.get('fired')]
     checked, errors = 0, []
     now = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
-    seen = {}          # id -> update; network calls lock ke BAHAR hote hain
     for a in pending:
         sym, ex = a.get('symbol'), (a.get('exchange') or 'NSE').upper()
         try:
@@ -5869,259 +5702,17 @@ def api_alerts_check():
             continue
         checked += 1
         price = float(q['price'])
-        upd = {'last_price': price, 'checked_at': now}
+        a['last_price'] = price
+        a['checked_at'] = now
         hit = (price >= a['level']) if a.get('condition') == 'above' else (price <= a['level'])
         if hit:
-            upd.update({'fired': True, 'fired_at': now, 'fired_price': price})
-        seen[a.get('id')] = upd
-    # FIX-98: write lock ke andar aur FRESH list par. Pehle network calls ke
-    # dauraan wala snapshot hi write hota tha — beech me add/delete hua alert
-    # kho jaata, aur do parallel /check ek doosre ka update mita dete.
-    with _STORE_LOCK:
-        items = [a for a in _alerts_list() if isinstance(a, dict)]
-        for a in items:
-            upd = seen.get(a.get('id'))
-            if upd:
-                a.update(upd)
-        _store_write(ALERTS_FILE, items)
+            a['fired'] = True
+            a['fired_at'] = now
+            a['fired_price'] = price
+    _store_write(ALERTS_FILE, items)
     return jsonify({'ok': True, 'alerts': items, 'checked': checked,
                     'fired_now': [a for a in items if a.get('fired_at') == now],
                     'errors': errors[:8]}), 200
-
-
-# ── FIX-96: TRADE JOURNAL ───────────────────────────────────────────────────
-# 2026 ke pre-trade checklist ka aakhri item "trade logged?" hota hai, aur
-# journal hi akela aisa record hai jo aapki ASLI execution measure karta hai —
-# backtest edge ka estimate deta hai, journal actual (execution + psychology).
-# Design rules (2026 journal guides: quantum-algo / bouncetrade / journalplus /
-# tradetally — sab isi par agree karte hain):
-#   • primary metric = R-multiple (position-size normalised), win rate akela
-#     misleading hai (40% win rate + 2.5R winners = profitable)
-#   • expectancy = sum(R)/n — edge hai ya nahi, yahi batata hai
-#   • -1R se bura result = stop miss/gap/widened SL → alag count hota hai
-#   • n chhota ho to stats ko ANECDOTE kaha jaata hai — chhupaya nahi jaata
-# Aur sabse zaroori: yahan koi predicted/assumed number nahi hai. Sirf wo trades
-# count hote hain jo user ne khud log kiye. Model/score ki "accuracy" nahi.
-JOURNAL_FILE = os.path.join(_ROOT89, 'trade_journal.json')
-
-JN_ANECDOTE = 20      # <20 closed trades = anecdote (variance dominate karta hai)
-JN_ROUGH = 30         # 30 = expectancy ka rough minimum
-JN_RELIABLE = 100     # 100+ = reliable sample
-JN_STOP_R = -1.0      # exact stop-out = -1R
-
-
-def _journal_read():
-    """(items, corrupt, dropped).
-
-    Corrupt file par chup-chaap khali list NAHI dikhate — warna user ko lagega
-    journal khaali hai aur wo dobara save karke purana data overwrite kar dega.
-    FIX-97a: valid JSON list ho par usme non-dict rows hon (hand-edited file) to
-    wo rows DROP hote hain aur count `dropped` me jaata hai. Pehle ye rows aage
-    jaakar `t.get('id')` par AttributeError dete the → DELETE 500. Chup-chaap
-    drop nahi karte: count API response tak jaata hai.
-    """
-    try:
-        with open(JOURNAL_FILE, encoding='utf-8') as f:
-            raw = f.read()
-    except FileNotFoundError:
-        return [], False, 0
-    except Exception:                                            # noqa: BLE001
-        return [], True, 0
-    try:
-        data = json.loads(raw)
-    except Exception:                                            # noqa: BLE001
-        return [], True, 0
-    if not isinstance(data, list):
-        return [], True, 0
-    rows = [t for t in data if isinstance(t, dict)]
-    return rows, False, (len(data) - len(rows))
-
-
-def journal_r_multiple(entry, stop, exit_price, side):
-    """R = outcome / initial risk. Full stop-out = exactly -1R.
-
-    Invalid record (stop entry ke galat taraf, ya koi number nahi) par None —
-    jhootha 0.0 nahi.
-    """
-    try:
-        entry = float(entry)
-        stop = float(stop)
-        exit_price = float(exit_price)
-    except (TypeError, ValueError):
-        return None
-    short = str(side).upper() == 'SHORT'
-    risk = (stop - entry) if short else (entry - stop)
-    if risk <= 0:
-        return None
-    gain = (entry - exit_price) if short else (exit_price - entry)
-    return round(gain / risk, 3)
-
-
-def _journal_confidence(n):
-    if n < JN_ANECDOTE:
-        return 'anecdote'
-    if n < JN_ROUGH:
-        return 'thin'
-    if n < JN_RELIABLE:
-        return 'rough'
-    return 'reliable'
-
-
-_JN_NOTE = {
-    'anecdote': ('%d closed trades — 20 se kam, isliye ye ANECDOTE hai: ek-do '
-                 'trade poora average hila dete hain. Pattern mat nikalo.'),
-    'thin':     ('%d closed trades — direction dikhta hai, par numbers abhi '
-                 'noise hain (20–29).'),
-    'rough':    ('%d closed trades — expectancy ka rough minimum (30). Reliable '
-                 'kehne ke liye 100+ chahiye.'),
-    'reliable': ('%d closed trades — 100+, sample reliable hai.'),
-}
-
-
-def journal_stats(items):
-    """Sirf CLOSED trades se stats. Open trades count me dikhte hain, mix nahi hote."""
-    rows = [t for t in items if isinstance(t, dict)]
-    closed = [t for t in rows if isinstance(t.get('r'), (int, float))]
-    rs = [float(t['r']) for t in closed]
-    n = len(rs)
-    wins = [r for r in rs if r > 0]
-    losses = [r for r in rs if r <= 0]
-    gross_win = sum(wins)
-    gross_loss = -sum(losses)
-    conf = _journal_confidence(n)
-    return {
-        'open': len(rows) - n,
-        'closed': n,
-        'wins': len(wins),
-        'losses': len(losses),
-        'win_rate': round(len(wins) / n * 100, 1) if n else None,
-        'avg_win_r': round(gross_win / len(wins), 3) if wins else None,
-        'avg_loss_r': round(-gross_loss / len(losses), 3) if losses else None,
-        'expectancy_r': round(sum(rs) / n, 3) if n else None,
-        'profit_factor': round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
-        'worst_r': min(rs) if rs else None,
-        'stop_breaches': sum(1 for r in rs if r < JN_STOP_R - 1e-9),
-        'net_pnl': round(sum(float(t.get('pnl_net') or 0.0) for t in closed), 2),
-        'confidence': conf,
-        'thresholds': {'anecdote_below': JN_ANECDOTE, 'rough_from': JN_ROUGH,
-                       'reliable_from': JN_RELIABLE},
-        'disclosure': (_JN_NOTE[conf] % n) + (' Ye aapke khud log kiye trades ka '
-                       'record hai — kisi model/score ki accuracy nahi, aur na '
-                       'hi koi prediction.'),
-    }
-
-
-@app.route('/api/journal', methods=['GET'])
-def api_journal_get():
-    items, corrupt, dropped = _journal_read()
-    return jsonify({'ok': True, 'items': items, 'stats': journal_stats(items),
-                    'corrupt': corrupt, 'dropped_rows': dropped,
-                    'cost_note': ('net P&L round-trip cost ke baad hai '
-                                  '(research/costs.py, notional-aware)')}), 200
-
-
-@app.route('/api/journal', methods=['POST'])
-def api_journal_post():
-    body = request.get_json(silent=True) or {}
-    sym = str(body.get('symbol') or '').strip().upper()
-    side = str(body.get('side') or '').strip().upper()
-    if not sym:
-        return jsonify({'ok': False, 'error': 'symbol zaroori hai'}), 422
-    if len(sym) > SYMBOL_MAX_LEN:
-        return jsonify({'ok': False,
-                        'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 422
-    if side not in ('LONG', 'SHORT'):
-        return jsonify({'ok': False, 'error': 'side LONG ya SHORT hona chahiye'}), 422
-    try:
-        entry = float(body.get('entry'))
-        stop = float(body.get('stop'))
-        qty = int(body.get('qty'))
-    except (TypeError, ValueError):
-        return jsonify({'ok': False,
-                        'error': 'entry/stop number aur qty integer hona chahiye'}), 422
-    if entry <= 0 or stop <= 0 or qty <= 0:
-        return jsonify({'ok': False,
-                        'error': 'entry/stop/qty teeno positive hone chahiye'}), 422
-    # "Stop before entry" — 2026 checklists ka non-negotiable. Stop galat taraf
-    # ho to risk negative banta hai aur R-multiple ka sign ulta ho jaata hai,
-    # isliye yahan hi reject.
-    if (stop >= entry) if side == 'LONG' else (stop <= entry):
-        return jsonify({'ok': False, 'error': (
-            'LONG me stop entry se NEECHE hona chahiye'
-            if side == 'LONG' else 'SHORT me stop entry se UPAR hona chahiye')}), 422
-    exit_price = body.get('exit')
-    if exit_price in (None, ''):
-        exit_price = None
-    else:
-        try:
-            exit_price = float(exit_price)
-        except (TypeError, ValueError):
-            return jsonify({'ok': False, 'error': 'exit number hona chahiye'}), 422
-        if exit_price <= 0:
-            return jsonify({'ok': False, 'error': 'exit positive hona chahiye'}), 422
-
-    mode = str(body.get('mode') or 'intraday').strip().lower()
-    if mode not in ('intraday', 'delivery'):
-        mode = 'intraday'
-    notional = entry * qty
-    cost = round(trade_cost_pct(mode, notional) / 100.0 * notional, 2)
-    r = journal_r_multiple(entry, stop, exit_price, side) if exit_price else None
-    pnl_gross = pnl_net = None
-    if exit_price:
-        pnl_gross = round(((exit_price - entry) if side == 'LONG'
-                           else (entry - exit_price)) * qty, 2)
-        pnl_net = round(pnl_gross - cost, 2)
-    rec = {
-        'id': '%x%s' % (time.time_ns(), os.urandom(2).hex()),
-        'symbol': sym,
-        'exchange': str(body.get('exchange') or 'NSE').strip().upper(),
-        'side': side,
-        'entry': entry, 'stop': stop, 'qty': qty,
-        'exit': exit_price,
-        'risk_per_share': round(abs(entry - stop), 4),
-        'risk_rupees': round(abs(entry - stop) * qty, 2),
-        'r': r,
-        'pnl_gross': pnl_gross,
-        'pnl_net': pnl_net,
-        'cost': cost,
-        'mode': mode,
-        'setup': str(body.get('setup') or '')[:60],
-        'note': str(body.get('note') or '')[:240],
-        'logged_at': _naive_ist(None).strftime('%Y-%m-%d %H:%M'),
-    }
-    # FIX-98: poora read-modify-write lock ke ANDAR. Pehle sirf _store_write
-    # locked tha, isliye do parallel POST ek doosre ka record mita dete the —
-    # measure kiya: 12 parallel POST → file me sirf 4 records, 8 lost writes.
-    with _STORE_LOCK:
-        items, corrupt, dropped = _journal_read()
-        if corrupt:
-            # Fail-closed: corrupt file ke upar likhna = purana journal gayab.
-            return jsonify({'ok': False, 'error': (
-                'trade_journal.json corrupt hai — us file ko rename/delete karein, '
-                'phir dobara save karein (purana data overwrite na ho isliye write '
-                'block kiya)')}), 409
-        items.append(rec)
-        _store_write(JOURNAL_FILE, items)
-    return jsonify({'ok': True, 'item': rec, 'items': items,
-                    'stats': journal_stats(items), 'corrupt': False,
-                    'dropped_rows': dropped}), 200
-
-
-@app.route('/api/journal', methods=['DELETE'])
-def api_journal_delete():
-    tid = str(request.args.get('id') or '').strip()
-    with _STORE_LOCK:                                          # FIX-98: RMW atomic
-        items, corrupt, dropped = _journal_read()
-        if corrupt:
-            return jsonify({'ok': False, 'error': 'trade_journal.json corrupt hai'}), 409
-        # items ab sirf dicts hain (FIX-97a) — pehle yahan non-dict row par
-        # AttributeError se 500 aata tha.
-        keep = [t for t in items if str(t.get('id')) != tid]
-        if len(keep) == len(items):
-            return jsonify({'ok': False, 'error': 'id nahi mili'}), 404
-        _store_write(JOURNAL_FILE, keep)
-    return jsonify({'ok': True, 'items': keep, 'stats': journal_stats(keep),
-                    'dropped_rows': dropped}), 200
 
 
 # ── page routes ─────────────────────────────────────────────────────────────
