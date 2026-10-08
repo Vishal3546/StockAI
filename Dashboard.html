@@ -9,7 +9,9 @@
 <!-- Bootstrap 5 -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <!-- Bootstrap Icons -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<!-- FIX-94: bootstrap-icons CDN hataya — webfont na load ho to har icon ki jagah
+     tofu box (□) dikhta tha (user ke screenshot me pakda gaya). Ab sab icons
+     inline SVG hain (neeche body me <symbol> sprite) — offline bhi render hote hain. -->
 <!-- Google Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <!-- TradingView Lightweight Charts -->
@@ -272,6 +274,58 @@ body::after {
   cursor: pointer;
 }
 
+/* ── FIX-94: navbar layout — bootstrap par depend nahi ──────────────────────
+   Pehle sab buttons ek hi non-wrapping row me the (right me cut hote the) aur
+   clock wrap hokar neeche-left aa jata tha. Ab:
+   row-1 = brand + LIVE + engine-tag … clock (right, margin-left:auto)
+   row-2 = search + page buttons, flex-wrap ke saath — kuch bhi cut nahi hota. */
+.nav-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.nav-clock {
+  margin-left: auto;              /* hamesha top-right */
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;                /* chhoti screen par neatly wrap */
+  margin-top: 10px;
+}
+.nav-actions .btn-go {
+  display: inline-flex;           /* icon + text ek line me, same height */
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  white-space: nowrap;
+  text-decoration: none;
+  font-size: 0.8rem;
+}
+.nav-actions .btn-go:hover { filter: brightness(1.12); }
+
+/* inline SVG icons — webfont ki zaroorat nahi, har jagah render hote hain */
+.ic {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -2px;
+}
+.stitle .ic { width: 16px; height: 16px; margin-right: 4px; }
+
 .live-b {
   display: inline-flex;
   align-items: center;
@@ -501,36 +555,63 @@ body::after {
 </style>
 </head>
 <body>
+<!-- FIX-94: inline SVG icon sprite — offline render, koi webfont nahi.
+     Har icon stroke-based hai, CSS `.ic` se colour/size currentColor follow karta hai. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 L3 14 h7 l-1 8 L21 10 h-7 l1 -8 z"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M20.5 14a8.5 8.5 0 1 0-17 0"/><path d="M12 14l4-4"/></symbol>
+    <symbol id="i-calc" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7.5h6M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01"/></symbol>
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v9M9.5 10v9M14.5 10v9M19 10v9"/><path d="M3 20h18"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v6l-4 2v-8L3 4z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.7 5.7 6.3.9-4.6 4.4 1.1 6.2-5.5-2.9-5.5 2.9 1.1-6.2L3 9.6l6.3-.9z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 7 2 8 2 8H4s2-1 2-8"/><path d="M10 21a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4a3 3 0 0 1 6 0"/><path d="M9.5 12h5M9.5 16h5"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/><rect x="10.5" y="10.5" width="3" height="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M6 2v3M18 2v3M6 19v3M18 19v3"/></symbol>
+    <symbol id="i-cross" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+    <symbol id="i-build" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-robot" viewBox="0 0 24 24"><rect x="5" y="9" width="14" height="9" rx="2"/><path d="M12 9V5M9.5 5h5"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/><path d="M9.5 15.8h5"/></symbol>
+  </defs>
+</svg>
 <div class="wrap">
 
 <!-- ═══════════════ NAVBAR ═══════════════ -->
 <nav class="nav-top">
-  <div class="container-fluid px-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
-    <div class="d-flex align-items-center gap-3">
+  <div class="container-fluid px-4">
+    <!-- row-1: brand + badges … clock top-right (FIX-94) -->
+    <div class="nav-head">
       <div class="brand">StockAI <span style="font-weight:400;opacity:0.6">V6.1</span></div>
       <div class="live-b" id="liveBadge"><div class="live-dot"></div><span id="liveBadgeText">SOURCE…</span></div>
       <span class="badge-tag" id="activeEngineTag" style="background:var(--accent-purple-dim);color:var(--accent-purple-light)">NSE DIRECT LIVE</span>
+      <span class="nav-clock" id="clock"></span>
     </div>
-    <div class="d-flex align-items-center gap-2">
+    <!-- row-2: search + page buttons — flex-wrap, kuch bhi cut nahi hota (FIX-94) -->
+    <div class="nav-actions">
       <div class="search-wrap">
-        <input class="sbox" id="symInput" value="RELIANCE" placeholder="🔍 Search Stock (e.g. TCS)..." autocomplete="off">
+        <input class="sbox" id="symInput" value="RELIANCE" placeholder="Search Stock (e.g. TCS)..." autocomplete="off">
         <div class="search-dropdown" id="searchDropdown"></div>
       </div>
-      <button class="btn-go" onclick="loadStock()"><i class="bi bi-lightning-charge-fill"></i> Analyze</button>
-      <a class="btn-go" href="/cockpit" style="text-decoration:none" title="Indices, breadth, sector heatmap"><i class="bi bi-speedometer2"></i> Cockpit</a>
-      <a class="btn-go" href="/calculators" style="text-decoration:none" title="Trade cost, position size, SIP"><i class="bi bi-calculator"></i> Calculators</a>
-      <a class="btn-go" href="/fidii" style="text-decoration:none" title="FII/DII institutional flows from NSE"><i class="bi bi-bank"></i> FII / DII</a>
-      <a class="btn-go" href="/screener" style="text-decoration:none" title="Scanner ka ranked output, filter ke saath"><i class="bi bi-funnel"></i> Screener</a>
-      <a class="btn-go" href="/timeframes" style="text-decoration:none" title="Intraday / Swing / Long-term scores"><i class="bi bi-clock-history"></i> Timeframes</a>
-      <a class="btn-go" href="/options" style="text-decoration:none" title="Option chain, OI, PCR, Max Pain"><i class="bi bi-graph-up"></i> Options</a>
+      <button class="btn-go" onclick="loadStock()"><svg class="ic" aria-hidden="true"><use href="#i-bolt"/></svg> Analyze</button>
+      <a class="btn-go" href="/cockpit" title="Indices, breadth, sector heatmap"><svg class="ic" aria-hidden="true"><use href="#i-gauge"/></svg> Cockpit</a>
+      <a class="btn-go" href="/calculators" title="Trade cost, position size, SIP"><svg class="ic" aria-hidden="true"><use href="#i-calc"/></svg> Calculators</a>
+      <a class="btn-go" href="/fidii" title="FII/DII institutional flows from NSE"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg> FII / DII</a>
+      <a class="btn-go" href="/screener" title="Scanner ka ranked output, filter ke saath"><svg class="ic" aria-hidden="true"><use href="#i-filter"/></svg> Screener</a>
+      <a class="btn-go" href="/timeframes" title="Intraday / Swing / Long-term scores + Trade Plan"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg> Timeframes</a>
+      <a class="btn-go" href="/options" title="Option chain, OI, PCR, Max Pain"><svg class="ic" aria-hidden="true"><use href="#i-trend"/></svg> Options</a>
       <!-- FIX-90/91/92 + 89b: naye pages. Title me hi disclosure hai — backtest
            accuracy claim nahi hai, aur alerts browser-open par hi check hote hain. -->
-      <a class="btn-go" href="/watchlist" style="text-decoration:none" title="Apne stocks ek jagah, live price ke saath"><i class="bi bi-star"></i> Watchlist</a>
-      <a class="btn-go" href="/heatmap" style="text-decoration:none" title="Scanned stocks ka sector-wise performance"><i class="bi bi-grid-3x3-gap"></i> Heatmap</a>
-      <a class="btn-go" href="/alerts" style="text-decoration:none" title="Price level cross par browser notification"><i class="bi bi-bell"></i> Alerts</a>
-      <a class="btn-go" href="/backtest" style="text-decoration:none" title="Score bands ne historically kya kiya — real returns, prediction nahi"><i class="bi bi-clipboard-data"></i> Backtest</a>
+      <a class="btn-go" href="/watchlist" title="Apne stocks ek jagah, live price ke saath"><svg class="ic" aria-hidden="true"><use href="#i-star"/></svg> Watchlist</a>
+      <a class="btn-go" href="/heatmap" title="Scanned stocks ka sector-wise performance"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg> Heatmap</a>
+      <a class="btn-go" href="/alerts" title="Price level cross par browser notification"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg> Alerts</a>
+      <a class="btn-go" href="/backtest" title="Score bands ne historically kya kiya — real returns, prediction nahi"><svg class="ic" aria-hidden="true"><use href="#i-clip"/></svg> Backtest</a>
     </div>
-    <span style="color:var(--text-muted);font-size:0.75rem" id="clock"></span>
   </div>
 </nav>
 
@@ -634,7 +715,7 @@ body::after {
     <div class="row mb-3">
       <div class="col-12">
         <div class="gc" style="border-color:rgba(138, 43, 226, 0.25)">
-          <div class="stitle"><i class="bi bi-cpu" style="color:var(--accent-purple-light)"></i> REAL ML ENGINE (GradientBoosting + RandomForest + LogisticReg + XGBoost)</div>
+          <div class="stitle"><svg class="ic" style="color:var(--accent-purple-light)" aria-hidden="true"><use href="#i-cpu"/></svg> REAL ML ENGINE (GradientBoosting + RandomForest + LogisticReg + XGBoost)</div>
           <div id="mlBox" class="row g-3 align-items-center">
             <div class="col-12 text-center" style="color:var(--text-muted)">Running Machine Learning Models...</div>
           </div>
@@ -664,7 +745,7 @@ body::after {
       </div>
       <div class="col-lg-4">
         <div class="gc h-100" style="max-height:430px;overflow-y:auto">
-          <div class="stitle"><i class="bi bi-speedometer2" style="color:var(--accent-cyan)"></i> 20+ Technical Indicators</div>
+          <div class="stitle"><svg class="ic" style="color:var(--accent-cyan)" aria-hidden="true"><use href="#i-gauge"/></svg> 20+ Technical Indicators</div>
           <div id="indList"></div>
         </div>
       </div>
@@ -674,19 +755,19 @@ body::after {
     <div class="row g-2 mb-3">
       <div class="col-md-4">
         <div class="gc h-100">
-          <div class="stitle"><i class="bi bi-crosshair" style="color:var(--color-green)"></i> Targets & Execution Plan</div>
+          <div class="stitle"><svg class="ic" style="color:var(--color-green)" aria-hidden="true"><use href="#i-cross"/></svg> Targets & Execution Plan</div>
           <div id="targetsBox"></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="gc h-100" style="max-height:380px;overflow-y:auto">
-          <div class="stitle"><i class="bi bi-stars" style="color:var(--color-yellow)"></i> Candlestick Patterns</div>
+          <div class="stitle"><svg class="ic" style="color:var(--color-yellow)" aria-hidden="true"><use href="#i-spark"/></svg> Candlestick Patterns</div>
           <div id="patternsBox"></div>
         </div>
       </div>
       <div class="col-md-4">
         <div class="gc h-100">
-          <div class="stitle"><i class="bi bi-building" style="color:var(--accent-purple-light)"></i> Fundamentals</div>
+          <div class="stitle"><svg class="ic" style="color:var(--accent-purple-light)" aria-hidden="true"><use href="#i-build"/></svg> Fundamentals</div>
           <div id="fundBox"></div>
         </div>
       </div>
@@ -694,9 +775,9 @@ body::after {
 
     <!-- Multi-Timeframe + Risk + SMC Details -->
     <div class="row g-2 mb-3">
-      <div class="col-md-4"><div class="gc h-100"><div class="stitle"><i class="bi bi-layers" style="color:var(--accent-cyan)"></i> Multi-Timeframe</div><div id="mtfGrid" class="row g-2"></div></div></div>
-      <div class="col-md-4"><div class="gc h-100"><div class="stitle"><i class="bi bi-shield-check" style="color:var(--color-green)"></i> Risk Plan (Kelly)</div><div id="riskPlan"></div></div></div>
-      <div class="col-md-4"><div class="gc h-100"><div class="stitle"><i class="bi bi-eye" style="color:var(--accent-purple-light)"></i> SMC / VCP Details</div><div id="smcDetails"></div></div></div>
+      <div class="col-md-4"><div class="gc h-100"><div class="stitle"><svg class="ic" style="color:var(--accent-cyan)" aria-hidden="true"><use href="#i-layers"/></svg> Multi-Timeframe</div><div id="mtfGrid" class="row g-2"></div></div></div>
+      <div class="col-md-4"><div class="gc h-100"><div class="stitle"><svg class="ic" style="color:var(--color-green)" aria-hidden="true"><use href="#i-shield"/></svg> Risk Plan (Kelly)</div><div id="riskPlan"></div></div></div>
+      <div class="col-md-4"><div class="gc h-100"><div class="stitle"><svg class="ic" style="color:var(--accent-purple-light)" aria-hidden="true"><use href="#i-eye"/></svg> SMC / VCP Details</div><div id="smcDetails"></div></div></div>
     </div>
 
     <!-- AI Final Verdict -->
@@ -704,7 +785,7 @@ body::after {
       <div class="col-12">
         <div class="ai-box">
           <div class="badge-tag mb-2" style="background:linear-gradient(135deg,var(--accent-cyan-dim),var(--accent-purple-dim));color:var(--accent-cyan)">
-            <i class="bi bi-robot"></i> AI V6.0 VERDICT
+            <svg class="ic" aria-hidden="true"><use href="#i-robot"/></svg> AI V6.0 VERDICT
           </div>
           <div id="aiVerdict" style="font-size:0.92rem;line-height:1.8">Click Analyze to start...</div>
         </div>

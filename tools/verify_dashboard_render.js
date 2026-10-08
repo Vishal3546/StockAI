@@ -198,8 +198,66 @@ async function strictExchangeSection() {
   check('generic error par "chunein" wala text nahi aata', !!b && !/chunein/.test(b.text));
 }
 
+// ── FIX-94: navbar — clock top-right, inline SVG icons, wrap layout ──────────
+// User ke screenshot me pakda: bootstrap-icons webfont na load hone par har
+// nav button me tofu box (□) tha, FII/DII button row tod raha tha, clock
+// wrap hokar neeche-left aa jata tha, aur right me "Backtest" cut tha.
+function navSection() {
+  const d = w.document;
+  console.log('\n[FIX-94] navbar — tofu icons / clock position / overflow');
+
+  check('koi "bi bi-" webfont icon nahi bacha (tofu ka source khatam)',
+    !/bi bi-/.test(html));
+  check('icons-webfont CDN ka <link> hataya gaya',
+    !/<link[^>]*bootstrap-icons[^>]*>/.test(html));
+  check('inline SVG sprite maujood hai', /<symbol id="i-bolt"/.test(html));
+
+  // har nav button me svg icon hai
+  const actions = d.querySelector('.nav-actions');
+  check('.nav-actions container hai', !!actions);
+  const btns = actions ? [...actions.querySelectorAll('.btn-go')] : [];
+  check('11 nav buttons hain (Analyze + 10 pages)', btns.length === 11,
+    String(btns.length));
+  check('har nav button me <svg class="ic"><use …> hai',
+    btns.length > 0 && btns.every((b) => b.querySelector('svg.ic use')));
+
+  // koi toota hua <use> reference nahi — har href ka symbol sprite me ho
+  const ids = new Set([...d.querySelectorAll('symbol')].map((s) => '#' + s.id));
+  const uses = [...d.querySelectorAll('use')].map((u) =>
+    u.getAttribute('href') || u.getAttribute('xlink:href'));
+  check('har <use> ka symbol sprite me maujood hai (koi toota icon nahi)',
+    uses.length >= 20 && uses.every((h) => ids.has(h)),
+    `${uses.length} uses, ${ids.size} symbols`);
+
+  // clock top-right: nav-head ke andar, nav-clock class (CSS me margin-left:auto)
+  const clock = d.getElementById('clock');
+  check('clock element hai', !!clock);
+  check('clock ko nav-clock class mili (top-right CSS)',
+    !!clock && clock.classList.contains('nav-clock'));
+  check('clock nav-head (top row) ke andar hai, buttons ke neeche nahi',
+    !!clock && !!clock.closest('.nav-head') && !clock.closest('.nav-actions'));
+
+  // layout CSS: buttons wrap hote hain, uniform height, koi cut nahi
+  const css = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
+  check('CSS: .nav-actions flex-wrap (overflow nahi, wrap hota hai)',
+    /\.nav-actions\s*{[^}]*flex-wrap:\s*wrap/.test(css));
+  check('CSS: nav buttons uniform height + nowrap (FII/DII stretch fix)',
+    /\.nav-actions \.btn-go\s*{[^}]*height:\s*38px[^}]*white-space:\s*nowrap/.test(css));
+  check('CSS: .nav-clock margin-left:auto (top-right)',
+    /\.nav-clock\s*{[^}]*margin-left:\s*auto/.test(css));
+  check('CSS: .ic svg sizing (stroke currentColor — offline render)',
+    /\.ic\s*{[^}]*stroke:\s*currentColor/.test(css));
+
+  // search box abhi bhi wired hai (id intact)
+  check('search input (#symInput) + dropdown intact hain',
+    !!d.getElementById('symInput') && !!d.getElementById('searchDropdown'));
+  check('LIVE badge + engine tag intact hain',
+    !!d.getElementById('liveBadge') && !!d.getElementById('activeEngineTag'));
+}
+
 (async () => {
   await strictExchangeSection();
+  navSection();
 
   const passed = results.filter(([, ok]) => ok).length;
   const failed = results.length - passed;
