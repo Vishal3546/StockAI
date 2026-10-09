@@ -99,7 +99,6 @@ else:
 
     # --- tier 3 (sab live sources fail) → phir bhi poora payload ---
     import pandas as pd
-    import numpy as np
     idx = pd.date_range('2026-08-01', periods=5, freq='D')
     fake = pd.DataFrame({'Open': [100, 101, 102, 103, 104], 'High': [101, 102, 103, 104, 105],
                          'Low': [99, 100, 101, 102, 103], 'Close': [100.5, 101.5, 102.5, 103.5, 104.5],
@@ -882,8 +881,12 @@ check('SSE ex param leta hai (generator ke BAHAR padha — request-context safe)
 # FIX-56: structure badla (ab quote = None if _bse else ...), assertion update
 check('BSE request par NSE official endpoint skip hota hai',
       'quote = None if _bse else fetch_nse_live_ltp(clean_sym)' in app_src)
+# FIX-99: write ab _cache_put se hota hai (bounded cache) — assertion ka INTENT
+# wahi hai: key exchange-aware ho aur usi key se read+write ho.
 check('live-quote cache key exchange-aware hai (warna galat exchange serve hota)',
-      '_LIVE_CACHE.get(_ckey)' in app_src and '_LIVE_CACHE[_ckey] =' in app_src)
+      '_LIVE_CACHE.get(_ckey)' in app_src
+      and '_cache_put(_LIVE_CACHE, _ckey,' in app_src
+      and '_ckey = f"{clean_sym}:{\'BSE\' if _bse else \'NSE\'}"' in app_src)
 check('Yahoo quote suffix order exchange se badalta hai',
       "_sfx = ('.BO', '.NS') if str(prefer_exch).upper() == 'BSE'" in app_src)
 check('/api/search dedupe (symbol, exchange) par hai — dono listings dikhte hain',

@@ -528,6 +528,24 @@ LIVE_TTL = 2.0                      # seconds — se chhota mat karo (upstream l
 LIVE_TTL_CLOSED = 900.0             # 15 min — market band, close immutable
 _LIVE_CACHE = {}                    # symbol:ex -> (ts, payload, ttl)
 
+# ── FIX-99: bounded caches ─────────────────────────────────────────────────
+# Ye sab caches symbol/exchange se key hote hain aur inme se KISI me bhi eviction
+# nahi tha (grep: koi .pop/.clear/len-check nahi). TTL sirf stale entry ko
+# *skip* karta hai, hatata nahi — matlab LAN par jitne alag stocks khule, utne
+# entries hamesha ke liye memory me. Ek ek entry me poora KPI payload + plan
+# hota hai, isliye server hafton chalne par ye dheere-dheere badhta rehta.
+CACHE_MAX_ENTRIES = 512             # per-cache cap; LRU order me evict hota hai
+
+
+def _cache_put(cache, key, value, max_entries=CACHE_MAX_ENTRIES):
+    """Bounded LRU put. Existing key ko pehle hatao taaki recency refresh ho."""
+    if key in cache:
+        del cache[key]
+    cache[key] = value
+    while len(cache) > max_entries:
+        cache.pop(next(iter(cache)), None)
+    return value
+
 # FIX-39 (M-7): har call par naya TCP+TLS handshake hota tha (~0.2-0.4 s).
 # Shared session connections warm rakhta hai — cold quote measurably faster.
 _HTTP = http_requests.Session()
@@ -854,7 +872,7 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
     except Exception:                                        # noqa: BLE001
         _ttl = LIVE_TTL
     with _LIVE_LOCK:
-        _LIVE_CACHE[_ckey] = (now, dict(quote), _ttl)
+        _cache_put(_LIVE_CACHE, _ckey, (now, dict(quote), _ttl))   # FIX-99
         if len(_LIVE_CACHE) > 256:           # memory bound
             for k in sorted(_LIVE_CACHE, key=lambda s: _LIVE_CACHE[s][0])[:64]:
                 _LIVE_CACHE.pop(k, None)
@@ -2183,7 +2201,7 @@ def ml_engine(df):
         res['walk_forward_edge'] = round(wf - bl, 1) if (wf is not None and bl is not None) else None
     if key:
         with _ML_LOCK:
-            _ML_CACHE[key] = res
+            _cache_put(_ML_CACHE, key, res)                        # FIX-99
     return res
 
 
@@ -4011,7 +4029,7 @@ def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
         if key:
             if len(_PLAN_MEASURE_CACHE) > 64:
                 _PLAN_MEASURE_CACHE.clear()
-            _PLAN_MEASURE_CACHE[key] = out
+            _cache_put(_PLAN_MEASURE_CACHE, key, out)              # FIX-99
         return out
     except Exception:
         return None
@@ -4524,7 +4542,7 @@ def stock_api(symbol):
                         f"closing prices alag hote hain, isliye {_other} ka data "
                         f"{req_exch} ki jagah nahi dikha rahe.",
             }), 409
-        _FAIL_CACHE[symbol.upper()] = time.time() + 300
+        _cache_put(_FAIL_CACHE, symbol.upper(), time.time() + 300)  # FIX-99
         return jsonify({'error': f"Stock '{symbol}' data not available across all 3 engines!"}), 404
 
     try:
@@ -5385,7 +5403,7 @@ def api_timeframe(symbol):
         payload['cached'] = True
         return jsonify({'ok': bool(not payload.get('error')), **payload})
     ok, payload = kpi_scores_for(symbol, prefer_exch=key[1])
-    _TF_CACHE[key] = (_t77.time(), payload)
+    _cache_put(_TF_CACHE, key, (_t77.time(), payload))             # FIX-99
     if not ok:
         return jsonify({'ok': False, **payload}), 200
     return jsonify({'ok': True, 'cached': False,
@@ -5614,7 +5632,7 @@ def _bt_load(exchange):
         return None
     except Exception:                                            # noqa: BLE001
         return None
-    _BACKTEST_CACHE[ex] = art
+    _cache_put(_BACKTEST_CACHE, ex, art)                           # FIX-99
     return art
 
 

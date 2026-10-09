@@ -211,6 +211,39 @@ try:
 finally:
     A.get_live_quote = _orig_quote
 
+print("\n── E. FIX-99: bounded caches (unbounded growth / memory leak) ────")
+c1 = {}
+for i in range(600):
+    A._cache_put(c1, i, i * 2, max_entries=10)
+check('600 puts, cap 10 -> sirf 10 entries (leak nahi)', len(c1) == 10, str(len(c1)))
+check('sabse naye 10 keys bache (LRU order)', set(c1) == set(range(590, 600)),
+      str(sorted(c1))[:60])
+c2 = {}
+for i in range(10):
+    A._cache_put(c2, i, i, max_entries=10)
+A._cache_put(c2, 0, 'refreshed', max_entries=10)     # recency refresh
+A._cache_put(c2, 10, 10, max_entries=10)             # evict hona chahiye
+check('re-put se recency refresh hoti hai (key 0 bacha)', 0 in c2 and c2[0] == 'refreshed')
+check('  sabse purana (key 1) evict hua', 1 not in c2 and 10 in c2, str(sorted(c2)))
+check('_cache_put value wapas karta hai', A._cache_put({}, 'k', 42, max_entries=2) == 42)
+_c1 = {}
+A._cache_put(_c1, 'a', 1, max_entries=1)
+A._cache_put(_c1, 'b', 2, max_entries=1)
+check('cap 1 par bhi chalta hai', len(_c1) == 1 and 'b' in _c1, str(_c1))
+
+_src = (ROOT / 'app.py').read_text(encoding='utf-8')
+import re as _re
+_direct = _re.findall(r'^\s*(_TF_CACHE|_LIVE_CACHE|_FAIL_CACHE|_ML_CACHE'
+                      r'|_PLAN_MEASURE_CACHE|_BACKTEST_CACHE)\[', _src, _re.M)
+check('koi bhi cache direct assign nahi hota (sab _cache_put se)', not _direct, str(_direct))
+check('CACHE_MAX_ENTRIES defined + sensible', 16 <= A.CACHE_MAX_ENTRIES <= 4096,
+      str(A.CACHE_MAX_ENTRIES))
+_big = {}
+for i in range(A.CACHE_MAX_ENTRIES * 3):
+    A._cache_put(_big, 'SYM%d' % i, {'payload': i})
+check(f'default cap ({A.CACHE_MAX_ENTRIES}) respect hota hai',
+      len(_big) == A.CACHE_MAX_ENTRIES, str(len(_big)))
+
 n_pass = sum(results)
 n_fail = len(results) - n_pass
 print('\n' + '=' * 82)
