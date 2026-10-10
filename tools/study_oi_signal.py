@@ -165,7 +165,7 @@ def collect(symbol: str, outdir: pathlib.Path | None = None) -> int:
 #  MODE 1: futures-volume proxy (jis par AAJ study ho sakti hai)
 # ══════════════════════════════════════════════════════════════════════════
 def load_proxy(n_bars: int = 1200) -> pd.DataFrame:
-    from tvDatafeed import TvDatafeed
+    from tv_history import HistoryDatafeed as TvDatafeed
     from tvDatafeed.main import Interval
     tv = TvDatafeed()
     out = []

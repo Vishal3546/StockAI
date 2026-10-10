@@ -1339,9 +1339,9 @@ class MultiTechDataSourceManager:
     def init_tv(self):
         """Initializes TradingView Datafeed Connection"""
         try:
-            from tvDatafeed import TvDatafeed
+            from tv_history import HistoryDatafeed as TvDatafeed
             self.tv = TvDatafeed()
-            print("🟢 [TradingView Engine Initialized] Connected to TradingView Feed.")
+            print("🟢 [TradingView chart-only client initialized] Provider availability is checked on fetch; live quote access is not verified.")
         except Exception as e:
             self.tv = None
             print(f"⚠️ [TradingView Notice] Could not initialize tvDatafeed: {e}")

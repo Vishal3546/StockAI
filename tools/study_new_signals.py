@@ -67,7 +67,7 @@ COST_FUTURES = {
 
 def load_frames(n_bars: int = 1200):
     """(symbol, DataFrame[basis, spot returns, futures returns]) — no look-ahead."""
-    from tvDatafeed import TvDatafeed
+    from tv_history import HistoryDatafeed as TvDatafeed
     from tvDatafeed.main import Interval
     tv = TvDatafeed()
     out = []

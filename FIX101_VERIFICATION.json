@@ -1,0 +1,323 @@
+{
+  "date_ist": "2026-10-10",
+  "base": "2f153d95282799be3dfebed0e01f871ee903eeb7",
+  "platform": "Linux",
+  "python": "3.13.16",
+  "new_adapter_tests_passed": 13,
+  "scripts_passed": 39,
+  "scripts_total": 39,
+  "suite": [
+    {
+      "test": "verify_bse_calibration.py",
+      "exit": 0,
+      "seconds": 1.31
+    },
+    {
+      "test": "verify_bse_master.py",
+      "exit": 0,
+      "seconds": 2.04
+    },
+    {
+      "test": "verify_calculators.py",
+      "exit": 0,
+      "seconds": 0.13
+    },
+    {
+      "test": "verify_calculators_render.js",
+      "exit": 0,
+      "seconds": 1.69
+    },
+    {
+      "test": "verify_cockpit_render.js",
+      "exit": 0,
+      "seconds": 2.19
+    },
+    {
+      "test": "verify_dashboard_display.py",
+      "exit": 0,
+      "seconds": 0.2
+    },
+    {
+      "test": "verify_dashboard_render.js",
+      "exit": 0,
+      "seconds": 2.68
+    },
+    {
+      "test": "verify_dependency_pins.py",
+      "exit": 0,
+      "seconds": 3.01
+    },
+    {
+      "test": "verify_exchange_mismatch.py",
+      "exit": 0,
+      "seconds": 3.73
+    },
+    {
+      "test": "verify_fidii.py",
+      "exit": 0,
+      "seconds": 0.22
+    },
+    {
+      "test": "verify_fidii_render.js",
+      "exit": 0,
+      "seconds": 2.42
+    },
+    {
+      "test": "verify_fix100.py",
+      "exit": 0,
+      "seconds": 3.13
+    },
+    {
+      "test": "verify_fix100_render.js",
+      "exit": 0,
+      "seconds": 0.04
+    },
+    {
+      "test": "verify_fix101.py",
+      "exit": 0,
+      "seconds": 0.96
+    },
+    {
+      "test": "verify_fixes.py",
+      "exit": 0,
+      "seconds": 54.16
+    },
+    {
+      "test": "verify_journal.py",
+      "exit": 0,
+      "seconds": 0.75
+    },
+    {
+      "test": "verify_kelly_measured.py",
+      "exit": 0,
+      "seconds": 0.77
+    },
+    {
+      "test": "verify_live_quote.py",
+      "exit": 0,
+      "seconds": 12.8
+    },
+    {
+      "test": "verify_market_cockpit.py",
+      "exit": 0,
+      "seconds": 0.1
+    },
+    {
+      "test": "verify_ml_edge_study.py",
+      "exit": 0,
+      "seconds": 1.12
+    },
+    {
+      "test": "verify_new_pages.py",
+      "exit": 0,
+      "seconds": 1.71
+    },
+    {
+      "test": "verify_no_fake_numbers.py",
+      "exit": 0,
+      "seconds": 6.88
+    },
+    {
+      "test": "verify_option_analytics.py",
+      "exit": 0,
+      "seconds": 0.04
+    },
+    {
+      "test": "verify_risk_basis.py",
+      "exit": 0,
+      "seconds": 0.68
+    },
+    {
+      "test": "verify_scanner_bands.py",
+      "exit": 0,
+      "seconds": 0.71
+    },
+    {
+      "test": "verify_score_calibration.py",
+      "exit": 0,
+      "seconds": 1.59
+    },
+    {
+      "test": "verify_screener.py",
+      "exit": 0,
+      "seconds": 0.06
+    },
+    {
+      "test": "verify_screener_refresh.py",
+      "exit": 0,
+      "seconds": 2.74
+    },
+    {
+      "test": "verify_screener_render.js",
+      "exit": 0,
+      "seconds": 2.55
+    },
+    {
+      "test": "verify_search_bse.py",
+      "exit": 0,
+      "seconds": 1.24
+    },
+    {
+      "test": "verify_security.py",
+      "exit": 0,
+      "seconds": 1.29
+    },
+    {
+      "test": "verify_sentinels.py",
+      "exit": 0,
+      "seconds": 7.64
+    },
+    {
+      "test": "verify_startup_offline.py",
+      "exit": 0,
+      "seconds": 3.52
+    },
+    {
+      "test": "verify_store_safety.py",
+      "exit": 0,
+      "seconds": 1.23
+    },
+    {
+      "test": "verify_strict_exchange.py",
+      "exit": 0,
+      "seconds": 10.86
+    },
+    {
+      "test": "verify_timeframes.py",
+      "exit": 0,
+      "seconds": 15.15
+    },
+    {
+      "test": "verify_timeframes_render.js",
+      "exit": 0,
+      "seconds": 10.68
+    },
+    {
+      "test": "verify_trade_plan.py",
+      "exit": 0,
+      "seconds": 2.5
+    },
+    {
+      "test": "verify_xss_render.js",
+      "exit": 0,
+      "seconds": 2.39
+    }
+  ],
+  "live_checks": {
+    "history": [
+      {
+        "symbol": "TCS",
+        "exchange": "BSE",
+        "interval": "1d",
+        "returned_exchange": "BSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 03:45:00",
+        "seconds": 0.64,
+        "passed": true
+      },
+      {
+        "symbol": "TCS",
+        "exchange": "BSE",
+        "interval": "5m",
+        "returned_exchange": "BSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 09:40:00",
+        "seconds": 1.02,
+        "passed": true
+      },
+      {
+        "symbol": "TCS",
+        "exchange": "NSE",
+        "interval": "1d",
+        "returned_exchange": "NSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 03:45:00",
+        "seconds": 0.31,
+        "passed": true
+      },
+      {
+        "symbol": "TCS",
+        "exchange": "NSE",
+        "interval": "5m",
+        "returned_exchange": "NSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 09:40:00",
+        "seconds": 0.42,
+        "passed": true
+      },
+      {
+        "symbol": "JIOFIN",
+        "exchange": "BSE",
+        "interval": "1d",
+        "returned_exchange": "BSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 03:45:00",
+        "seconds": 0.52,
+        "passed": true
+      },
+      {
+        "symbol": "JIOFIN",
+        "exchange": "BSE",
+        "interval": "5m",
+        "returned_exchange": "BSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 09:40:00",
+        "seconds": 0.53,
+        "passed": true
+      },
+      {
+        "symbol": "JIOFIN",
+        "exchange": "NSE",
+        "interval": "1d",
+        "returned_exchange": "NSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 03:45:00",
+        "seconds": 0.37,
+        "passed": true
+      },
+      {
+        "symbol": "JIOFIN",
+        "exchange": "NSE",
+        "interval": "5m",
+        "returned_exchange": "NSE",
+        "bars": 100,
+        "last_bar": "2026-10-09 09:40:00",
+        "seconds": 1.2,
+        "passed": true
+      }
+    ],
+    "stock_routes": [
+      {
+        "path": "/api/stock/TCS?ex=BSE",
+        "status": 200,
+        "frame_exchange": "BSE",
+        "source": "yahoo.bo",
+        "analysis_session": "2026-10-09",
+        "qty": 0,
+        "error": null,
+        "seconds": 7.31,
+        "passed": true
+      },
+      {
+        "path": "/api/stock/JIOFIN?ex=BSE",
+        "status": 200,
+        "frame_exchange": "BSE",
+        "source": "yahoo.bo",
+        "analysis_session": "2026-10-09",
+        "qty": 0,
+        "error": null,
+        "seconds": 5.81,
+        "passed": true
+      }
+    ]
+  },
+  "live_note": "Stock route source is the quote/price source; historical-frame exchange is a separate field. These are sample provider observations, not certified exchange closes.",
+  "windows_evidence": "User-supplied diagnostic A/B: original 2/8 with protocol errors on all 8; chart-only 8/8 without protocol errors. Full production hotfix Windows suite not run.",
+  "outstanding": [
+    "inconsistent stale-history policy",
+    "old browser stream lifecycle",
+    "timezone-naive historical timestamps",
+    "Yahoo BSE missing Close; no fabricated fills"
+  ],
+  "remote_push_performed": false
+}

@@ -76,7 +76,8 @@ def load(symbol: str, period: str = '2y', use_cache: bool = True, exchange: str 
     # range ke kareeb ho (warna file apne contents ke baare me jhooth bolegi).
     want = _period_bars(period)
     try:
-        from tvDatafeed import TvDatafeed, Interval
+        from tv_history import HistoryDatafeed as TvDatafeed
+        from tvDatafeed import Interval
         df = TvDatafeed().get_hist(symbol=symbol, exchange=exchange,
                                    interval=Interval.in_daily, n_bars=want)
         if df is not None and not df.empty:

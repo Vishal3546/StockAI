@@ -64,7 +64,8 @@ def safe_download_deep(symbol, period='2y', interval='1d'):
     
     # Tier 1: TradingView Direct
     try:
-        from tvDatafeed import TvDatafeed, Interval
+        from tv_history import HistoryDatafeed as TvDatafeed
+        from tvDatafeed import Interval
         tv = TvDatafeed()
         df = tv.get_hist(symbol=clean_sym, exchange='NSE', interval=Interval.in_daily, n_bars=500)
         if df is not None and not df.empty:

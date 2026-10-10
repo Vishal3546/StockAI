@@ -135,7 +135,7 @@ def _tv_connection():
     global _TV
     with _TV_LOCK:
         if _TV is None:
-            from tvDatafeed import TvDatafeed
+            from tv_history import HistoryDatafeed as TvDatafeed
             _TV = TvDatafeed()
         return _TV
 
