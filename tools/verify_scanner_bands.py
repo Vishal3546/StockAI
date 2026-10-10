@@ -204,7 +204,7 @@ def main():
     ok(sum(nums) == len(fake), f'band counts sum to row count ({sum(nums)} == {len(fake)})')
     ok(NS.format_summary_line([]) == '📊 Summary: (no rows)', 'empty result set does not crash')
     # real committed bands par bhi consistent
-    from score_calibration import UNIVERSE as _UNI
+    from nifty_scanner import UNIVERSE as _UNI
     real = [{'symbol': s, 'signal': NS.signal_from_bands(v, b['bands'])}
             for s, v in zip(sorted(_UNI), [66, 63, 60, 58, 55, 53, 52, 50, 49, 48,
                                            47, 46, 45, 44, 43, 42, 41, 40, 39, 38,

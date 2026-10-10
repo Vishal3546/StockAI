@@ -71,3 +71,7 @@ trade_journal.json.tmp
 # FIX-100 cross-process local store lock
 .stockai-store.lock
 verification_results/
+
+# Raw exchange downloads belong in the audit evidence bundle, not source patches.
+verification_evidence/*.csv
+verification_evidence/*.zip

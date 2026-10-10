@@ -1,0 +1,38 @@
+name: Cross-platform correctness
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      STOCKAI_OFFLINE: '1'
+      STOCKAI_SCAN_AUTOREFRESH: '0'
+      STOCKAI_AUTO_OPEN: '0'
+      PYTHONUTF8: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m pip install --only-binary=:all: -r requirements.txt
+      - run: npm ci
+      - run: python tools/verify_fix101.py
+      - run: python tools/verify_fix102.py
+      - run: python tools/verify_fix103.py
+      - run: python tools/verify_fix104.py
+      - run: node tools/verify_fix102_render.js
+      - run: node tools/verify_fix103_render.js

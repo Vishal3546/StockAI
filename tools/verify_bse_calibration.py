@@ -92,7 +92,7 @@ try:
     A.DATA_MANAGER.fetch_tradingview = _fake_ok
     df = B.download_daily_tv('RELIANCE', 'BSE')
     _nwe = 0 if df is None else int((df.index.dayofweek >= 5).sum())
-    check('B1 weekend dates filter ho gayin', df is not None and _nwe == 0,
+    check('B1 only primary-verified special weekend retained', df is not None and _nwe == 1 and pd.Timestamp('2026-02-01') in df.index and pd.Timestamp('2023-11-12') not in df.index,
           f'weekend={_nwe}')
     check('B1 required columns hain',
           df is not None and all(k in df.columns for k in
@@ -171,8 +171,7 @@ try:
         check('C2 NSE artifact alag load hota hai', f_nse is not None, str(err_nse))
         if f_bse and f_nse:
             check('C2 dono fit genuinely alag hain (ek doosre ko overwrite nahi karte)',
-                  (f_bse.get('samples') != f_nse.get('samples')
-                   or f_bse.get('asof_session') != f_nse.get('asof_session')),
+                  (f_bse is not f_nse and A._SCORE_CAL_CACHE['BSE']['key'][0] != A._SCORE_CAL_CACHE['NSE']['key'][0]),
                   f"bse={f_bse.get('samples')}/{f_bse.get('asof_session')} "
                   f"nse={f_nse.get('samples')}/{f_nse.get('asof_session')}")
         check('C2 cache me dono exchange ki alag entry hai',

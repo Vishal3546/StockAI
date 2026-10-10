@@ -1591,6 +1591,7 @@ function render(d) {
         <div style="font-size:0.65rem;margin-top:6px;padding:6px;border-radius:6px;background:rgba(255,77,79,0.07);border:1px solid rgba(255,77,79,0.35)">
           🎯 <b>${archived ? 'ARCHIVED OOS study — NOT current validation' : 'Recorded OOS study — not live validation'}</b> · purged walk-forward · ${sv(study.period, '?')} · ${sv(study.as_of, '?')}${study.stale ? ' · ⚠️ stale' : ''}
           <div class="mono" style="color:${stColor};margin:3px 0"><b>${sv(study.verdict, '—')}</b></div>
+          <div>${sv(study.exchange, 'Exchange unspecified')} · ${sv(study.model_scope, 'Research scope unspecified')} · cohort: ${(study.symbols || []).join(', ')}</div>
           ${raw(stRows)}
           ${raw(nullLine)}
           <div style="color:var(--text-muted);margin-top:3px">${sv(study.disclosure, 'Predictive-edge test only; profitability ka proof nahi.')} Net-of-cost: RESEARCH_REPORT.md</div>
@@ -1686,7 +1687,8 @@ function render(d) {
 
   // Stop Loss & Targets Section Rendering
   const hasPlan = rk.plan_available === true && fit?.ready === true && ['LONG','SHORT'].includes(rk.direction);
-  document.getElementById('targetsBox').innerHTML = !hasPlan ? safeHtml`<div class="mut">NO DIRECTIONAL PLAN — fitted directional rank unavailable or neutral. No entry, stop, targets or trailing instructions. Executable quantity: 0.</div>` : safeHtml`
+  const noPlanReason = !fit?.ready ? 'Calibration unavailable: ' + (fit?.note || 'no valid fitted history') : 'Fitted rank band ' + (ens.action || 'unknown') + ' does not provide a LONG/SHORT setup.';
+  document.getElementById('targetsBox').innerHTML = !hasPlan ? safeHtml`<div class="mut">NO DIRECTIONAL PLAN — ${noPlanReason} No entry, stop, targets or trailing instructions. Executable quantity: 0.</div>` : safeHtml`
     <div class="mb-2 text-center" style="font-size:0.8rem;font-weight:700;padding:6px;border-radius:8px;background:${ens.tradeable ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)'};color:${ens.tradeable ? 'var(--color-green)' : 'var(--color-yellow)'}">
       ${sv(rk.exec_status, '—')}
     </div>

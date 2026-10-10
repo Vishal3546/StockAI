@@ -1,0 +1,150 @@
+{
+  "session": "2026-10-09",
+  "scope": "Specified raw daily closes only; not certified live ticks or adjusted history",
+  "sources": [
+    {
+      "exchange": "NSE",
+      "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20261009_F_0000.csv.zip",
+      "sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c",
+      "http_status": 200
+    },
+    {
+      "exchange": "BSE",
+      "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20261009_F_0000.CSV",
+      "sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449",
+      "http_status": 200
+    }
+  ],
+  "rows": [
+    {
+      "symbol": "TCS",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE467B01029",
+      "instrument_id": "11536",
+      "official_close": 2156.0,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 2156.0,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE758E01017",
+      "instrument_id": "18143",
+      "official_close": 214.62,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 214.62,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "EMIL",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE02YR01019",
+      "instrument_id": "11530",
+      "official_close": 191.17,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 191.17,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "CANBK",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE476A01022",
+      "instrument_id": "10794",
+      "official_close": 119.59,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 119.59,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "LGEINDIA",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE324D01010",
+      "instrument_id": "760213",
+      "official_close": 1757.0,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 1757.0,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE467B01029",
+      "instrument_id": "532540",
+      "official_close": 2163.0,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 2163.0,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE758E01017",
+      "instrument_id": "543940",
+      "official_close": 214.8,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 214.8,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "EMIL",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE02YR01019",
+      "instrument_id": "543626",
+      "official_close": 191.45,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 191.45,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "CANBK",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE476A01022",
+      "instrument_id": "532483",
+      "official_close": 119.5,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 119.5,
+      "difference": 0.0,
+      "status": "MATCH"
+    },
+    {
+      "symbol": "LGEINDIA",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE324D01010",
+      "instrument_id": "544576",
+      "official_close": 1755.9,
+      "official_field": "ClsPric",
+      "vendor": "TradingView",
+      "vendor_close": 1755.9,
+      "difference": 0.0,
+      "status": "MATCH"
+    }
+  ]
+}

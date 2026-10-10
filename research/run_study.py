@@ -276,7 +276,8 @@ def main():
             'mean_null_pct': round(float(np.mean([n['mean_pct'] for n in nulls])), 2),
         }
 
-    results = {'generated': pd.Timestamp.now().isoformat(), 'costs': cfg.as_dict(),
+    from research.provenance import pipeline_fingerprint
+    results = {'pipeline_fingerprint': pipeline_fingerprint(), 'exchange':'NSE', 'execution_validated':False, 'scope':'Selected-cohort retrospective research; not deployed ensemble certification or independent holdout', 'generated': pd.Timestamp.now().isoformat(), 'costs': cfg.as_dict(),
                'round_trip_pct': cfg.round_trip_pct(), 'config': {
                    'warmup': WARMUP, 'folds': N_FOLDS, 'threshold': PROB_THRESHOLD,
                    'capital': CAPITAL, 'exec_lag': 1, 'period': args.period},

@@ -1,0 +1,20 @@
+[
+  {
+    "exchange": "NSE",
+    "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20261009_F_0000.csv.zip",
+    "http_status": 200,
+    "bytes": 206974,
+    "sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c",
+    "content_type": "application/zip",
+    "path": "verification_evidence/NSE_20261009.zip"
+  },
+  {
+    "exchange": "BSE",
+    "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20261009_F_0000.CSV",
+    "http_status": 200,
+    "bytes": 870954,
+    "sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449",
+    "content_type": "application/octet-stream",
+    "path": "verification_evidence/BSE_20261009.csv"
+  }
+]

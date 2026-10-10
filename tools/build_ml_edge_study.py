@@ -91,10 +91,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--symbols', default=','.join(DEFAULT_SYMBOLS))
     ap.add_argument('--period', default='5y')
+    ap.add_argument('--exchange', choices=('NSE','BSE'), default='NSE')
     ap.add_argument('--folds', type=int, default=5)
     ap.add_argument('--perms', type=int, default=3)
     ap.add_argument('--quick', action='store_true', help='permutation null skip (fast)')
-    ap.add_argument('--output', type=pathlib.Path, default=ARTIFACT_PATH)
+    ap.add_argument('--output', type=pathlib.Path, default=None)
     args = ap.parse_args()
 
     symbols = [s.strip().upper() for s in args.symbols.split(',') if s.strip()]
@@ -103,7 +104,7 @@ def main():
 
     frames = {}
     for sym in symbols:
-        df = load(sym, period=args.period)
+        df = load(sym, period=args.period, exchange=args.exchange, use_cache=False)
         if df is None or len(df) < 400:
             print(f"  SKIP {sym:<12} insufficient daily history")
             continue
@@ -201,15 +202,20 @@ def main():
         verdict = f"NO EDGE ({proposed['edge_pp']:+.1f}pp vs baseline)"
         edge_found = False
 
+    from research.provenance import pipeline_fingerprint, frame_manifest
     artifact = {
-        'schema': SCHEMA, 'model': MODEL, 'pipeline_version': 'fix100',
+        'schema': SCHEMA, 'model': MODEL, 'pipeline_version': 'fix104',
+        'pipeline_fingerprint': pipeline_fingerprint(), 'exchange': args.exchange,
+        'execution_validated': False,
+        'model_scope': 'GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy',
+        'data_manifest': {sym:frame_manifest(df) for sym,df in frames.items()},
         'baseline_method': 'train-only majority per fold; OOS-count-weighted pooling',
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
         # Reproducibility: same numbers sirf inhi library versions par expect karein.
         'libs': _lib_versions(),
         'method': ('purged + embargoed expanding walk-forward '
                    f'({args.folds} folds, embargo = label horizon), '
-                   'baseline = same-window majority class, binomial 95% CI'
+                   'baseline = train-only majority evaluated on OOS folds; approximate binomial 95% CI (not dependence-adjusted)'
                    + ('' if args.quick else ', shuffled-label permutation null')),
         'period': args.period, 'folds': args.folds,
         'symbols_requested': symbols, 'symbols_scored': sorted(frames),
@@ -217,12 +223,12 @@ def main():
         'permutation_null': null_block,
         'verdict': verdict,
         'edge_found': bool(edge_found),
-        'disclosure': ('Out-of-sample predictive-edge test only. Ye profitability ka proof '
+        'disclosure': ('Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof '
                        'nahi hai; costs/slippage ke baad ke numbers research/run_study.py '
                        'aur RESEARCH_REPORT.md me hain.'),
     }
 
-    path = args.output
+    path = args.output or ROOT / ('ml_edge_study_bse.json' if args.exchange == 'BSE' else 'ml_edge_study.json')
     tmp = path.with_name(path.name + '.tmp')
     tmp.write_text(json.dumps(artifact, indent=1, ensure_ascii=False), encoding='utf-8')
     tmp.replace(path)

@@ -97,7 +97,7 @@ if SCAN.exists():
     allowed = set(S.DISPLAY_FIELDS) | {'symbol'}
     leaked = {k for r in d['rows'] for k in r if k not in allowed}
     check('sirf whitelisted fields (koi leak nahi)', not leaked, str(leaked))
-    check('total_scanned parse hua', d.get('total_scanned') == 30.0, str(d.get('total_scanned')))
+    check('total_scanned parse hua', isinstance(d.get('total_scanned'), float) and d['total_scanned'] >= len(d['rows']), str(d.get('total_scanned')))
 else:
     # FIX-78: scan_results.json ab gitignored hai (generated data), isliye fresh
     # clone par ye file NAHI hogi. Ye failure nahi hai — pehle yahan
@@ -300,7 +300,7 @@ if rows:
           all(desc[i]['signal_score'] >= desc[i + 1]['signal_score'] for i in range(len(desc) - 1)))
     check('asc monotonically non-decreasing',
           all(asc[i]['signal_score'] <= asc[i + 1]['signal_score'] for i in range(len(asc) - 1)))
-    check('sort row count preserve karta hai', len(desc) == 30 and len(asc) == 30)
+    check('sort row count preserve karta hai', len(desc) == len(rows) and len(asc) == len(rows))
     check('sort default = signal_score desc',
           S.sort_rows(rows)[0]['symbol'] == desc[0]['symbol'])
 check('galat sort key -> whitelist fallback (crash nahi)',
@@ -324,9 +324,9 @@ print(' (E) FACETS')
 print('=' * 84)
 if rows:
     f = S.facets(rows)
-    check('facets signals ka total = 30', sum(f['signals'].values()) == 30, str(sum(f['signals'].values())))
-    check('facets sectors ka total = 30', sum(f['sectors'].values()) == 30)
-    check('facets signals ka total bhi 30 (dono jagah consistent)',
+    check('facets signal counts equal actual row count', sum(f['signals'].values()) == len(rows), str(sum(f['signals'].values())))
+    check('facets sector counts equal actual row count', sum(f['sectors'].values()) == len(rows))
+    check('facets signal totals agree (dono jagah consistent)',
           sum(f['signals'].values()) == sum(f['sectors'].values()))
     check('signals count-descending order me hain (UI ke liye)',
           list(f['signals'].values()) == sorted(f['signals'].values(), reverse=True))

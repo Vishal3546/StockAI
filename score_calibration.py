@@ -15,7 +15,7 @@ import math
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-UNIVERSE = (
+BASE_UNIVERSE = (
     'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK',
     'SBIN', 'BHARTIARTL', 'ITC', 'KOTAKBANK', 'LT',
     # FIX-45: 'TATAMOTORS' → 'TMPV'. Tata Motors demerge hua (effective 1 Oct 2025):
@@ -30,6 +30,35 @@ UNIVERSE = (
     'ONGC', 'COALINDIA', 'TATASTEEL', 'TECHM', 'ASIANPAINT',
     'ULTRACEMCO', 'NESTLEIND', 'BAJAJFINSV', 'DRREDDY', 'JSWSTEEL'
 )
+
+# FIX104: auditable configurable cohort. Changes require a full validated refit;
+# never auto-admit a requested symbol into an already fitted distribution.
+def load_universe(path=None):
+    import json, re
+    p = Path(path) if path is not None else Path(__file__).with_name('calibration_universe.json')
+    if not p.exists():
+        return BASE_UNIVERSE
+    doc = json.loads(p.read_text(encoding='utf-8'))
+    if not isinstance(doc, dict) or doc.get('schema') != 1:
+        raise ValueError('calibration universe schema must be 1')
+    values = doc.get('symbols')
+    if not isinstance(values, list) or not 20 <= len(values) <= 500:
+        raise ValueError('calibration universe must contain 20..500 explicit symbols')
+    if any(not isinstance(x,str) or not re.fullmatch(r'[A-Z0-9&-]{1,32}',x) for x in values) or len(set(values)) != len(values):
+        raise ValueError('invalid or duplicate calibration symbols')
+    return tuple(values)
+
+UNIVERSE = load_universe()
+
+def verified_special_sessions():
+    import json
+    p=Path(__file__).with_name('calibration_special_sessions.json')
+    if not p.exists(): return set()
+    rows=json.loads(p.read_text(encoding='utf-8')).get('evidence',[])
+    return {r['session'] for r in rows if r.get('exchange')=='NSE'} & {r['session'] for r in rows if r.get('exchange')=='BSE'}
+
+SESSION_POLICY = 'weekday-plus-primary-verified-special-v1'
+
 
 DAILY_WEIGHTS = {
     'Volume Profile': 0.12,
@@ -237,6 +266,7 @@ def fit_history(history, *, min_sessions=WINDOW_SESSIONS,
     if len(history) > WINDOW_SESSIONS:
         raise CalibrationError('more than 250 sessions — rebuild rolling window')
     pooled, seen, last_day = [], set(), None
+    symbol_sessions = {}
     for row in history:
         if not isinstance(row, dict):
             raise CalibrationError('history row is not a dict')
@@ -247,8 +277,8 @@ def fit_history(history, *, min_sessions=WINDOW_SESSIONS,
                 raise ValueError('duplicate, unordered or non-ISO session')
         except (TypeError, ValueError) as exc:
             raise CalibrationError(f'invalid session {session!r}') from exc
-        if day.weekday() > 4:
-            raise CalibrationError(f'{session}: NSE cash session cannot be a weekend')
+        if day.weekday() > 4 and session not in verified_special_sessions():
+            raise CalibrationError(f'{session}: unverified weekend session')
         last_day = day
         scores = row.get('scores')
         if not isinstance(scores, dict) or len(scores) < min_coverage:
@@ -260,6 +290,7 @@ def fit_history(history, *, min_sessions=WINDOW_SESSIONS,
                 raise CalibrationError(f'{session}/{symbol}: non-finite/non-integral score')
             pooled.append(score)
             seen.add(symbol)
+            symbol_sessions[symbol] = symbol_sessions.get(symbol, 0) + 1
     if len(seen) < min_coverage:
         raise CalibrationError('coverage across all sessions too small')
     pooled.sort()
@@ -270,7 +301,7 @@ def fit_history(history, *, min_sessions=WINDOW_SESSIONS,
     return {
         'thresholds': thresholds, 'samples': len(pooled),
         'sessions': len(history), 'universe_covered': len(seen),
-        'symbols_covered': tuple(sorted(seen)),
+        'symbols_covered': tuple(sorted(seen)), 'symbol_sessions': symbol_sessions,
         'asof_session': history[-1]['session'], '_sorted_scores': pooled,
     }
 
@@ -286,6 +317,7 @@ def build_artifact(history, formula_hash, source, *, engine_dispersion_block=Non
         raise CalibrationError('missing formula hash')
     return {
         'schema': 1, 'model': MODEL, 'formula_hash': formula_hash,
+        'session_policy': SESSION_POLICY,
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
         'source': source, 'universe': list(UNIVERSE),
         'weights': DAILY_WEIGHTS, 'lookback_bars': LOOKBACK_BARS,
@@ -302,7 +334,7 @@ def validate_artifact(artifact, formula_hash):
     """Reject edited/old/different score scale; recompute quantiles from stored history."""
     if not isinstance(artifact, dict) or artifact.get('schema') != 1:
         raise CalibrationError('artifact missing/schema mismatch')
-    if (artifact.get('model') != MODEL or artifact.get('formula_hash') != formula_hash
+    if (artifact.get('session_policy') != SESSION_POLICY or artifact.get('model') != MODEL or artifact.get('formula_hash') != formula_hash
             or artifact.get('weights') != DAILY_WEIGHTS
             or artifact.get('lookback_bars') != LOOKBACK_BARS
             or artifact.get('universe') != list(UNIVERSE)):

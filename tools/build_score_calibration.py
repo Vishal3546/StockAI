@@ -133,15 +133,10 @@ def download_daily_tv(symbol, exchange='BSE', n_bars=1400):
     df = df[(df[['Open', 'High', 'Low', 'Close']] > 0).all(axis=1) & (df['Volume'] >= 0)]
     idx = pd.DatetimeIndex(df.index)
     df.index = (idx.tz_localize(None) if idx.tz is not None else idx).normalize()
-    # FIX-84: TradingView ke daily feed me kabhi-kabhi weekend dates aa jaati hain
-    # (RELIANCE par 6 mili: 2023-11-12 Sun, 2024-01-20 Sat, 2024-03-02 Sat,
-    #  2024-05-18 Sat, 2025-02-01 Sat, 2026-02-01 Sun). NSE/BSE cash session
-    # weekend par hota hi nahi, aur score_calibration.validate_artifact() inhe
-    # reject karta hai ("NSE cash session cannot be a weekend") — sahi karta hai.
-    # Yahoo me ye dates aati nahi, isliye ye sirf TradingView-source ka filter hai.
-    _we = df.index.dayofweek >= 5
-    if _we.any():
-        df = df[~_we]
+    # Preserve primary-verified special weekend sessions, not fake weekday-only history.
+    verified = C.verified_special_sessions()
+    keep = [(t.weekday() < 5 or t.date().isoformat() in verified) for t in df.index]
+    df = df[keep]
     df = df[~df.index.duplicated(keep='last')].sort_index()
     return df if len(df) >= C.LOOKBACK_BARS + C.WINDOW_SESSIONS else None
 
@@ -151,20 +146,15 @@ def main():
     parser.add_argument('--output', type=pathlib.Path, default=None,
                         help='default: exchange ke hisaab se score_calibration[_bse].json')
     parser.add_argument('--exchange', choices=('NSE', 'BSE'), default='NSE',
-                        help='NSE = Yahoo .NS (purana rasta); BSE = TradingView (FIX-84)')
+                        help='Requested-exchange TradingView history; no cross-exchange fallback')
     args = parser.parse_args()
     exch = args.exchange
     # FIX-84: universe wahi 30 naam, par BSE par bhi wahi tickers chalte hain
     # (TradingView symbol exchange-param se resolve karta hai).
-    if exch == 'BSE':
-        fetch = lambda s: download_daily_tv(s, 'BSE')
-        src_label = 'TradingView daily OHLCV (BSE)'
-        print(f'FIX-84: TradingView daily → {C.WINDOW_SESSIONS} past sessions; '
-              f'universe {len(C.UNIVERSE)} (BSE)')
-    else:
-        fetch = lambda s: download_daily(s)
-        src_label = 'Yahoo Finance daily unadjusted OHLCV (no intraday/ML)'
-        print(f'FIX-33: Yahoo daily 3y → {C.WINDOW_SESSIONS} past sessions; universe {len(C.UNIVERSE)}')
+    # Same requested-exchange TradingView convention as the normal live history path.
+    fetch = lambda symbol: download_daily_tv(symbol, exch)
+    src_label = f'TradingView daily OHLCV ({exch}); verified special sessions retained'
+    print(f'FIX104: {exch} TradingView -> {C.WINDOW_SESSIONS} prior sessions; universe {len(C.UNIVERSE)}')
     frames = {}
     with ThreadPoolExecutor(max_workers=5) as pool:
         fut = {pool.submit(fetch, s): s for s in C.UNIVERSE}

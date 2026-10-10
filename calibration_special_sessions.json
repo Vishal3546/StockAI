@@ -1,0 +1,33 @@
+{
+  "scope": "Verified historical special sessions used by the calibration builder; not a complete live exchange calendar.",
+  "evidence": [
+    {
+      "exchange": "NSE",
+      "session": "2025-02-01",
+      "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20250201_F_0000.csv.zip",
+      "sha256": "a0ed7f8fb660762f47607945c6f98909a22eb538ced9e215860eaeebb12fa959",
+      "rows": 2866
+    },
+    {
+      "exchange": "NSE",
+      "session": "2026-02-01",
+      "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20260201_F_0000.csv.zip",
+      "sha256": "af5502e5c696c95895b92a6c6e00907c87064547c408e9cd9fe03649d565ac47",
+      "rows": 3229
+    },
+    {
+      "exchange": "BSE",
+      "session": "2025-02-01",
+      "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20250201_F_0000.CSV",
+      "sha256": "19cefca7563a9ca3146ae63cd571112f149344efc5ac7fea0ecfa727be13ba9b",
+      "rows": 4303
+    },
+    {
+      "exchange": "BSE",
+      "session": "2026-02-01",
+      "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20260201_F_0000.CSV",
+      "sha256": "438aafc55787f05ac21af8ab4734b169eeafdd42d9613793a8311b3ca26f5270",
+      "rows": 4661
+    }
+  ]
+}

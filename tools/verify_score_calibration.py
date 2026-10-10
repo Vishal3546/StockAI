@@ -59,8 +59,8 @@ check('no synthetic missing-symbol fill',
 check('formula hash and weights match real runtime',
       artifact['formula_hash'] == A.score_formula_hash() and
       artifact['weights'] == A.CONFIG['ENGINE_WEIGHTS'])
-check('scanner universe single source of truth',
-      __import__('nifty_scanner').NIFTY_STOCKS == list(C.UNIVERSE))
+check('scanner retains its separately fitted baseline cohort',
+      __import__('nifty_scanner').NIFTY_STOCKS == list(C.BASE_UNIVERSE))
 builder_src = (ROOT / 'tools/build_score_calibration.py').read_text(encoding='utf-8')
 check('builder never uses scanner one-run composite as score history',
       "['composite']" not in builder_src and "scan_results.json', 'r'" not in builder_src

@@ -3,49 +3,49 @@
  "model": "ml-edge-purged-wf-v1",
  "pipeline_version": "fix104",
  "pipeline_fingerprint": "f834d9bade5644e2cf88fc724ee863bb3a18a592df367f7d0f5cccf73456c8f1",
- "exchange": "NSE",
+ "exchange": "BSE",
  "execution_validated": false,
  "model_scope": "GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy",
  "data_manifest": {
   "RELIANCE": {
-   "bars": 1236,
-   "first_session": "2021-10-11",
+   "bars": 1235,
+   "first_session": "2021-10-19",
    "last_session": "2026-10-09",
-   "sha256": "f3d87ef52042a2cf80a54ef29fc0a40797b2cd4dd6a2c0444608658f6c349651"
+   "sha256": "e37c5bd094cc82ae8336fc0dc8cf9620b81af95d601426e5da85c676c42bbd48"
   },
   "TCS": {
-   "bars": 1236,
+   "bars": 1233,
    "first_session": "2021-10-11",
    "last_session": "2026-10-09",
-   "sha256": "ae686e46dd7b4f8e66a3df51d173a04f4abf07a2d10d5f6be139de817ca07b75"
+   "sha256": "72ba4b00a27717f037db27a7a343659dc31af92def2ce168db882d45377011f5"
   },
   "HDFCBANK": {
-   "bars": 1236,
-   "first_session": "2021-10-11",
+   "bars": 1235,
+   "first_session": "2021-10-19",
    "last_session": "2026-10-09",
-   "sha256": "2cdefca32a381b30f19c9d253bd1a0fbdbbe54920848f5b11d00574196f3a44a"
+   "sha256": "5ceb92ea3593fa2259f174c129b1331f728bb3c5a8e360fd2a95cec8981662a5"
   },
   "JIOFIN": {
-   "bars": 775,
+   "bars": 772,
    "first_session": "2023-08-21",
    "last_session": "2026-10-09",
-   "sha256": "eff49da9715f2ad44b1d55feb223d24e7f3f678088786c29a1ad5dfa74eac2c1"
+   "sha256": "75380b4fe810c9ce588a4284ff1d5b81536c480ea4f05b97cc2ca9a94cecc547"
   },
   "EMIL": {
-   "bars": 984,
+   "bars": 981,
    "first_session": "2022-10-17",
    "last_session": "2026-10-09",
-   "sha256": "d2d9f3f5e7e6554ae86083a4c9ecba98dad274a2b5ddf411a2207c7ec830e149"
+   "sha256": "ae811ccbd1751956b8c368834f53ba871f57fd03e2681db900154561d4051dbf"
   },
   "CANBK": {
-   "bars": 1236,
+   "bars": 1234,
    "first_session": "2021-10-11",
    "last_session": "2026-10-09",
-   "sha256": "6cf1a59643812336edb8ee7fd72001e11feadd68c14dd596e9050879c7d3fc81"
+   "sha256": "e77206551dacdf193a29d0f940079b8d5d7dcc45d76d2e11d8ff184f8404845b"
   }
  },
  "baseline_method": "train-only majority per fold; OOS-count-weighted pooling",
- "generated_at_utc": "2026-10-10T09:48:02.129715+00:00",
+ "generated_at_utc": "2026-10-10T09:48:04.038845+00:00",
  "libs": {
   "python": "3.13.16",
   "numpy": "2.3.5",
@@ -75,12 +75,12 @@
  ],
  "strategies": {
   "S1_ml_dir1_app28": {
-   "accuracy_pct": 50.3,
-   "baseline_pct": 51.75,
-   "edge_pp": -1.45,
+   "accuracy_pct": 49.47,
+   "baseline_pct": 51.37,
+   "edge_pp": -1.91,
    "ci95_pp": 1.4,
-   "fold_sigma_pp": 5.98,
-   "n_oos": 4891,
+   "fold_sigma_pp": 6.25,
+   "n_oos": 4878,
    "symbols_with_positive_edge": 1,
    "note": "app.py ka current design (28 features, next-day direction)",
    "features": 28,
@@ -89,13 +89,13 @@
    "skipped": []
   },
   "S2_ml_dir1_small10": {
-   "accuracy_pct": 49.79,
-   "baseline_pct": 51.75,
-   "edge_pp": -1.96,
+   "accuracy_pct": 49.2,
+   "baseline_pct": 51.37,
+   "edge_pp": -2.17,
    "ci95_pp": 1.4,
-   "fold_sigma_pp": 6.23,
-   "n_oos": 4891,
-   "symbols_with_positive_edge": 1,
+   "fold_sigma_pp": 4.22,
+   "n_oos": 4878,
+   "symbols_with_positive_edge": 0,
    "note": "wahi label, chhota feature set",
    "features": 10,
    "label": "dir1",
@@ -103,12 +103,12 @@
    "skipped": []
   },
   "S3_ml_ret5atr_small10": {
-   "accuracy_pct": 54.72,
-   "baseline_pct": 64.62,
-   "edge_pp": -9.9,
+   "accuracy_pct": 55.17,
+   "baseline_pct": 64.5,
+   "edge_pp": -9.33,
    "ci95_pp": 1.4,
-   "fold_sigma_pp": 8.96,
-   "n_oos": 4867,
+   "fold_sigma_pp": 9.86,
+   "n_oos": 4854,
    "symbols_with_positive_edge": 0,
    "note": "proposed redesign (volatility-adjusted 5-day label)",
    "features": 10,
@@ -120,11 +120,11 @@
  "permutation_null": {
   "n_symbols": 6,
   "perms_per_symbol": 3,
-  "mean_pct": 58.32,
-  "max_pct": 61.6,
-  "min_pct": 51.83
+  "mean_pct": 59.9,
+  "max_pct": 64.88,
+  "min_pct": 53.34
  },
- "verdict": "NO EDGE — accuracy 54.7% shuffled-label ceiling 61.6% se neeche/barabar hai",
+ "verdict": "NO EDGE — accuracy 55.2% shuffled-label ceiling 64.9% se neeche/barabar hai",
  "edge_found": false,
  "disclosure": "Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof nahi hai; costs/slippage ke baad ke numbers research/run_study.py aur RESEARCH_REPORT.md me hain."
 }

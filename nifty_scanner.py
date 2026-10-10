@@ -160,9 +160,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # FIX-33: scanner ka ML composite calibration ke liye KABHI use nahi hota.
-# Lekin symbol universe ek jagah defined rahe taaki score history aur scanner
-# alag-alag stocks ki list ke chalte silently drift na karein.
-from score_calibration import UNIVERSE
+# FIX104: scanner bands retain their separately fitted 30-symbol cohort.
+# Dashboard's expanded historical-rank cohort must not silently change scanner bands.
+from score_calibration import BASE_UNIVERSE as UNIVERSE
 NIFTY_STOCKS = list(UNIVERSE)
 
 SECTOR_MAP = {

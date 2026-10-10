@@ -3711,6 +3711,7 @@ def engine_multitimeframe(symbol, daily_df=None, prefer_exch='NSE'):
 # permutation null ka OOS verdict `ml_edge_study.json` me recorded hai aur UI
 # usi ko quote karta hai — internal number diagnostic label ke saath dikhta hai.
 ML_STUDY_PATH = pathlib.Path('ml_edge_study.json')
+ML_STUDY_PATH_BSE = pathlib.Path('ml_edge_study_bse.json')
 ML_STUDY_SCHEMA = 1
 ML_STUDY_MODEL = 'ml-edge-purged-wf-v1'
 ML_STUDY_MAX_AGE_DAYS = 365
@@ -3718,23 +3719,25 @@ _ml_study_cache = {'mtime': None, 'size': None, 'data': None}
 _ml_study_lock = threading.Lock()
 
 
-def load_ml_study():
+def load_ml_study(exchange='NSE'):
     """`ml_edge_study.json` padho (mtime/size badle to re-read). Missing/invalid → None.
 
     Fail-closed in the *honest* direction: artifact na ho to UI "OOS study absent"
     dikhata hai — iska matlab ye NAHI ki edge hai.
     """
+    path = ML_STUDY_PATH_BSE if exchange == 'BSE' else ML_STUDY_PATH
     try:
-        st = ML_STUDY_PATH.stat()
+        st = path.stat()
     except OSError:
         return None
     with _ml_study_lock:
-        if (_ml_study_cache['mtime'] == st.st_mtime
+        if (_ml_study_cache.get('path') == str(path)
+                and _ml_study_cache['mtime'] == st.st_mtime
                 and _ml_study_cache['size'] == st.st_size
                 and _ml_study_cache['data'] is not None):
             return _ml_study_cache['data']
         try:
-            doc = json.loads(ML_STUDY_PATH.read_text(encoding='utf-8'))
+            doc = json.loads(path.read_text(encoding='utf-8'))
             if doc.get('schema') != ML_STUDY_SCHEMA or doc.get('model') != ML_STUDY_MODEL:
                 raise ValueError('schema/model mismatch')
             strategies = doc.get('strategies')
@@ -3743,21 +3746,23 @@ def load_ml_study():
             for name, s in strategies.items():
                 if not isinstance(s, dict) or 'accuracy_pct' not in s:
                     raise ValueError(f'strategy {name} incomplete')
-            _ml_study_cache.update(mtime=st.st_mtime, size=st.st_size, data=doc)
+            _ml_study_cache.update(path=str(path), mtime=st.st_mtime, size=st.st_size, data=doc)
             return doc
         except Exception:
             _ml_study_cache.update(mtime=st.st_mtime, size=st.st_size, data=None)
             return None
 
 
-def ml_study_payload():
+def ml_study_payload(exchange='NSE'):
     """UI/API ke liye compact study block (+ staleness note)."""
-    doc = load_ml_study()
+    doc = load_ml_study(exchange)
     if not doc:
         return {'ready': False,
                 'error': ('OOS ML study absent — python tools/build_ml_edge_study.py '
                           'run karein (internal ML number unvalidated hai)'),
                 'edge_found': None}
+    from research.provenance import pipeline_fingerprint
+    compatible = (doc.get('pipeline_fingerprint') == pipeline_fingerprint() and doc.get('exchange') == exchange)
     days = None
     try:
         ts = datetime.fromisoformat(doc['generated_at_utc'])
@@ -3790,8 +3795,10 @@ def ml_study_payload():
         'stale': (days is not None and days > ML_STUDY_MAX_AGE_DAYS),
         'age_days': days,
         'pipeline_version': doc.get('pipeline_version'),
-        'rebuild_required': doc.get('pipeline_version') != 'fix100',
-        'disclosure': (('ARCHIVED prior-pipeline study: regenerate for FIX-100; not current validation. ' if doc.get('pipeline_version') != 'fix100' else '') + (doc.get('disclosure') or '')),
+        'exchange': doc.get('exchange'), 'model_scope': doc.get('model_scope'),
+        'data_manifest': doc.get('data_manifest'), 'execution_validated': False,
+        'rebuild_required': not compatible,
+        'disclosure': (('ARCHIVED or different-exchange study: content fingerprint/scope mismatch; rebuild with the current research code. ' if not compatible else '') + (doc.get('disclosure') or '')),
     }
 
 
@@ -3871,6 +3878,8 @@ def _score_history_for(asof_session, bars, symbol, exchange='NSE'):
         return None, error
     if symbol not in fitted['symbols_covered']:
         return None, f'{symbol} historical snapshots me absent — no fitted rank'
+    if fitted.get('symbol_sessions', {}).get(symbol, 0) < SCORE_CAL.WINDOW_SESSIONS:
+        return None, f'{symbol}: fewer than {SCORE_CAL.WINDOW_SESSIONS} scored historical sessions; rebuild/expand real history'
     try:
         SCORE_CAL.for_session(fitted, asof_session, bars=bars,
                               current_day=datetime.now(IST).date().isoformat())
@@ -4822,7 +4831,7 @@ def stock_api(symbol):
             'ml': ml_res,
             # FIX-41 (C-2): recorded OOS study — internal `ml` number sirf
             # diagnostic hai; UI/API ka "edge hai ya nahi" jawaab yahaan se aata hai.
-            'ml_study': ml_study_payload(),
+            'ml_study': ml_study_payload(req_exch),
             'engines': {
                 'vol_profile': e1,
                 'rvol_cvd': e2,

@@ -18,5 +18,6 @@ try{
  test('NSE switch clears BSE banner and provenance',()=>{let d=payload();d.frame_exchange=d.requested_exchange='NSE';d.analysis_source='TradingView Direct (NSE)';d.quote_source='yahoo.ns';d.ensemble.calibration.exchange='NSE';w.render(d);assert.equal(w.document.getElementById('exchWarn').style.display,'none');assert(txt('historySource').includes('(NSE)'));assert(!txt('historySource').includes('(BSE)'));assert(txt('activeEngineTag').includes('yahoo.ns'));});
  test('Provenance text cannot inject markup',()=>{let d=payload();d.analysis_source='<img src=x onerror="window.pwned=1">';w.render(d);assert(!w.document.querySelector('#historySource img'));assert(!w.pwned);assert(txt('historySource').includes('<img'));});
  test('Archived study cannot claim current validation',()=>{let d=payload();d.ml={available:true};d.ml_study={ready:true,rebuild_required:true,edge_found:true};w.render(d);assert(txt('mlBox').includes('ARCHIVED OOS study — NOT current validation'));});
+ test('A fitted AVOID band explains NONE without claiming missing calibration',()=>{let d=payload();d.ensemble.action='AVOID';d.ensemble.calibration.ready=true;w.render(d);assert(txt('targetsBox').includes('Fitted rank band AVOID'));assert(!txt('targetsBox').includes('Calibration unavailable'));});
  console.log(`${n}/${n} FIX103 render cases passed`);
 }finally{dom.window.close();}
