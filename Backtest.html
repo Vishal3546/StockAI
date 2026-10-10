@@ -79,7 +79,6 @@ function cls(x){ return (x===null||x===undefined) ? 'mut' : (x>0?'green':(x<0?'r
 function tstat(t){
   if(t===null||t===undefined) return '<span class="mut">—</span>';
   var s = (t>=0?'+':'')+Number(t).toFixed(2);
-  if(Math.abs(t)>=2) return '<span class="'+(t>0?'green':'red')+'"><b>'+s+'</b></span>';
   return '<span class="mut">'+s+'</span>';
 }
 function bar(mean, maxAbs){
@@ -116,7 +115,7 @@ function load(ex){
     });});
 
     var html = '<table><thead><tr><th>Score band</th><th>n</th>';
-    H.forEach(function(h){ html += '<th>fwd '+h+'d mean</th><th>SE</th><th>t</th><th>&gt;0%</th>'; });
+    H.forEach(function(h){ html += '<th>fwd '+h+'d mean</th><th>SE (naive)</th><th>t (descriptive)</th><th>&gt;0%</th>'; });
     html += '<th style="text-align:left;padding-left:10px">spread</th></tr></thead><tbody>';
 
     d.bands.forEach(function(b){
@@ -138,15 +137,15 @@ function load(ex){
     html += '</tbody></table>';
     document.getElementById('tbl').innerHTML = html;
 
-    // honest summary: kitne bands actually significant hain
+    // Descriptive counts only: overlapping observations invalidate naive significance claims.
     var sig = 0, tot = 0, thin = 0;
     d.bands.forEach(function(b){ if(b.thin) thin++;
       H.forEach(function(h){ var x=b.h[h]||{}; if(x.t!==null&&x.t!==undefined){ tot++; if(Math.abs(x.t)>=2) sig++; } }); });
     document.getElementById('note').innerHTML =
       '<b>Summary:</b> '+tot+' band-horizon pairs me se <b class="cy">'+sig+'</b> par |t| ≥ 2 '+
       '('+(tot?Math.round(100*sig/tot):0)+'%). '+thin+' band(s) thin hain (n &lt; '+d.min_band_n+').<br>'+
-      'Yaani zyadaatar cells statistically noise hain — ye jaan-bujh kar dikhaya gaya hai, '+
-      'chhupaya nahi gaya.';
+      'Overlapping returns/shared market moves se samples independent nahi. Naive t significance test nahi; '+
+      'costs, dependence aur multiple testing control kiye bina predictive edge ka dawa na karein.';
   }).catch(function(e){
     document.getElementById('tbl').innerHTML = '<div class="err">fetch fail: '+e+'</div>';
   });

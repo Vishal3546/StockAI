@@ -296,19 +296,19 @@ def calculate_real_ml(df):
         d['vol_r'] = d['Vol_Ratio']
         d['ema_cross'] = (d['EMA_9'] - d['EMA_21']) / (c + 1e-10) * 100
         d['price_50'] = (c - d['SMA_50']) / (d['SMA_50'] + 1e-10) * 100
-        d['target'] = (c.shift(-1) > c).astype(int)
+        d['target'] = (c.shift(-1) > c).astype(float).where(c.shift(-1).notna())
 
         feats = ['ret_1', 'ret_3', 'ret_5', 'ret_10', 'rsi', 'macd_h', 'atr_pct', 'vol_r', 'ema_cross', 'price_50']
 
-        d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill().bfill()
+        d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill()
         d_clean = d.dropna(subset=feats + ['target'])
 
         if len(d_clean) < 50:
             return 50.0, 0.0, 50.0, 0.0
 
         train_n = int(len(d_clean) * 0.8)
-        X_train = np.nan_to_num(d_clean[feats].iloc[:train_n].values)
-        y_train = d_clean['target'].iloc[:train_n].values
+        X_train = np.nan_to_num(d_clean[feats].iloc[:max(0, train_n - 1)].values)
+        y_train = d_clean['target'].iloc[:max(0, train_n - 1)].values
         X_test = np.nan_to_num(d_clean[feats].iloc[train_n:].values)
         y_test = d_clean['target'].iloc[train_n:].values
 
@@ -322,10 +322,10 @@ def calculate_real_ml(df):
         acc = round(accuracy_score(y_test, gb.predict(X_te_s)) * 100, 1)
 
         pos_rate = float(y_test.mean())
-        baseline = round(max(pos_rate, 1 - pos_rate) * 100, 1)
+        baseline = round(float((y_test == int(y_train.mean() >= 0.5)).mean()) * 100, 1)
         edge = round(acc - baseline, 1)
 
-        today = scaler.transform(np.nan_to_num(d_clean[feats].iloc[-1:].values))
+        today = scaler.transform(np.nan_to_num(d[feats].iloc[-1:].values))
         prob = round(float(gb.predict_proba(today)[0][1]) * 100, 1)
 
         return prob, acc, baseline, edge

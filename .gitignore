@@ -67,3 +67,7 @@ alerts.json
 # FIX-96: trade journal — user ke apne trades, per-machine (merge conflict + privacy)
 trade_journal.json
 trade_journal.json.tmp
+
+# FIX-100 cross-process local store lock
+.stockai-store.lock
+verification_results/

@@ -181,14 +181,14 @@ def deep_ml_analysis(df, symbol):
     d['hl_range'] = (h - l) / (c + 1e-10) * 100
     d['close_pos'] = (c - l) / (h - l + 1e-10)
 
-    d['target'] = (c.shift(-1) > c).astype(int)
+    d['target'] = (c.shift(-1) > c).astype(float).where(c.shift(-1).notna())
 
     feats = ['ret_1','ret_3','ret_5','ret_10','ret_20','rsi','macd','macd_sig','macd_hist',
              'bb_pctb','bb_width','atr_pct','vol_ratio','vol_change','obv_slope',
              'ema_cross','price_200','adx','plus_di','minus_di','stoch_rsi','cci',
              'willr','vol_20','vol_5','vwap_dist','hl_range','close_pos']
 
-    d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill().bfill()
+    d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill()
     d_clean = d.dropna(subset=feats + ['target'])
 
     if len(d_clean) < 120:
@@ -200,7 +200,7 @@ def deep_ml_analysis(df, symbol):
     test_window = 20
 
     for start in range(120, len(d_clean) - test_window, step):
-        train = d_clean.iloc[:start]
+        train = d_clean.iloc[:max(0, start - 1)]
         test = d_clean.iloc[start:start + test_window]
 
         if len(test) < 10:
@@ -225,18 +225,18 @@ def deep_ml_analysis(df, symbol):
 
     # ── Final Train / Test Split (80/20) ──
     train_n = int(len(d_clean) * 0.8)
-    X_train = np.nan_to_num(d_clean[feats].iloc[:train_n].values)
-    y_train = d_clean['target'].iloc[:train_n].values
+    X_train = np.nan_to_num(d_clean[feats].iloc[:max(0, train_n - 1)].values)
+    y_train = d_clean['target'].iloc[:max(0, train_n - 1)].values
     X_test = np.nan_to_num(d_clean[feats].iloc[train_n:].values)
     y_test = d_clean['target'].iloc[train_n:].values
 
     pos_rate = float(y_test.mean())
-    baseline_acc = round(max(pos_rate, 1 - pos_rate) * 100, 1)
+    baseline_acc = round(float((y_test == int(y_train.mean() >= 0.5)).mean()) * 100, 1)
 
     scaler = StandardScaler()
     X_tr_s = scaler.fit_transform(X_train)
     X_te_s = scaler.transform(X_test)
-    X_today = scaler.transform(np.nan_to_num(d_clean[feats].iloc[-1:].values))
+    X_today = scaler.transform(np.nan_to_num(d[feats].iloc[-1:].values))
 
     models = {}
 

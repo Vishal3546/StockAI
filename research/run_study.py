@@ -203,7 +203,7 @@ def main():
     print('=' * 88)
     print(f" round-trip hurdle : {cfg.round_trip_pct():.2f}%  (delivery STT + brokerage + stamp + GST"
           f" + {cfg.slippage_bps}bps slippage)")
-    print(f" execution         : signal at close t → position at t+1 (lag=1)")
+    print(f" execution         : signal at close t → next Open fill; fixed units and terminal Close exit (lag=1)")
     print(f" window            : {WARMUP}-bar warmup · {N_FOLDS} expanding folds · "
           f"prob threshold {PROB_THRESHOLD}\n")
 

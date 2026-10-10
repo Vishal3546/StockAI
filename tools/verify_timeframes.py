@@ -272,7 +272,7 @@ for label, s in (('app.py FIX-77 block', blk77),
 
 _jd = A.journal_stats([])['disclosure']
 check('FIX-96: journal "Win rate" apne-trades framing ke saath hai',
-      'Win rate' in page and 'aapke khud log kiye trades' in _jd)
+      'Gross win rate' in page and 'aapke khud log kiye trades' in _jd)
 check('FIX-96: journal disclosure model/score ki accuracy MANA karta hai',
       'accuracy nahi' in _jd and 'prediction' in _jd)
 check('FIX-96: FIX-96 markers mile (strip chup-chaap skip nahi hua)',

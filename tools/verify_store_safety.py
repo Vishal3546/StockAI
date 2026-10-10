@@ -195,8 +195,10 @@ with open(A.ALERTS_FILE, 'w', encoding='utf-8') as f:
                 'level': 100.0, 'fired': False},
                {'id': 12, 'symbol': 'TCS', 'exchange': 'NSE', 'condition': 'below',
                 'level': 100.0, 'fired': False}], f)
+_market_open = A.is_market_open
+A.is_market_open = lambda *a, **k: True
 _orig_quote = A.get_live_quote
-A.get_live_quote = lambda sym, prefer_exch='NSE', **k: {'price': 150.0}
+A.get_live_quote = lambda sym, prefer_exch='NSE', **k: {'price': 150.0, 'is_realtime': True, 'stale': False, 'exchange': prefer_exch, 'source': 'yahoo.ns'}
 try:
     _rc = C.post('/api/alerts/check')
     _jc = _rc.get_json()
@@ -210,6 +212,7 @@ try:
           len(json.load(open(A.ALERTS_FILE, encoding='utf-8'))) == 2)
 finally:
     A.get_live_quote = _orig_quote
+    A.is_market_open = _market_open
 
 print("\n── E. FIX-99: bounded caches (unbounded growth / memory leak) ────")
 c1 = {}

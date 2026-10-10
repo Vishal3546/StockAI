@@ -420,7 +420,7 @@ const PLAIN = 'http://localhost/timeframes';
   check('FIX-96: khali journal par honest empty-state (jhootha 0% nahi)',
     js.table.includes('Abhi koi trade log nahi hua'));
   check('FIX-96: n=0 par metrics "—" (0.00R fake nahi)',
-    js.stats.includes('Expectancy') && js.stats.includes('—'));
+    js.stats.includes('Net expectancy') && js.stats.includes('—'));
   check('FIX-96: ANECDOTE disclosure dikhta hai', js.stats.includes('ANECDOTE'));
   check('FIX-96: "aapke khud log kiye trades" saaf likha',
     js.stats.includes('aapke khud log kiye trades'));

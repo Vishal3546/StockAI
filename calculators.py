@@ -17,6 +17,7 @@ Koi predictive claim nahi. Ye arithmetic hai, salaah nahi.
 """
 from __future__ import annotations
 
+import math
 from research.costs import CostConfig
 
 # Rates kis date ke hain — page par dikhaya jaata hai taaki stale na lage.
@@ -44,9 +45,14 @@ def trade_costs(notional, mode='delivery', brokerage_per_order=0.0,
     impact chahe to explicit bharde.
     """
     n = _num(notional)
-    if n is None or n <= 0:
+    if n is None or not 0 < n <= 1e15:
         return None
-    intraday = str(mode).lower() != 'delivery'
+    if mode not in ('intraday','delivery'):
+        return None
+    bp, cap, slip = _num(brokerage_pct), _num(brokerage_per_order), _num(slippage_bps)
+    if None in (bp, cap, slip) or not (0 <= bp <= 100 and 0 <= cap <= 1e9 and 0 <= slip <= 10000):
+        return None
+    intraday = mode == 'intraday'
     cfg = CostConfig(brokerage_pct=max(0.0, _num(brokerage_pct) or 0.0) / 100.0,
                      brokerage_cap=max(0.0, _num(brokerage_per_order) or 0.0),
                      slippage_bps=max(0.0, _num(slippage_bps) or 0.0))
@@ -72,7 +78,7 @@ def position_size(capital, risk_pct, entry, stop, side='long') -> dict | None:
     risk kabhi budget se zyada na ho.
     """
     c, rp, e, st = _num(capital), _num(risk_pct), _num(entry), _num(stop)
-    if None in (c, rp, e, st) or c <= 0 or e <= 0 or not (0 < rp <= 100):
+    if side not in ('long', 'short') or None in (c, rp, e, st) or not 0 < c <= 1e15 or not 0 < e <= 1e12 or not 0 < st <= 1e12 or not (0 < rp <= 100):
         return None
     per_share = (e - st) if side == 'long' else (st - e)
     if per_share <= 0:
@@ -82,7 +88,7 @@ def position_size(capital, risk_pct, entry, stop, side='long') -> dict | None:
                           if side == 'long'
                           else 'short ke liye stop entry se upar hona chahiye')}
     risk_amount = c * rp / 100.0
-    qty = int(risk_amount // per_share)
+    qty = min(int(risk_amount // per_share), int(c // e))  # cash-notional cap
     if qty <= 0:
         return {'error': 'itne chhote risk budget me 1 share bhi nahi aata — '
                          'risk % badhao ya stop tight karo'}
@@ -103,7 +109,7 @@ def sip(monthly, years, annual_rate_pct) -> dict | None:
     (end-of-period convention) — page par bhi yahi likha hai.
     """
     p, y, r = _num(monthly), _num(years), _num(annual_rate_pct)
-    if None in (p, y, r) or p <= 0 or y <= 0 or r < 0:
+    if None in (p, y, r) or not (0 < p <= 1e12 and 0 < y <= 100 and 0 <= r <= 100):
         return None
     n = int(round(y * 12))
     if n <= 0:
@@ -124,8 +130,10 @@ def sip(monthly, years, annual_rate_pct) -> dict | None:
 
 
 def _num(v):
+    if isinstance(v, bool):
+        return None
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    return None if f != f else f          # NaN guard
+    return f if math.isfinite(f) else None

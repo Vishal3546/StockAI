@@ -61,7 +61,7 @@ def _pooled(results):
     p = np.concatenate([r.oos_prob for r in results])
     y = np.concatenate([r.oos_y for r in results])
     acc = float(((p >= 0.5).astype(int) == y).mean())
-    base = float(max(y.mean(), 1 - y.mean()))
+    base = float(sum(r.baseline * r.n_oos for r in results) / len(y))
     se = float(np.sqrt(max(acc * (1 - acc), 1e-9) / len(y)))
     fold_edges = np.array([f['edge_pp'] for r in results for f in r.folds])
     return {
@@ -202,7 +202,8 @@ def main():
         edge_found = False
 
     artifact = {
-        'schema': SCHEMA, 'model': MODEL,
+        'schema': SCHEMA, 'model': MODEL, 'pipeline_version': 'fix100',
+        'baseline_method': 'train-only majority per fold; OOS-count-weighted pooling',
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
         # Reproducibility: same numbers sirf inhi library versions par expect karein.
         'libs': _lib_versions(),

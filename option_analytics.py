@@ -38,7 +38,8 @@ def oi_walls(rows) -> dict:
         return {'call_wall': None, 'put_wall': None}
     mc = max(rows, key=lambda r: _f(r.get('ce_oi')))
     mp = max(rows, key=lambda r: _f(r.get('pe_oi')))
-    return {'call_wall': _f(mc.get('strike')), 'put_wall': _f(mp.get('strike'))}
+    return {'call_wall': _f(mc.get('strike')) if _f(mc.get('ce_oi')) > 0 else None,
+            'put_wall': _f(mp.get('strike')) if _f(mp.get('pe_oi')) > 0 else None}
 
 
 def atm_iv(rows, spot) -> float | None:
@@ -62,6 +63,8 @@ def max_pain(rows) -> float | None:
     """
     if not rows:
         return None
+    if not any(_f(r.get('ce_oi')) > 0 or _f(r.get('pe_oi')) > 0 for r in rows):
+        return None
     strikes = sorted(_f(r.get('strike')) for r in rows)
     best_s, best_loss = None, None
     for s in strikes:
@@ -81,7 +84,7 @@ def straddle_price(rows, spot) -> dict | None:
         return None
     atm = min(rows, key=lambda r: abs(_f(r.get('strike')) - float(spot)))
     c, p = _f(atm.get('ce_ltp')), _f(atm.get('pe_ltp'))
-    if c <= 0 and p <= 0:
+    if c <= 0 or p <= 0:
         return None
     price = c + p
     return {'atm_strike': _f(atm.get('strike')), 'straddle': round(price, 2),
@@ -91,7 +94,7 @@ def straddle_price(rows, spot) -> dict | None:
 # ── Strategy builder (premium-based payoff) ────────────────────────────────
 def strategy_payoff(legs, prices) -> list[float]:
     """legs = [{'opt':'CE'|'PE', 'side':'buy'|'sell', 'strike':float, 'premium':float}]
-    returns P&L per price (per lot, before costs)."""
+    returns P&L per underlying unit, before costs (multiply by lot size/quantity)."""
     out = []
     for s in prices:
         pnl = 0.0
@@ -107,18 +110,36 @@ def strategy_payoff(legs, prices) -> list[float]:
 
 
 def strategy_stats(legs, prices) -> dict:
-    """Max profit / max loss / breakevens (price jahan P&L sign badalta hai)."""
-    pay = strategy_payoff(legs, prices)
-    be = []
-    for i in range(1, len(pay)):
-        if (pay[i - 1] <= 0 < pay[i]) or (pay[i - 1] >= 0 > pay[i]):
-            # linear interp
-            p0, p1 = prices[i - 1], prices[i]
-            v0, v1 = pay[i - 1], pay[i]
-            if v1 != v0:
-                be.append(round(p0 + (0 - v0) * (p1 - p0) / (v1 - v0), 2))
-    mp = max(pay); ml = min(pay)
-    return {'max_profit': mp if mp > 0 else None,
-            'max_loss': ml if ml < 0 else None,
-            'breakevens': be,
-            'payoff_at_spot': None}
+    """Analytical expiry payoff on S >= 0; no finite-grid bound claims.
+
+    max_loss is a signed P&L; None with loss_unlimited=True means unbounded.
+    Per unit, before costs; no margin/early exercise/assignment model.
+    """
+    if not legs:
+        return {'max_profit': 0.0, 'max_loss': 0.0, 'breakevens': [],
+                'profit_unlimited': False, 'loss_unlimited': False, 'payoff_at_spot': None}
+    for leg in legs:
+        if leg.get('opt') not in ('CE','PE') or leg.get('side') not in ('buy','sell'):
+            raise ValueError('invalid option type/side')
+        for name in ('strike','premium'):
+            try:
+                value = float(leg[name])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError('finite strike/premium required')
+            if not math.isfinite(value) or value < 0:
+                raise ValueError('nonnegative finite strike/premium required')
+    knots = sorted({0.0, *(float(l['strike']) for l in legs)})
+    pay = strategy_payoff(legs, knots)
+    tail = sum((1 if l['side']=='buy' else -1) for l in legs if l['opt']=='CE')
+    roots = {knots[i] for i,v in enumerate(pay) if abs(v) < 1e-9}
+    for i in range(1,len(knots)):
+        if pay[i-1]*pay[i] < 0:
+            roots.add(knots[i-1]-pay[i-1]*(knots[i]-knots[i-1])/(pay[i]-pay[i-1]))
+    if tail:
+        root = knots[-1]-pay[-1]/tail
+        if root >= knots[-1]: roots.add(root)
+    return {'max_profit': None if tail>0 else max(pay),
+            'max_loss': None if tail<0 else min(pay),
+            'profit_unlimited': tail>0, 'loss_unlimited': tail<0,
+            'breakevens': sorted(round(r,2) for r in roots),
+            'payoff_at_spot': None, 'units': 'per underlying unit before costs'}

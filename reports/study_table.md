@@ -1,3 +1,5 @@
+> **Archived methodology — FIX-100 notice (2026-10-10):** Results below predate the corrected next-open cash ledger, terminal exit fees, data-adjustment policy and train-only ML baseline. They are retained for provenance, not current strategy validation. Regenerate with `python -m research.run_study` before comparison. No executable edge is established.
+
 # Study tables (auto-generated)
 
 ## ML quality

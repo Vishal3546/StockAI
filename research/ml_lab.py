@@ -53,7 +53,7 @@ class WFResult:
 
 
 def purged_walk_forward(X: pd.DataFrame, y: pd.Series, n_folds: int = 5,
-                        warmup: int = 252, embargo: int = 0,
+                        warmup: int = 252, embargo: int = 1,
                         model_fn: Optional[Callable] = None,
                         shuffle_train_labels: bool = False,
                         seed: int = 0) -> WFResult:
@@ -64,6 +64,12 @@ def purged_walk_forward(X: pd.DataFrame, y: pd.Series, n_folds: int = 5,
     """
     from sklearn.preprocessing import StandardScaler
 
+    if not X.index.equals(y.index) or not X.index.is_unique or not X.index.is_monotonic_increasing:
+        raise ValueError('aligned, sorted, unique X/y indices required')
+    if n_folds < 1 or embargo < 1 or warmup < 1:
+        raise ValueError('positive folds, warmup and label-horizon embargo required')
+    if not np.isfinite(y.to_numpy(dtype=float)).all() or not y.isin([0, 1]).all():
+        raise ValueError('finite binary labels required; drop unknown future labels')
     model_fn = model_fn or _default_model
     # NOTE: `inf` ko 1.8e308 (nan_to_num ka default) banane se StandardScaler
     # NaN produce karta hai — isliye inf ko 0 par map karte hain aur extreme
@@ -79,12 +85,12 @@ def purged_walk_forward(X: pd.DataFrame, y: pd.Series, n_folds: int = 5,
         raise ValueError(f"not enough data: n={n}, warmup={warmup}, folds={n_folds}")
     block = usable // n_folds
 
-    oos_idx, oos_p, oos_y, folds = [], [], [], []
+    oos_idx, oos_p, oos_y, folds, baseline_hits = [], [], [], [], []
     rng = np.random.default_rng(seed)
 
     for k in range(n_folds):
         start = warmup + k * block
-        end = min(start + block, n)
+        end = n if k == n_folds - 1 else min(start + block, n)
         train_end = start - embargo                 # ← purge/embargo
         if train_end < 150 or end - start < 10:
             continue
@@ -94,13 +100,17 @@ def purged_walk_forward(X: pd.DataFrame, y: pd.Series, n_folds: int = 5,
             ytr = rng.permutation(ytr)
 
         sc = StandardScaler().fit(Xtr)
-        mdl = model_fn()
-        mdl.fit(sc.transform(Xtr), ytr)
-        p = mdl.predict_proba(sc.transform(Xte))[:, 1]
+        if len(np.unique(ytr)) == 1:
+            p = np.full(len(yte), ytr[0], dtype=float)
+        else:
+            mdl = model_fn()
+            mdl.fit(sc.transform(Xtr), ytr)
+            p = mdl.predict_proba(sc.transform(Xte))[:, 1]
 
         oos_idx.append(idx[start:end]); oos_p.append(p); oos_y.append(yte)
         acc = float(((p >= 0.5).astype(int) == yte).mean())
-        base = float(max(yte.mean(), 1 - yte.mean()))
+        baseline_hits.extend(yte == int(ytr.mean() >= 0.5))
+        base = float(np.mean(baseline_hits[-len(yte):]))
         folds.append({'fold': k + 1, 'train_n': int(train_end), 'test_n': int(end - start),
                       'test_start': str(idx[start])[:10], 'test_end': str(idx[end - 1])[:10],
                       'accuracy_pct': round(acc * 100, 2), 'baseline_pct': round(base * 100, 2),
@@ -113,7 +123,7 @@ def purged_walk_forward(X: pd.DataFrame, y: pd.Series, n_folds: int = 5,
     oos_idx = pd.DatetimeIndex(np.concatenate([np.asarray(i) for i in oos_idx]))
 
     acc = float(((oos_p >= 0.5).astype(int) == oos_y).mean())
-    base = float(max(oos_y.mean(), 1 - oos_y.mean()))
+    base = float(np.mean(baseline_hits))
     fold_accs = np.array([f['accuracy_pct'] for f in folds]) / 100.0
     se = float(np.sqrt(max(acc * (1 - acc), 1e-9) / len(oos_y)))   # binomial SE
 

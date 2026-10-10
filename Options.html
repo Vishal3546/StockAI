@@ -122,8 +122,19 @@ function renderChain(){
 function kfmt(x){return x>=1e7?(x/1e7).toFixed(1)+'Cr':x>=1e5?(x/1e5).toFixed(1)+'L':x>=1e3?(x/1e3).toFixed(1)+'K':x;}
 // ── strategy payoff (mirror of option_analytics) ──
 function payoff(legs,prices){return prices.map(s=>{let p=0;for(const L of legs){const intr=L.opt==='CE'?Math.max(0,s-L.strike):Math.max(0,L.strike-s);p+=L.side==='buy'?intr-L.premium:L.premium-intr;}return Math.round(p*100)/100;});}
-function stats(legs,prices){const pay=payoff(legs,prices);const be=[];for(let i=1;i<pay.length;i++){if((pay[i-1]<=0&&pay[i]>0)||(pay[i-1]>=0&&pay[i]<0)){const[p0,p1]=[prices[i-1],prices[i]],[v0,v1]=[pay[i-1],pay[i]];if(v1!==v0)be.push(Math.round((p0+(0-v0)*(p1-p0)/(v1-v0))*100)/100);}}
-  const mp=Math.max(...pay),ml=Math.min(...pay);return{mp:mp>0?mp:null,ml:ml<0?ml:null,be,pay};}
+function stats(legs,prices){
+  const pay=payoff(legs,prices);
+  const knots=[...new Set([0,...legs.map(l=>Number(l.strike))])].sort((a,b)=>a-b);
+  const vals=payoff(legs,knots), roots=[];
+  for(let i=0;i<knots.length;i++){
+    if(vals[i]===0)roots.push(knots[i]);
+    if(i && vals[i-1]*vals[i]<0)roots.push(knots[i-1]-vals[i-1]*(knots[i]-knots[i-1])/(vals[i]-vals[i-1]));
+  }
+  const tail=legs.filter(l=>l.opt==='CE').reduce((n,l)=>n+(l.side==='buy'?1:-1),0);
+  if(tail){const r=knots.at(-1)-vals.at(-1)/tail;if(r>=knots.at(-1))roots.push(r);}
+  return {mp:tail>0?'Unlimited':Math.max(...vals),ml:tail<0?'Unlimited loss':Math.min(...vals),
+          be:[...new Set(roots.map(r=>Math.round(r*100)/100))].sort((a,b)=>a-b),pay};
+}
 function build(){
   if(!CHAIN){$('stratOut').textContent='pehle chain load karo';return;}
   const rows=CHAIN.rows,atm=CHAIN._atm,i=CHAIN._idx;
@@ -135,9 +146,12 @@ function build(){
   if(st==='bearput')legs=[{opt:'PE',side:'buy',strike:atm.strike,premium:atm.pe_ltp},{opt:'PE',side:'sell',strike:g(-2).strike,premium:g(-2).pe_ltp}];
   if(st==='condor')legs=[{opt:'PE',side:'sell',strike:g(-3).strike,premium:g(-3).pe_ltp},{opt:'PE',side:'buy',strike:g(-5).strike,premium:g(-5).pe_ltp},
                          {opt:'CE',side:'sell',strike:g(3).strike,premium:g(3).ce_ltp},{opt:'CE',side:'buy',strike:g(5).strike,premium:g(5).ce_ltp}];
+  if(legs.some(l=>!Number.isFinite(l.premium)||l.premium<=0||!Number.isFinite(l.strike)||l.strike<0)){
+    $('stratOut').textContent='Valid premiums for every leg required; no payoff estimate.';return;
+  }
   const spot=CHAIN.spot, prices=[]; for(let p=spot*0.9;p<=spot*1.1;p+=spot*0.02)prices.push(Math.round(p));
   const s=stats(legs,prices);
-  $('stratOut').innerHTML=`<b>${$('strat').selectedOptions[0].text}</b> · Max Profit: <span class="green">${s.mp??'unlimited/—'}</span> · Max Loss: <span class="red">${s.ml??'—'}</span> · Breakeven: ${s.be.join(', ')||'—'}`;
+  $('stratOut').innerHTML=`<b>${$('strat').selectedOptions[0].text}</b> · Per-unit expiry payoff, before costs · Max Profit: <span class="green">${s.mp??'—'}</span> · Max Loss: <span class="red">${s.ml??'—'}</span> · Breakeven: ${s.be.join(', ')||'—'}`;
   document.querySelector('#payoff tbody').innerHTML=prices.map((p,j)=>`<tr><td class="k">${fmt(p)}</td><td class="${s.pay[j]>=0?'green':'red'}">${s.pay[j]}</td></tr>`).join('');
 }
 $('load').onclick=load; $('build').onclick=build;

@@ -25,7 +25,8 @@ class CostConfig:
     stt_intraday_sell: float = 0.00025     # 0.025% jab short intraday ho
 
     # ── exchange + regulator ──
-    exch_pct: float = 0.0000325            # NSE transaction charge 0.00325%
+    exch_pct: float = 0.0000307            # NSE cash txn + IPFT 0.00307%, effective 2026-03-01
+    # https://nsearchives.nseindia.com/content/circulars/FA73061.pdf
     sebi_pct: float = 0.000001             # ₹10 per crore
 
     # ── stamp duty (sirf buy side) ──

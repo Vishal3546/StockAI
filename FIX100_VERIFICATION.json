@@ -1,0 +1,327 @@
+{
+  "date_ist": "2026-10-10",
+  "base_commit": "a68cbd136d080b6cd64151b235bfccd4d149f307",
+  "environment": {
+    "os": "Linux",
+    "python": "3.13.16",
+    "node": "v20.20.2",
+    "jsdom": "29.1.1"
+  },
+  "verifier_scripts": [
+    {
+      "test": "verify_bse_calibration.py",
+      "exit": 0,
+      "seconds": 1.35
+    },
+    {
+      "test": "verify_bse_master.py",
+      "exit": 0,
+      "seconds": 2.19
+    },
+    {
+      "test": "verify_calculators.py",
+      "exit": 0,
+      "seconds": 0.14
+    },
+    {
+      "test": "verify_calculators_render.js",
+      "exit": 0,
+      "seconds": 1.62
+    },
+    {
+      "test": "verify_cockpit_render.js",
+      "exit": 0,
+      "seconds": 2.45
+    },
+    {
+      "test": "verify_dashboard_display.py",
+      "exit": 0,
+      "seconds": 0.13
+    },
+    {
+      "test": "verify_dashboard_render.js",
+      "exit": 0,
+      "seconds": 3.06
+    },
+    {
+      "test": "verify_dependency_pins.py",
+      "exit": 0,
+      "seconds": 3.41
+    },
+    {
+      "test": "verify_exchange_mismatch.py",
+      "exit": 0,
+      "seconds": 3.82
+    },
+    {
+      "test": "verify_fidii.py",
+      "exit": 0,
+      "seconds": 0.28
+    },
+    {
+      "test": "verify_fidii_render.js",
+      "exit": 0,
+      "seconds": 2.5
+    },
+    {
+      "test": "verify_fix100.py",
+      "exit": 0,
+      "seconds": 3.23
+    },
+    {
+      "test": "verify_fix100_render.js",
+      "exit": 0,
+      "seconds": 0.04
+    },
+    {
+      "test": "verify_fixes.py",
+      "exit": 0,
+      "seconds": 49.26
+    },
+    {
+      "test": "verify_journal.py",
+      "exit": 0,
+      "seconds": 1.22
+    },
+    {
+      "test": "verify_kelly_measured.py",
+      "exit": 0,
+      "seconds": 0.87
+    },
+    {
+      "test": "verify_live_quote.py",
+      "exit": 0,
+      "seconds": 12.14
+    },
+    {
+      "test": "verify_market_cockpit.py",
+      "exit": 0,
+      "seconds": 0.12
+    },
+    {
+      "test": "verify_ml_edge_study.py",
+      "exit": 0,
+      "seconds": 1.07
+    },
+    {
+      "test": "verify_new_pages.py",
+      "exit": 0,
+      "seconds": 1.9
+    },
+    {
+      "test": "verify_no_fake_numbers.py",
+      "exit": 0,
+      "seconds": 6.78
+    },
+    {
+      "test": "verify_option_analytics.py",
+      "exit": 0,
+      "seconds": 0.03
+    },
+    {
+      "test": "verify_risk_basis.py",
+      "exit": 0,
+      "seconds": 0.59
+    },
+    {
+      "test": "verify_scanner_bands.py",
+      "exit": 0,
+      "seconds": 0.62
+    },
+    {
+      "test": "verify_score_calibration.py",
+      "exit": 0,
+      "seconds": 1.53
+    },
+    {
+      "test": "verify_screener.py",
+      "exit": 0,
+      "seconds": 0.06
+    },
+    {
+      "test": "verify_screener_refresh.py",
+      "exit": 0,
+      "seconds": 2.72
+    },
+    {
+      "test": "verify_screener_render.js",
+      "exit": 0,
+      "seconds": 2.52
+    },
+    {
+      "test": "verify_search_bse.py",
+      "exit": 0,
+      "seconds": 1.25
+    },
+    {
+      "test": "verify_security.py",
+      "exit": 0,
+      "seconds": 1.28
+    },
+    {
+      "test": "verify_sentinels.py",
+      "exit": 0,
+      "seconds": 6.63
+    },
+    {
+      "test": "verify_startup_offline.py",
+      "exit": 0,
+      "seconds": 3.67
+    },
+    {
+      "test": "verify_store_safety.py",
+      "exit": 0,
+      "seconds": 0.76
+    },
+    {
+      "test": "verify_strict_exchange.py",
+      "exit": 0,
+      "seconds": 8.19
+    },
+    {
+      "test": "verify_timeframes.py",
+      "exit": 0,
+      "seconds": 14.28
+    },
+    {
+      "test": "verify_timeframes_render.js",
+      "exit": 0,
+      "seconds": 10.63
+    },
+    {
+      "test": "verify_trade_plan.py",
+      "exit": 0,
+      "seconds": 2.02
+    },
+    {
+      "test": "verify_xss_render.js",
+      "exit": 0,
+      "seconds": 2.14
+    }
+  ],
+  "passed_scripts": 38,
+  "total_scripts": 38,
+  "new_semantic_tests": 37,
+  "new_browser_payoff_cases": 4,
+  "inline_js_syntax_scripts": 12,
+  "http_smoke": [
+    {
+      "path": "/",
+      "status": 200,
+      "bytes": 87437
+    },
+    {
+      "path": "/timeframes",
+      "status": 200,
+      "bytes": 27021
+    },
+    {
+      "path": "/options",
+      "status": 200,
+      "bytes": 9225
+    },
+    {
+      "path": "/backtest",
+      "status": 200,
+      "bytes": 8240
+    },
+    {
+      "path": "/watchlist",
+      "status": 200,
+      "bytes": 8454
+    },
+    {
+      "path": "/alerts",
+      "status": 200,
+      "bytes": 9372
+    },
+    {
+      "path": "/calculators",
+      "status": 200,
+      "bytes": 8711
+    },
+    {
+      "path": "/api/backtest?ex=NSE",
+      "status": 200,
+      "bytes": 3198
+    },
+    {
+      "path": "/api/backtest?ex=BSE",
+      "status": 200,
+      "bytes": 3558
+    },
+    {
+      "path": "/api/journal",
+      "status": 200,
+      "bytes": 718
+    },
+    {
+      "path": "/api/calc/position_size?capital=100000&risk_pct=1&entry=100&stop=99.9",
+      "status": 200,
+      "bytes": 164
+    },
+    {
+      "path": "/api/calc/trade_costs?notional=100000&mode=intraday",
+      "status": 200,
+      "bytes": 402
+    },
+    {
+      "path": "/api/calc/sip?monthly=1000&years=1&annual_rate_pct=10",
+      "status": 200,
+      "bytes": 179
+    },
+    {
+      "path": "/api/calc/rates",
+      "status": 200,
+      "bytes": 413
+    }
+  ],
+  "limitations": [
+    "Some inherited scripts use network data; full suite is not hermetic.",
+    "Linux tested; native Windows execution and multi-host filesystems not certified.",
+    "Provider discrepancies and official bhavcopy reconciliation remain unresolved.",
+    "No new complete net-of-cost OOS profitability study; executable size remains zero.",
+    "Calibration expires and must be rebuilt from genuine historical data."
+  ],
+  "changed_file_sha256": {
+    "FIX100_RELEASE_NOTES.md": "fa79ab7ce2de03f4519d4447af9a7591401aa551dd2d28eb0e4d42c329189310",
+    "package-lock.json": "6fbf92f02ff9fbf8cf384702fc7a162a0a4ae7003d651dc4156431f5684f6037",
+    "package.json": "023d8721a8984a057bff6948a3cca1f052fda91bb1b83a598c07aa345a21e631",
+    "safety.py": "fcc1f9503d19ce7a4f0be6ae283c90106d49e0319d67e919976f7aae7ed409f3",
+    "store_lock.py": "19cb4527c35a7ded2033fe8841992c34023d6a71b4d026fff51fd6a6a6adeaae",
+    "tools/run_verifiers.py": "e8743faee5481bc5518782d6c1ef3162135c4d74798bdd791da99eeda52932e3",
+    "tools/verify_fix100.py": "64e98c83f66836c06b80fae251e67b74df6950d6bcbc42b57b49efaaa16d8262",
+    "tools/verify_fix100_render.js": "bc58362c5f321b98cf9cdfa0c54b25215e4a6b9abd8b7db37e10298975d79306",
+    ".gitignore": "63520f48472a91b081a2c006bbe7454d9f605bb48b6030e0801573cc6f572191",
+    "Backtest.html": "ecd67bdc99aafe007f61bbcd87b6ed573836835d040f19f1a1ea5074ebe61454",
+    "Dashboard.html": "c8dac289427a85ac06a02e99269f946c1101d8e12227e555f28f87d7de1459db",
+    "Options.html": "1c9140d3ecd3a9714a42c7b2d4bc4f7d181e5d611fced90258216addb10bb617",
+    "RESEARCH_REPORT.md": "d875d203655514996354ff298a850df33507a61dadb11d0f902bae97a0041384",
+    "Timeframes.html": "9791570611438a2eb340ebd14572360e7ff0b1786084c29e679e74b0689b911b",
+    "app.py": "aa6afe93c930a5960302ce86ceca20953c84517c624732e849aef8a2185290c8",
+    "backtest_history_bse.json": "fc72a1e16dc7c1dad9d3a14b16f649404e7a247bc6b9dd07f3aa85336412de8e",
+    "backtest_history_nse.json": "6f454e5c2c7bf9cab4a345c269eadfc9a01693e6fa246db09a04f2b2c396326b",
+    "calculators.py": "750b26ab8a47e7f23cba05f9105c143ce83e1182a8527024b16a13e07110eb56",
+    "deep_analyzer.py": "f5019679b1b21542c36fe7689370c795864f5ff4b552021abdc93292280e0ba2",
+    "nifty_scanner.py": "20aeff939f2a584a59413e81f0742ca5d28a9670d97e6d254c3ba2d52d788b83",
+    "option_analytics.py": "14fa551e4603b89d9040265ce2016e0210b254dfea8aa7b0309e329e0f904113",
+    "reports/study_table.md": "0c1e73766c4bd3353db5e2ff4dc80d48d34856f96f28c584921dd091f670682c",
+    "research/backtest.py": "a9f92761c6c5ab62180fd022d452fd40c9688cc17cbae00007887dabb1771a82",
+    "research/costs.py": "541f9a421de3cae9a52b5f3c09a5de8a40e4b100c5d92babfe24494602a447b7",
+    "research/data.py": "ea4e37b9bcd3735765703899d55c621d5f8c2c101152ad03c3b4c48776d65e2f",
+    "research/ml_lab.py": "c198157482367dcefe12adf9985523956f2d9ab978c598f668867a18fcfe068d",
+    "research/run_study.py": "05b9ebb4ec25d28993a022a77de6abcdf70033a777d557463b6f87a6f2468402",
+    "score_calibration.json": "b38a7e98ea576d307909726dfa9ab88f076f677d1cc624c8ca9d70f6cbc6ca37",
+    "score_calibration_bse.json": "91a208d5987dc32a94a7c732a2eaaef9a8d7ad607a804c44005bc7f749533ba2",
+    "tools/build_backtest_history.py": "71647e26822f8cb58c9e7d1fc662d4462a56be3ef30d175497bbcc37b0fd0839",
+    "tools/build_ml_edge_study.py": "3197be522633fbf1cda06fbe167393c2adf81a10cec081e6a874f3d49429e439",
+    "tools/build_score_calibration.py": "b4de72ae179bcc3fc6787483b02cdb24b38bf1c8e062f61f99efa56aa77d9920",
+    "tools/verify_journal.py": "4cb500a103168bae233615576e75dc211db0b299b4e155d76b592445f5283e04",
+    "tools/verify_kelly_measured.py": "721887bb5d042e6d1c513a594b1b0781db5c9ec23faadf9765e63d4525c8aa63",
+    "tools/verify_live_quote.py": "85808b85b9f39ac78d1e07cb53058a6cd8ce1746452a4995242e5ab82760f0fc",
+    "tools/verify_new_pages.py": "1ff6be3deb96454eac08240b3ea95e4c6a1d21e0197d9b27860df60611b65ee1",
+    "tools/verify_store_safety.py": "dbe6427d822e6a5bfcf60a16d84bb66c5ce806270ba0f0badf3efb85982efb91",
+    "tools/verify_timeframes.py": "60f54b858e7f2e8c0b9b3132a125b7c40ef7498f3bb6ad2b99ae1a8f62e5409c",
+    "tools/verify_timeframes_render.js": "80a682c9f933524a3ce9f49b1553f1f2b1d4866bc22c5f129fb520f02c56e4ba"
+  }
+}

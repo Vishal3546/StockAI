@@ -31,7 +31,7 @@ def download_daily(symbol, period='3y'):
     """Honest Yahoo OHLCV; no fabricated fills for missing prices/volume."""
     try:
         df = yf.download(f'{symbol}.NS', period=period, interval='1d',
-                         auto_adjust=True, progress=False, threads=False)
+                         auto_adjust=False, progress=False, threads=False)
         if df is None or df.empty:
             return None
         if isinstance(df.columns, pd.MultiIndex):
@@ -163,7 +163,7 @@ def main():
               f'universe {len(C.UNIVERSE)} (BSE)')
     else:
         fetch = lambda s: download_daily(s)
-        src_label = 'Yahoo Finance daily adjusted OHLCV (no intraday/ML)'
+        src_label = 'Yahoo Finance daily unadjusted OHLCV (no intraday/ML)'
         print(f'FIX-33: Yahoo daily 3y → {C.WINDOW_SESSIONS} past sessions; universe {len(C.UNIVERSE)}')
     frames = {}
     with ThreadPoolExecutor(max_workers=5) as pool:

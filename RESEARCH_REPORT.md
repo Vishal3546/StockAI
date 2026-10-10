@@ -1,3 +1,5 @@
+> **Archived methodology — FIX-100 notice (2026-10-10):** Results below predate the corrected next-open cash ledger, terminal exit fees, data-adjustment policy and train-only ML baseline. They are retained for provenance, not current strategy validation. Regenerate with `python -m research.run_study` before comparison. No executable edge is established.
+
 # RESEARCH_REPORT.md — "Kya StockAI ka ML (ya koi bhi simple rule) NSE costs ko beat karta hai?"
 
 **Study window:** 20 NSE large-caps · daily bars · 2-year aur 5-year dono windows

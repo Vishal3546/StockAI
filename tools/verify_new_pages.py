@@ -213,9 +213,11 @@ try:
     check('below: price>level no fire', _mk('below', 100, 105) is False)
 
     # API ka actual check path — fake quote se
+    _market_open = A.is_market_open
+    A.is_market_open = lambda *a, **k: True
     _orig = A.get_live_quote
     try:
-        A.get_live_quote = lambda *a, **k: {'price': 150.0, 'source': 'stub', 'is_realtime': True}
+        A.get_live_quote = lambda *a, **k: {'price': 150.0, 'source': 'yahoo.ns', 'is_realtime': True, 'stale': False, 'exchange': 'NSE'}
         r = c.post('/api/alerts/check')
         j = r.get_json()
         check('check() above-alert ko fire karta hai jab price > level',
@@ -226,6 +228,7 @@ try:
               r2['checked'] == 0 and len(r2.get('errors', [])) >= 0, str(r2.get('errors')))
     finally:
         A.get_live_quote = _orig
+        A.is_market_open = _market_open
 
     ids = [a['id'] for a in c.get('/api/alerts').get_json()['alerts']]
     check('DELETE valid id -> 200',

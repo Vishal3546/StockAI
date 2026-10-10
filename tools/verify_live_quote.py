@@ -158,7 +158,7 @@ try:
     # 1-din grace: ek akel market holiday false-positive na ban jaaye
     closed_grace = mk(_dt.datetime(2026, 9, 29, 0, 0))         # 1 session peeche
     f7, w7 = A.frame_is_fresh(closed_grace, '1d', now=now_closed)
-    check('1-session-behind accept (market closed, holiday grace)', f7 is True, w7)
+    check('1-session-behind rejected (fail closed)', f7 is False, w7)
 
     # Weekend: Monday subah ka answer Friday hona chahiye (false-positive nahi)
     # FIX-50 note: pehle ye 2026-10-03/05 use karta tha aur expected 2026-10-02 tha.
@@ -696,12 +696,12 @@ check('09:15 par market KHULA (lower bound intact)',
 
 print('\n-- FIX-52: ROE unit (Yahoo raw 0.47743 = 47.74%)')
 check("returnOnEquity ko *100 kiya jaata hai (purana /100 wala galat tha)",
-      "_roe = (_r_raw * 100.0) if (_r_raw is not None and abs(_r_raw) <= 2.0) else _r_raw"
+      "_roe = sfx(_r_raw) * 100.0 if sfx(_r_raw) is not None else None"
       in app_src)
 check('purana broken ROE heuristic gaya',
       "_roe = (_roe / 100.0) if (_roe and _roe > 5) else _roe" not in app_src)
 check("dividendYield abhi bhi percent-treated hai (FIX-09 regression guard)",
-      "_dy = (_dy / 100.0) if (_dy and _dy > 25) else _dy" in app_src)
+      "_dy = (_dy / 100.0) if (_dy and _dy > 25) else _dy" not in app_src)
 # ROE normalisation ko asli numbers par test karo
 _r = 0.47743
 _norm = (_r * 100.0) if (_r is not None and abs(_r) <= 2.0) else _r
@@ -807,7 +807,7 @@ check('purana bare "TradingView Direct" return gaya',
 
 print('\n-- FIX-54: BSE-only stocks')
 check('yfinance suffix exchange se choose hota hai (hamesha .NS nahi)',
-      "_yf_suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'" in app_src)
+      "_yf_suffix = '.BO' if req_exch == 'BSE' else '.NS'" in app_src)
 check('purana hardcoded .NS call gaya',
       'yf.Ticker(f"{resolved}.NS")' not in app_src)
 check('/api/stock on_nse_master bhejta hai', "'on_nse_master':" in app_src)
@@ -888,7 +888,7 @@ check('live-quote cache key exchange-aware hai (warna galat exchange serve hota)
       and '_cache_put(_LIVE_CACHE, _ckey,' in app_src
       and '_ckey = f"{clean_sym}:{\'BSE\' if _bse else \'NSE\'}"' in app_src)
 check('Yahoo quote suffix order exchange se badalta hai',
-      "_sfx = ('.BO', '.NS') if str(prefer_exch).upper() == 'BSE'" in app_src)
+      "_sfx = ('.BO',) if str(prefer_exch).upper() == 'BSE'" in app_src)
 check('/api/search dedupe (symbol, exchange) par hai — dono listings dikhte hain',
       "existing = {(r['sym'], r.get('ex', 'NSE')) for r in results}" in app_src)
 
@@ -1142,8 +1142,8 @@ check('deep_analyzer NSE-hardcoded hai (app.py se import NAHI hota)',
 check('nifty_scanner NSE-hardcoded hai (app.py se import NAHI hota)',
       "exchange='NSE'" in _scan and 'import nifty_scanner' not in app_src
       and 'from nifty_scanner' not in app_src)
-check('research/data NSE-hardcoded hai (calibration NSE universe par fitted)',
-      "exchange='NSE'" in _rdata)
+check('research/data requested exchange only',
+      "exchange=exchange" in _rdata and "exchange: str = 'NSE'" in _rdata)
 check('app.py ka fetch_tradingview exchange-aware hai (ye teen nahi, wo hona chahiye)',
       "prefer_exch" in app_src and "def fetch_tradingview" in app_src)
 
@@ -1168,7 +1168,7 @@ check("delivery buy par STT 0.1% + stamp 0.015%",
 check("delivery sell par STT 0.1% (dono taraf lagta hai)",
       abs(_REF.breakdown(100000, 'sell')['stt'] - 100.0) < 0.01)
 check("purane sides ('buy'/'sell'/'sell_short') backward-compatible hain",
-      _REF.round_trip_pct() == 0.3276, f"got {_REF.round_trip_pct()}")
+      _REF.round_trip_pct() == 0.3272, f"got {_REF.round_trip_pct()}")
 
 print('\n-- FIX-59: cost_plan + calculate_risk notional-aware hain')
 _r59 = A.calculate_risk(2075.0, 57.54, 33, capital=25000, action='WATCHLIST',
@@ -1234,9 +1234,9 @@ if _rf_app and _rf_bt and _rf_da:
           len(set(_vals.values())) == 1, f'{_vals}')
 
 print('\n-- FIX-60: backtester ke look-ahead guards abhi bhi maujood hain')
-check('exec_lag default 1 hai (look-ahead guard)', 'exec_lag: int = 1' in _bt)
+check('exec_lag default 1 hai (look-ahead guard)', 'exec_lag:int=1' in _bt)
 check('position shift hoti hai (signal bar t -> position t+lag)',
-      'pos.shift(exec_lag)' in _bt)
+      'raw.shift(exec_lag)' in _bt)
 _ml = (ROOT / 'research' / 'ml_lab.py').read_text(encoding='utf-8')
 check('ml_lab embargo support karta hai (overlapping-label leakage guard)',
       'train_end = start - embargo' in _ml)
@@ -1409,7 +1409,7 @@ if _art.exists():
 
 print('\n-- FIX-64: feed-state fallback (NSE live ya Yahoo live)')
 check('_feed_live fallback maujood hai (NSE live ya Yahoo live)',
-      '_feed_live = live_nse or fetch_yahoo_live_ltp(' in app_src)
+      '_feed_live = live_nse' in app_src and 'live_nse = fetch_yahoo_live_ltp(resolved, prefer_exch=req_exch)' in app_src)
 check('feed_state ab _feed_live se banta hai (sirf live_nse se nahi)',
       "feed_state(bool(_feed_live and _feed_live.get('is_realtime')))" in app_src)
 check('feed_label me _feed_live ka age use hota hai',

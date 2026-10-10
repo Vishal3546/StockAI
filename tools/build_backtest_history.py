@@ -149,9 +149,9 @@ def build(exchange='NSE', max_sessions=C.WINDOW_SESSIONS, verbose=True):
         'model': C.MODEL,
         # Traceability: live dashboard wala hi score formula. Hash score_calibration
         # artifact se padhte hain (score_calibration module me function nahi hai).
-        'formula_hash': _calibration_formula_hash(exch),
+        'formula_hash': A.score_formula_hash(),
         'source': ('TradingView daily OHLCV (BSE)' if exch == 'BSE'
-                   else 'Yahoo Finance daily adjusted OHLCV (NSE)'),
+                   else 'Yahoo Finance daily unadjusted OHLCV (NSE)'),
         'universe': sorted(frames),
         'horizons': list(HORIZONS),
         'lookback_bars': C.LOOKBACK_BARS,

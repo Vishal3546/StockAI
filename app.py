@@ -3,7 +3,7 @@
 ║  StockAI V6.0 — Full Institutional Multi-Tech Hybrid Mastermind Engine       ║
 ║                                                                              ║
 ║  ARCHITECTURE & DATA PIPELINE LAYERS:                                        ║
-║  • Tier 1 Primary Engine: TradingView Direct Stream (tvDatafeed - 0s Delay)  ║
+║  • Tier 1 Primary Engine: TradingView Direct Stream (tvDatafeed - latency unverified)  ║
 ║  • Tier 2 Official Engine: NSE Direct Scraper (Native Session + Fallbacks)   ║
 ║  • Tier 3 Universal Engine: Yahoo Finance Universal (yfinance Backup)       ║
 ║  • Live LTP Engine: Exact Moneycontrol / NSE India Live Sync                 ║
@@ -22,6 +22,9 @@
 # ─────────────────────────────────────────────────────────────
 
 import hashlib
+import uuid
+from safety import frame_digest, validate_body
+from store_lock import ProcessRLock
 import inspect
 import io
 import json
@@ -53,6 +56,17 @@ warnings.filterwarnings('ignore')
 
 # Initialize Flask Web Application
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
+
+@app.before_request
+def _validate_write_body():
+    g.request_started = time.perf_counter()
+    if request.path.startswith('/api/') and request.method in ('POST', 'PUT', 'PATCH'):
+        body = request.get_json(silent=True)
+        error = ('JSON object required; malformed/null JSON rejected' if request.content_length and body is None else validate_body(body))
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+
 
 
 # ── FIX-98: NaN / Infinity JSON me leak na ho ──────────────────────────────
@@ -534,16 +548,20 @@ _LIVE_CACHE = {}                    # symbol:ex -> (ts, payload, ttl)
 # *skip* karta hai, hatata nahi — matlab LAN par jitne alag stocks khule, utne
 # entries hamesha ke liye memory me. Ek ek entry me poora KPI payload + plan
 # hota hai, isliye server hafton chalne par ye dheere-dheere badhta rehta.
-CACHE_MAX_ENTRIES = 512             # per-cache cap; LRU order me evict hota hai
+CACHE_MAX_ENTRIES = 512             # per-cache cap; oldest write is evicted
 
+
+_CACHE_WRITE_LOCK = threading.RLock()
 
 def _cache_put(cache, key, value, max_entries=CACHE_MAX_ENTRIES):
-    """Bounded LRU put. Existing key ko pehle hatao taaki recency refresh ho."""
-    if key in cache:
-        del cache[key]
-    cache[key] = value
-    while len(cache) > max_entries:
-        cache.pop(next(iter(cache)), None)
+    """Bounded last-write-order put (not read-recency LRU). Callers synchronize writes."""
+    if max_entries < 1:
+        raise ValueError('positive cache bound required')
+    with _CACHE_WRITE_LOCK:
+        cache.pop(key, None)
+        cache[key] = value
+        while len(cache) > max_entries:
+            cache.pop(next(iter(cache)), None)
     return value
 
 # FIX-39 (M-7): har call par naya TCP+TLS handshake hota tha (~0.2-0.4 s).
@@ -702,7 +720,7 @@ def fetch_yahoo_live_ltp(symbol, prefer_exch='NSE'):
     """
     clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
     # FIX-55: user jo exchange chune wo pehle try ho (pehle hamesha .NS-first)
-    _sfx = ('.BO', '.NS') if str(prefer_exch).upper() == 'BSE' else ('.NS', '.BO')
+    _sfx = ('.BO',) if str(prefer_exch).upper() == 'BSE' else ('.NS',)
     for suffix in _sfx:
         try:
             r = _HTTP.get(
@@ -802,8 +820,8 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
         # Tier 3 — last daily close (STALE). Change phir bhi compute hota hai,
         # warna UI me "undefined" aa jaata hai (jaisa pehle SSE path me hota tha).
         try:
-            df, src = DATA_MANAGER.smart_fetch(clean_sym, period='5d', interval='1d',
-                                               prefer_exch=prefer_exch)
+            df, src = DATA_MANAGER.smart_fetch(clean_sym, period='1mo', interval='1d',
+                                               prefer_exch=prefer_exch, strict_exch=True)
             if df is not None and not df.empty:
                 price = sf(df['Close'].iloc[-1])
                 prev = sf(df['Close'].iloc[-2]) if len(df) > 1 else None
@@ -1066,7 +1084,7 @@ BSE_SESSION_CLOSE_HM = 16 * 60
 CLOSED_GRACE_DAYS = 1
 
 
-def last_completed_session(now=None):
+def last_completed_session(now=None, exchange='NSE'):
     """Sabse recent weekday (IST date) jiska cash session complete ho chuka hai.
 
     Weekend skip hota hai, isliye Mon subah ka answer Friday hota hai — false-positive
@@ -1078,7 +1096,7 @@ def last_completed_session(now=None):
     hm = now.hour * 60 + now.minute
     # FIX-50: holiday par aaj ka session kabhi complete hi nahi hota
     today_traded = (d.weekday() <= 4 and d not in NSE_HOLIDAYS)
-    if not (today_traded and hm >= SESSION_CLOSE_HM):
+    if not (today_traded and hm >= (BSE_SESSION_CLOSE_HM if exchange == 'BSE' else SESSION_CLOSE_HM)):
         d = d - timedelta(days=1)       # aaj ka session abhi complete nahi hua
     for _ in range(30):                 # Sat/Sun + holidays skip (bound: calendar
         if d.weekday() <= 4 and d not in NSE_HOLIDAYS:   # galat ho to infinite na ho)
@@ -1108,36 +1126,32 @@ def session_gap_days(df, now=None):
     return (last_completed_session(now) - bar_date).days
 
 
-def frame_is_fresh(df, interval='1d', now=None):
-    """(fresh?, reason).
+def frame_is_fresh(df, interval='1d', now=None, exchange='NSE'):
+    """Session completeness is distinct from minute-level quote freshness.
 
-    Market KHULA → minute-level limit (intraday staleness yahan asli matter karti hai).
-    Market BAND  → session-level check: bar latest completed session se zyada peeche
-                   nahi hona chahiye. Minute-limit yahan lagate to har roz close ke baad
-                   sab kuch stale dikhta, isliye date-level compare karte hain.
+    Conservative cash-session envelope; unknown/future timestamps fail closed.
+    Calendar is maintained in NSE_HOLIDAYS plus configured extra holidays.
     """
-    open_now = is_market_open(now)
+    ref = _naive_ist(now)
+    bar = frame_last_date(df)
     age = frame_age_minutes(df, now)
-    if age is None:
-        return True, ('market open' if open_now else 'market closed') + ', age unknown'
+    if bar is None or age is None or bar > ref.date():
+        return False, 'STALE: timestamp missing/invalid/future'
+    expected = last_completed_session(now, exchange=exchange)
+    if ref.year != 2026:
+        return False, 'STALE: trading calendar must be reviewed for this year'
+    if interval == '1w':
+        fresh = bar >= expected - timedelta(days=7)
+    else:
+        fresh = bar >= expected
+    if not fresh:
+        return False, f'STALE: last session {bar}; latest completed {expected}'
+    if interval in ('1d', '1w'):
+        return True, f'session {bar}; latest completed {expected}'
+    if not is_market_open(now, exchange=exchange):
+        return True, f'market closed; session {bar}'
     limit = MAX_AGE_MIN.get(interval, 150)
-    human = (f'{age/60:.1f}h' if age < 48 * 60 else f'{age/1440:.1f}d')
-    lim_h = (f'{limit/1440:.0f}d' if limit >= 24 * 60 else f'{limit}m')
-
-    if not open_now:
-        gap = session_gap_days(df, now)
-        expected = last_completed_session(now)
-        if gap is None:
-            return True, f'market closed, last bar {human} old (session unknown)'
-        if gap <= CLOSED_GRACE_DAYS:
-            return True, (f'market closed, last session {frame_last_date(df)} '
-                          f'(latest {expected}) — fine')
-        return False, (f'STALE: last session {frame_last_date(df)}, latest completed '
-                       f'session {expected} ({gap}d behind)')
-
-    if age <= limit:
-        return True, f'last bar {human} old (fresh, limit {lim_h})'
-    return False, f'STALE: last bar {human} old > {lim_h} limit'
+    return age <= limit, f'{"fresh" if age <= limit else "STALE"}: last bar {age:.1f}m; limit {limit}m'
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1298,12 +1312,26 @@ def feed_label(state, age_min=None, now=None):
 class MultiTechDataSourceManager:
     """
     Modular 3-Tier Multi-Engine Data Manager:
-    • Tier 1 (Primary): TradingView Direct Stream (tvDatafeed - 0s Delay Live Data)
+    • Tier 1 (Primary): TradingView Direct Stream (tvDatafeed - latency unverified Live Data)
     • Tier 2 (Official Backup): NSE Official Direct (Native Session Scraper + jugaad-data / nsepython)
     • Tier 3 (Universal Backup): Yahoo Finance Universal (yfinance Global Stream)
     """
     
+    @property
+    def exch_fallback(self):
+        return getattr(self._fetch_state, 'fallback', None)
+
+    @exch_fallback.setter
+    def exch_fallback(self, value):
+        self._fetch_state.fallback = value
+
+    @exch_fallback.deleter
+    def exch_fallback(self):
+        self._fetch_state.fallback = None
+
     def __init__(self):
+        self._fetch_state = threading.local()
+        self._tv_lock = threading.RLock()
         self.tv = None
         self.exch_fallback = None   # FIX-83: (src, exch) — strict mode me caller ke liye
         self.init_tv()
@@ -1354,12 +1382,13 @@ class MultiTechDataSourceManager:
             _order = (('BSE', 'NSE') if str(prefer_exch).upper() == 'BSE'
                       else ('NSE', 'BSE'))
             for exch in _order:
-                _d = self.tv.get_hist(
-                    symbol=clean_sym,
-                    exchange=exch,
-                    interval=tv_interval,
-                    n_bars=n_bars
-                )
+                with self._tv_lock:
+                    _d = self.tv.get_hist(
+                        symbol=clean_sym,
+                        exchange=exch,
+                        interval=tv_interval,
+                        n_bars=n_bars
+                    )
                 if _d is not None and not _d.empty:
                     df, used_exch = _d, exch
                     if exch != _order[0]:
@@ -1504,7 +1533,7 @@ class MultiTechDataSourceManager:
 
             for target, exch in order:
                 df = yf.download(target, period=period, interval=interval,
-                                 progress=False, threads=False)
+                                 progress=False, threads=False, auto_adjust=False)
                 if df is None or df.empty:
                     continue
                 if isinstance(df.columns, pd.MultiIndex):
@@ -1546,7 +1575,11 @@ class MultiTechDataSourceManager:
         # fresh na mile tabhi doosre-exchange fresh frame use hota hai (disclosed).
         def _consider(df, src, exch):
             nonlocal fresh_fallback
-            fresh, why = frame_is_fresh(df, interval, now=_now)
+            from safety import valid_ohlcv
+            if not valid_ohlcv(df):
+                return 'reject', 'invalid OHLCV geometry/schema'
+            df.attrs.update(source=src, exchange=exch, adjustment='provider raw OHLCV')
+            fresh, why = frame_is_fresh(df, interval, now=_now, exchange=prefer)
             if fresh:
                 if exch == prefer:
                     return 'return', why
@@ -1555,6 +1588,8 @@ class MultiTechDataSourceManager:
                 print(f"⚠️  [{src}] fresh hai par {exch} se — aapne {prefer} maanga; "
                       f"pehle {prefer} ke baaki sources try honge")
                 return 'hold', why
+            if strict_exch and exch != prefer:
+                return 'hold', 'wrong exchange rejected (including stale fallback)'
             a = frame_age_minutes(df, _now)
             stale_candidates.append((a if a is not None else 1e9, df, src))
             print(f"⚠️  [{src} REJECTED] {clean_sym} ({interval}) — {why}, agla tier try kar rahe hain")
@@ -1575,7 +1610,7 @@ class MultiTechDataSourceManager:
                     return df_tv, _tv_src
 
         # ── TIER 2: NSE Official Direct Scraper ──
-        if interval == '1d' and not symbol.startswith('^'):
+        if interval == '1d' and not symbol.startswith('^') and not (strict_exch and prefer == 'BSE'):
             df_nse = self.fetch_nse_direct(clean_sym, days=500)
             if df_nse is not None:
                 act, why = _consider(df_nse, 'NSE Direct', 'NSE')
@@ -2181,18 +2216,19 @@ def resolve_symbol(user_input):
 # ═══════════════════════════════════════════════════════════════════════════
 #  REAL MACHINE LEARNING ENGINE (4-Model Ensemble + Walk-Forward)
 # ═══════════════════════════════════════════════════════════════════════════
-def ml_engine(df):
+def ml_engine(df, symbol=None, exchange=None):
     """
     FIX-06: cached wrapper. The 4-model ensemble + 19 walk-forward fits cost
     ~8.1s per call; results are cached on (last bar date, bars) so repeats are
     instant. Adds the walk-forward noise band to the payload.
     """
     try:
-        key = (str(df.index[-1])[:10], len(df))
+        key = (symbol, exchange, frame_digest(df), 'ml-fix100', json.dumps(CONFIG, sort_keys=True))
     except Exception:
         key = None
-    if key and key in _ML_CACHE:
-        return _ML_CACHE[key]
+    hit = _ML_CACHE.get(key) if key else None
+    if hit is not None:
+        return hit
 
     res = _ml_engine_uncached(df)
     if isinstance(res, dict):
@@ -2300,7 +2336,7 @@ def _ml_engine_uncached(df):
         d['hl_range'] = (h - l) / (c + 1e-10) * 100
         d['close_pos'] = (c - l) / (h - l + 1e-10)
 
-        d['target'] = (c.shift(-1) > c).astype(int)
+        d['target'] = (c.shift(-1) > c).astype(float).where(c.shift(-1).notna())
 
         feats = [
             'ret_1d', 'ret_3d', 'ret_5d', 'ret_10d', 'ret_20d', 'rsi', 'macd', 'macd_sig', 'macd_hist',
@@ -2309,7 +2345,7 @@ def _ml_engine_uncached(df):
             'vwap_dist', 'hl_range', 'close_pos'
         ]
 
-        d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill().bfill()
+        d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill()
         d_clean = d.dropna(subset=['target'] + feats)
 
         if len(d_clean) < CONFIG['ML_MIN_DAYS']:
@@ -2320,7 +2356,7 @@ def _ml_engine_uncached(df):
         wf_results = []
         test_window = 20
         for start in range(120, len(d_clean) - test_window, test_window):
-            train_sub = d_clean.iloc[:start]
+            train_sub = d_clean.iloc[:max(0, start - 1)]
             test_sub = d_clean.iloc[start:start + test_window]
             if len(test_sub) < 10:
                 continue
@@ -2344,14 +2380,14 @@ def _ml_engine_uncached(df):
 
         # ── Final Train/Test Split (80/20) ──
         train_n = int(len(d_clean) * 0.8)
-        X_train = np.nan_to_num(d_clean[feats].iloc[:train_n].values)
-        y_train = d_clean['target'].iloc[:train_n].values
+        X_train = np.nan_to_num(d_clean[feats].iloc[:max(0, train_n - 1)].values)
+        y_train = d_clean['target'].iloc[:max(0, train_n - 1)].values
         X_test = np.nan_to_num(d_clean[feats].iloc[train_n:].values)
         y_test = d_clean['target'].iloc[train_n:].values
-        X_today = np.nan_to_num(d_clean[feats].iloc[-1:].values)
+        X_today = np.nan_to_num(d[feats].iloc[-1:].values)
 
         pos_rate = float(y_test.mean())
-        baseline_acc = round(max(pos_rate, 1 - pos_rate) * 100, 1)
+        baseline_acc = round(float((y_test == int(y_train.mean() >= 0.5)).mean()) * 100, 1)
 
         scaler = StandardScaler()
         X_tr_s = scaler.fit_transform(X_train)
@@ -2895,20 +2931,28 @@ def _rnd(v, nd=2):
         return None
 
 
-_INDEX_CACHE = {'time': 0.0, 'df': None, 'err': None}
+_INDEX_CACHE = {'time': 0.0, 'df': None, 'err': None, 'symbol': None}
 
+
+_INDEX_LOCK = threading.RLock()
 
 def _index_frame(symbol='NIFTY', ttl=TP_INDEX_TTL):
+    with _INDEX_LOCK:
+        return _index_frame_locked(symbol, ttl)
+
+def _index_frame_locked(symbol='NIFTY', ttl=TP_INDEX_TTL):
     """(df, err) — benchmark ka daily frame, cached. Fail-soft: kabhi raise nahi.
 
     Beta ke liye chahiye. Har plan par network hit na ho isliye TTL cache; fail
     hone par bhi TTL tak wahi reason dobara dete hain (baar-baar retry nahi).
     """
-    if (time.time() - _INDEX_CACHE['time']) < ttl:
+    ttl = min(ttl, 15) if _INDEX_CACHE.get('err') else ttl
+    if _INDEX_CACHE.get('symbol') == symbol and (time.time() - _INDEX_CACHE['time']) < ttl:
         if _INDEX_CACHE['df'] is not None:
             return _INDEX_CACHE['df'], None
         if _INDEX_CACHE['err']:
             return None, _INDEX_CACHE['err']
+    _INDEX_CACHE['symbol'] = symbol
     try:
         df, _src = DATA_MANAGER.smart_fetch(symbol, period='1y', interval='1d',
                                             prefer_exch='NSE')
@@ -2935,8 +2979,8 @@ def calculate_beta(stock_close, index_close, bars=TP_BETA_BARS, min_bars=TP_BETA
         if isinstance(stock_close, pd.Series) and isinstance(index_close, pd.Series):
             a = stock_close.copy()
             b = index_close.copy()
-            a.index = pd.to_datetime(a.index).normalize()
-            b.index = pd.to_datetime(b.index).normalize()
+            a.index = pd.to_datetime([str(x.date()) for x in pd.to_datetime(a.index)])
+            b.index = pd.to_datetime([str(x.date()) for x in pd.to_datetime(b.index)])
             j = pd.concat([a.rename('s'), b.rename('i')], axis=1, join='inner').dropna()
             sp = pd.to_numeric(j['s'], errors='coerce')
             ip = pd.to_numeric(j['i'], errors='coerce')
@@ -3062,11 +3106,15 @@ def calculate_trade_plan(dfi, index_frame=None):
         P = dfi.iloc[-2]
         pc, ph, pl = sfx(P.get('Close')), sfx(P.get('High')), sfx(P.get('Low'))
         if pc is not None and pc > 0:
-            gap = (px / pc - 1.0) * 100.0
+            op = sfx(L.get('Open'))
+            gap = (op / pc - 1.0) * 100.0 if op is not None and op > 0 else None
             out['prevday'] = {'close': _rnd(pc), 'high': _rnd(ph), 'low': _rnd(pl),
                               'gap_pct': _rnd(gap),
-                              'gap': ('UP' if gap > TP_GAP_FLAT_PCT else
+                              'gap': (None if gap is None else 'UP' if gap > TP_GAP_FLAT_PCT else
                                       'DOWN' if gap < -TP_GAP_FLAT_PCT else 'FLAT'),
+                              'session': str(dfi.index[-1])[:10],
+                              'previous_session': str(dfi.index[-2])[:10],
+                              'basis': 'Open / previous Close - 1',
                               'above_prev_high': bool(ph is not None and px > ph),
                               'below_prev_low': bool(pl is not None and px < pl),
                               'rule': 'prev session H/L/C — intraday key S/R'}
@@ -3173,7 +3221,7 @@ def calculate_trade_plan(dfi, index_frame=None):
         flt['beta_note'] = (_ierr or (f'beta ke liye {TP_BETA_MIN} overlapping daily '
                                       f'returns chahiye — mile {beta_n}'))
     else:
-        flt['beta_ok'] = bool(beta >= TP_BETA_MIN_OK)
+        flt['beta_ok'] = bool(TP_BETA_MIN_OK <= beta <= TP_BETA_MAX_OK)
         flt['beta_ideal_ok'] = bool(TP_BETA_IDEAL[0] <= beta <= TP_BETA_IDEAL[1])
         flt['beta_note'] = (f'beta ≥ {TP_BETA_MIN_OK} — market ke saath move karta hai'
                             if flt['beta_ok'] else
@@ -3217,6 +3265,8 @@ def _data_ok(df, min_bars=20):
         c = pd.to_numeric(df['Close'], errors='coerce')
         if c.notna().sum() < min_bars:
             return False, f'Close me usable values kam ({int(c.notna().sum())})'
+        if not np.isfinite(c.values).all() or (c <= 0).any():
+            return False, 'nonfinite/nonpositive Close'
         if float(c.abs().fillna(0).sum()) <= 0:
             return False, 'Close sab 0/NaN hai'
         if float(c.notna().iloc[-1]) == 0:
@@ -3238,7 +3288,7 @@ def engine_volume_profile(df, bins=50):
         vp = np.zeros(bins)
         
         for i in range(bins):
-            mask = (prices >= pbins[i]) & (prices < pbins[i+1])
+            mask = (prices >= pbins[i]) & ((prices <= pbins[i+1]) if i == bins-1 else (prices < pbins[i+1]))
             vp[i] = volumes[mask].sum()
 
         poc_i = np.argmax(vp)
@@ -3572,7 +3622,7 @@ def engine_multitimeframe(symbol, daily_df=None, prefer_exch='NSE'):
 
         # 5m & 15m timeframes
         data5m, _ = DATA_MANAGER.smart_fetch(symbol, period='5d', interval='5m', n_bars=100,
-                                              prefer_exch=prefer_exch)
+                                              prefer_exch=prefer_exch, strict_exch=True)
         if data5m is not None and len(data5m) >= 25:
             results['5m'] = _calc_tf(data5m)
             try:
@@ -3591,7 +3641,7 @@ def engine_multitimeframe(symbol, daily_df=None, prefer_exch='NSE'):
 
         # 1h timeframe
         data1h, _ = DATA_MANAGER.smart_fetch(symbol, period='1mo', interval='1h', n_bars=100,
-                                              prefer_exch=prefer_exch)
+                                              prefer_exch=prefer_exch, strict_exch=True)
         results['1h'] = _calc_tf(data1h)
 
         # 1d timeframe
@@ -3599,7 +3649,7 @@ def engine_multitimeframe(symbol, daily_df=None, prefer_exch='NSE'):
             results['1d'] = _calc_tf(daily_df)
         else:
             data1d, _ = DATA_MANAGER.smart_fetch(symbol, period='6mo', interval='1d', n_bars=100,
-                                                  prefer_exch=prefer_exch)
+                                                  prefer_exch=prefer_exch, strict_exch=True)
             results['1d'] = _calc_tf(data1d)
 
         valid_tfs = {k: v for k, v in results.items() if v is not None}
@@ -3731,7 +3781,9 @@ def ml_study_payload():
         'edge_found': bool(doc.get('edge_found')),
         'stale': (days is not None and days > ML_STUDY_MAX_AGE_DAYS),
         'age_days': days,
-        'disclosure': doc.get('disclosure'),
+        'pipeline_version': doc.get('pipeline_version'),
+        'rebuild_required': doc.get('pipeline_version') != 'fix100',
+        'disclosure': (('ARCHIVED prior-pipeline study: regenerate for FIX-100; not current validation. ' if doc.get('pipeline_version') != 'fix100' else '') + (doc.get('disclosure') or '')),
     }
 
 
@@ -3933,7 +3985,7 @@ _PLAN_MEASURE_CACHE = {}
 
 
 def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
-                          min_n=None, symbol=None):
+                          min_n=None, symbol=None, exchange='NSE'):
     """
     FIX-31 — is plan ka ASLI win-rate, symbol ke apne data se measure karo.
 
@@ -3962,12 +4014,13 @@ def measure_plan_hit_rate(df, direction, sl_mult, t1_mult=None, horizon=None,
     key = None
     if symbol:
         try:
-            key = (str(symbol), direction, round(float(sl_mult), 3),
-                   str(df.index[-1])[:10], len(df))
+            key = (str(symbol), exchange, direction, float(sl_mult), float(t1_mult),
+                   int(horizon), int(min_n), frame_digest(df[['High', 'Low', 'Close']]))
         except Exception:
             key = None
-        if key and key in _PLAN_MEASURE_CACHE:
-            return _PLAN_MEASURE_CACHE[key]
+        hit = _PLAN_MEASURE_CACHE.get(key) if key else None
+        if hit is not None:
+            return hit
     try:
         if df is None or len(df) < max(min_n, horizon) + 20:
             return None
@@ -4508,7 +4561,9 @@ def sse_live_stream(symbol):
 def stock_api(symbol):
     # FIX-14: an unresolvable symbol used to cost ~15s on EVERY call
     # (3 tiers x 2 exchanges with 4-6s timeouts). Cache the miss.
-    _hit = _FAIL_CACHE.get(symbol.upper(), 0)
+    _miss_ex = (request.args.get('ex') or 'NSE').strip().upper()
+    _miss_key = (symbol.upper(), _miss_ex)
+    _hit = _FAIL_CACHE.get(_miss_key, 0)
     if time.time() < _hit:
         return jsonify({'error': f"Symbol '{symbol}' could not be resolved "
                                   f"(cached miss, retry in {int(_hit - time.time())}s)"}), 404
@@ -4542,7 +4597,7 @@ def stock_api(symbol):
                         f"closing prices alag hote hain, isliye {_other} ka data "
                         f"{req_exch} ki jagah nahi dikha rahe.",
             }), 409
-        _cache_put(_FAIL_CACHE, symbol.upper(), time.time() + 300)  # FIX-99
+        _cache_put(_FAIL_CACHE, _miss_key, time.time() + 300)  # FIX-99
         return jsonify({'error': f"Stock '{symbol}' data not available across all 3 engines!"}), 404
 
     try:
@@ -4553,12 +4608,16 @@ def stock_api(symbol):
             return jsonify({'error': 'Last daily Close unavailable — fake ₹0 price nahi dikhate'}), 503
         
         # ── Exact Live NSE LTP Handshake Hook ──
-        live_nse = fetch_nse_live_ltp(resolved)
+        live_nse = fetch_nse_live_ltp(resolved) if req_exch == 'NSE' else None
+        if not live_nse:
+            live_nse = fetch_yahoo_live_ltp(resolved, prefer_exch=req_exch)
+        if live_nse and (not sfx(live_nse.get('price')) or sfx(live_nse.get('price')) <= 0):
+            live_nse = None
         if live_nse:
             price = live_nse['price']
-            change = live_nse['change']
-            pChange = live_nse['pChange']
-            active_source = 'NSE Direct Live'
+            change = live_nse.get('change')
+            pChange = live_nse.get('pChange')
+            active_source = live_nse.get('source') or 'NSE Direct Live'
         else:
             price = sf(L['Close'])
             _prev_close = sfx(prev.get('Close'))
@@ -4572,14 +4631,14 @@ def stock_api(symbol):
         # jo FIX-51 ne theek kiya tha, ab `live_nse` variable se laut aaya tha.
         # Feed-state ke liye NSE live use karo; na ho to Yahoo live (jo header chip
         # ko chalata hai) — taaki dono badges ek hi source se agree karein.
-        _feed_live = live_nse or fetch_yahoo_live_ltp(resolved, prefer_exch=req_exch)
+        _feed_live = live_nse  # analysis badge describes the price actually used
 
         # FIX-32: ATR missing ho to 2% of price fallback — par ab ye DISCLOSE hota hai
         # (pehle chup-chaap hota tha aur risk plan 'ATR-based' lagta tha)
         _atr_raw = sfx(L.get('ATR'))
         atr_basis = 'ATR(14)' if _atr_raw else 'assumed 2% of price (ATR missing)'
         atr = _atr_raw if _atr_raw else price * 0.02
-        ml_res = ml_engine(df)
+        ml_res = ml_engine(df, symbol=resolved, exchange=req_exch)
 
         try:
             import yfinance as yf
@@ -4588,7 +4647,7 @@ def stock_api(symbol):
             # poora Fundamentals panel N/A dikh jaata tha — jabki `.BO` se sab
             # milta hai (measured: mcap Rs158.6Cr, P/E 2.85, P/B 0.36).
             # Frame kis exchange se aaya wo FIX-53 se pata hai.
-            _yf_suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'
+            _yf_suffix = '.BO' if req_exch == 'BSE' else '.NS'
             info = yf.Ticker(f"{resolved}{_yf_suffix}").info or {}
         except Exception:
             info = {}
@@ -4613,6 +4672,8 @@ def stock_api(symbol):
         e3 = engine_vcp(rank_window)
         e4 = engine_smc(rank_window)
         e5 = engine_market_regime()                 # market-wide exposure ONLY
+        e1['method_note'] = 'Candle-binned volume proxy, not trade-level volume at price'
+        e2['method_note'] = 'Candle-direction volume proxy, not true aggressor-classified CVD'
         e6 = engine_multitimeframe(resolved, daily_df=df,
                                     prefer_exch=req_exch)  # independent diagnostic
         engines = [e1, e2, e3, e4, e5, e6]
@@ -4642,7 +4703,7 @@ def stock_api(symbol):
                     'regime_basis': 'no stock score', 'qty_pre_regime': 0}
         else:
             _sl_mult, _ = plan_geometry(ens['score'], ens['action'])
-            _plan = (measure_plan_hit_rate(ranked_df, _dir, _sl_mult, symbol=resolved)
+            _plan = (measure_plan_hit_rate(ranked_df, _dir, _sl_mult, symbol=resolved, exchange=req_exch)
                      if _dir != 'NONE' else None)
             risk = calculate_risk(price, atr, ens['score'], action=ens['action'],
                                   measured_accuracy=_ml_acc,
@@ -4652,13 +4713,19 @@ def stock_api(symbol):
                                   regime=e5, require_plan=True)
             if not ens['calibration']['ready']:
                 risk['risk_note'] += ' | ' + ens['calibration']['note']
-        ens['tradeable'] = bool(ens['calibration']['ready'] and
-                                ens['action'] == 'BUY_BREAKOUT' and risk.get('qty', 0) > 0 and
-                                risk.get('plan_hit_rate') is not None and
-                                risk.get('edge_verified') and not e5.get('degraded'))
-        ens['tradeable_basis'] = ('Rules passed (p95 rank + in-sample plan check + regime sizing); '
-                                  'out-of-sample profit NOT verified' if ens['tradeable'] else
-                                  'No executable BUY_BREAKOUT: calibration/plan/regime/size gate')
+        ens['tradeable'] = False
+        ens['tradeable_basis'] = 'Research only: out-of-sample net execution edge is not validated'
+        risk['illustrative_qty'] = risk.get('qty', 0)
+        risk['qty'] = 0
+        risk['notional'] = 0.0
+        risk['risk_amount'] = 0.0
+        risk['leverage'] = 0.0
+        risk['qty_pre_regime'] = 0
+        if risk.get('cost'):
+            risk['cost'].update(qty=0, round_trip_on_notional=0.0, notional_basis='illustrative reference, no execution')
+        risk['edge_verified'] = False
+        risk['exec_status'] = 'RESEARCH ONLY / NO EXECUTABLE ORDER'
+        risk['risk_note'] = risk.get('risk_note', '') + ' | Illustrative sizing only; executable quantity is zero.'
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 
@@ -4679,12 +4746,12 @@ def stock_api(symbol):
         #   DONO branches galat. TCS ka ROE 47.74% hai, dashboard "0.48%" dikha
         #   raha tha — 100x off.
         _dy = info.get('dividendYield')
-        _dy = (_dy / 100.0) if (_dy and _dy > 25) else _dy
+        _dy = sfx(_dy)  # yfinance dividendYield is percent; no magnitude guessing
         _r_raw = info.get('returnOnEquity')
         # |x| <= 2.0 → fraction maano (200% tak ka ROE cover hota hai); usse
         # bada → pehle se percent. yfinance abhi hamesha fraction deta hai, ye
         # guard sirf future-proofing hai.
-        _roe = (_r_raw * 100.0) if (_r_raw is not None and abs(_r_raw) <= 2.0) else _r_raw
+        _roe = sfx(_r_raw) * 100.0 if sfx(_r_raw) is not None else None
 
         chart_data = []
         for idx, row in df.tail(CONFIG['CHART_CANDLES']).iterrows():
@@ -4698,8 +4765,9 @@ def stock_api(symbol):
                 'volume': six(row.get('Volume'))  # missing volume → null; histogram skip karta hai
             })
 
-        h52 = sfx(df['High'].tail(252).max(), 2)      # FIX-32: missing → None (0 nahi)
-        l52 = sfx(df['Low'].tail(252).min(), 2)
+        year_df = df.loc[df.index >= df.index[-1] - pd.Timedelta(days=365)]
+        h52 = sfx(year_df['High'].max(), 2)      # FIX-32: missing → None (0 nahi)
+        l52 = sfx(year_df['Low'].min(), 2)
         pos52 = (round((price - l52) / (h52 - l52 + 1e-10) * 100, 1)
                  if (h52 is not None and l52 is not None) else None)
 
@@ -4800,7 +4868,7 @@ def stock_api(symbol):
             # Ab single source of truth: FIX-49 ka gate. Realtime = live quote mila
             # AUR usne gate pass kiya. Warna price daily close se aaya hai → False.
             'is_realtime': bool(live_nse and live_nse.get('is_realtime')),
-            'realtime_reason': ((live_nse.get('stale_reason') or 'live NSE quote, gate passed')
+            'realtime_reason': ((live_nse.get('stale_reason') or 'recent same-exchange provider quote; latency unverified')
                                 if live_nse else 'koi live quote nahi — price daily close se'),
             # FIX-51: top badge pehle `/NSE/i.test(data_source)` se liveness nikalta tha
             # — yaani source ke NAAM se, bilkul wahi bug jo FIX-50 ne backend me theek
@@ -4823,8 +4891,11 @@ def stock_api(symbol):
             # trade, official close nahi. Dashboard ab dono compare karke warn
             # karta hai bajaye chup-chaap koi ek chunne ke.
             'frame_close': sfx(L.get('Close'), 2),
-            'price_basis': ('live NSE LTP' if live_nse
-                            else 'daily frame close (koi live NSE quote nahi)'),
+            'analysis_session': str(df.index[-1])[:10],
+            'analysis_partial': bool(partial_today),
+            'rank_session': rank_session,
+            'price_basis': ((str(active_source) + ' provider quote') if live_nse
+                            else 'daily frame latest Close (may be partial; see analysis_session)'),
             # FIX-53: frame kis exchange se aaya.
             # FIX-84 (Phase 2) UPDATE: pehle yahan likha tha ki "app ka score
             # calibration NSE universe par fitted hai isliye BSE frame par percentile
@@ -4850,6 +4921,12 @@ def stock_api(symbol):
             'chart': chart_data
         }
 
+        response_payload['data_provenance'] = {
+            'analysis_source': daily_source, 'quote_source': active_source, 'exchange': req_exch,
+            'adjustment_policy': df.attrs.get('adjustment', 'provider-dependent; not reconciled'),
+            'licensed_realtime_entitlement': False,
+            'latency_verified': False,
+            'note': 'LIVE means recent provider timestamp, not certified zero-delay exchange feed. Corporate actions may distort raw lookbacks.'}
         return jsonify(clean_json(response_payload))
 
     except Exception as e:
@@ -5478,7 +5555,9 @@ def _run_scan_subprocess(reason):
     try:
         p = _sp79.run([_sys79.executable, _SCAN_SCRIPT],
                       cwd=os.path.dirname(_SCAN_SCRIPT),
-                      capture_output=True, text=True, timeout=_SCAN_TIMEOUT)
+                      capture_output=True, text=True, encoding='utf-8', errors='replace',
+                      env={**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'},
+                      timeout=_SCAN_TIMEOUT)
         ok = (p.returncode == 0)
         if not ok:
             tail = ((p.stderr or '') + (p.stdout or '')).strip()
@@ -5577,6 +5656,8 @@ def static_file(fname):
 
 @app.after_request
 def _harden_response(resp):
+    if hasattr(g, 'request_started'):
+        resp.headers['Server-Timing'] = f'total;dur={(time.perf_counter()-g.request_started)*1000:.1f}'
     # FIX-35: CORS sirf allowlisted origin ke liye (wildcard nahi)
     origin = (request.headers.get('Origin') or '').rstrip('/')
     if origin and origin in SECURITY['CORS_ORIGINS']:
@@ -5608,7 +5689,7 @@ _ROOT89 = os.path.dirname(os.path.abspath(__file__))
 _BACKTEST_FILES = {'NSE': os.path.join(_ROOT89, 'backtest_history_nse.json'),
                    'BSE': os.path.join(_ROOT89, 'backtest_history_bse.json')}
 _BACKTEST_CACHE = {}
-_STORE_LOCK = _th89.RLock()
+_STORE_LOCK = ProcessRLock(os.path.join(_ROOT89, '.stockai-store.lock'))
 # FIX-98: identifier ki length cap — 200k char ka "symbol" accept ho raha tha
 # (measure kiya) aur per-user JSON file ko bloat kar sakta tha. Truncate karke
 # galat symbol banana usse bura hai, isliye reject.
@@ -5624,15 +5705,21 @@ def _bt_load(exchange):
     ex = str(exchange or 'NSE').strip().upper()
     if ex not in _BACKTEST_FILES:
         return None
-    if ex in _BACKTEST_CACHE:
-        return _BACKTEST_CACHE[ex]
     try:
-        art = json.loads(open(_BACKTEST_FILES[ex], encoding='utf-8').read())
+        stat = os.stat(_BACKTEST_FILES[ex])
+        key = (ex, stat.st_mtime_ns, stat.st_size)
+        hit = _BACKTEST_CACHE.get(key)
+        if hit is not None:
+            return hit
+        with open(_BACKTEST_FILES[ex], encoding='utf-8') as stream:
+            art = json.load(stream)
+        if not isinstance(art, dict):
+            return None
     except FileNotFoundError:
         return None
     except Exception:                                            # noqa: BLE001
         return None
-    _cache_put(_BACKTEST_CACHE, ex, art)                           # FIX-99
+    _cache_put(_BACKTEST_CACHE, key, art)                           # FIX-99
     return art
 
 
@@ -5680,9 +5767,9 @@ def api_backtest():
     if ex not in ('NSE', 'BSE'):
         ex = 'NSE'
     art = _bt_load(ex)
-    if not art:
+    if not art or art.get('formula_hash') != score_formula_hash():
         return jsonify({'ok': False,
-                        'error': 'backtest_history_%s.json nahi mila.' % ex.lower(),
+                        'error': 'Missing or incompatible score history: backtest_history_%s.json nahi mila.' % ex.lower(),
                         'hint': 'Banane ke liye: python tools/build_backtest_history.py --exchange %s' % ex}), 200
     return jsonify({'ok': True, 'exchange': ex, 'bands': _bt_bands(art),
                     'meta': {k: art.get(k) for k in
@@ -5692,21 +5779,29 @@ def api_backtest():
                     'horizons': art.get('horizons'),
                     'min_band_n': _MIN_BAND_N, 't_sig': _T_SIG,
                     # Ye disclosure UI me hamesha dikhegi — score predictive nahi hai.
-                    'verdict': ('Score ek relative/confluence RANK hai, predictor nahi. '
-                                'Neeche real historical distribution hai — |t| < %g wale '
-                                'bands statistically noise hain, aur n < %d wale bands par '
-                                'koi bhi nikaalna jhooth hoga.' % (_T_SIG, _MIN_BAND_N))}), 200
+                    'overlapping_observations': True,
+                    'inference_validated': False,
+                    'verdict': ('Score relative/confluence RANK hai, predictor nahi. '
+                                'Gross overlapping forward returns descriptive hain. '
+                                'Naive SE/t aur |t| >= 2 ko significance ya executable edge na samjhein; '
+                                'dependence, costs and multiple testing are not controlled. '
+                                'Thin bands have fewer than %d observations.' % _MIN_BAND_N)}), 200
 
 
 # ── shared tiny JSON store (watchlist + alerts) ─────────────────────────────
 def _store_read(path, default):
     try:
         with _STORE_LOCK:
-            return json.loads(open(path, encoding='utf-8').read())
+            with open(path, encoding='utf-8') as handle:
+                data = json.load(handle)
+                if not isinstance(data, type(default)):
+                    raise ValueError('unexpected store shape')
+                return data
     except FileNotFoundError:
         return default
-    except Exception:                                            # noqa: BLE001
-        return default
+    except Exception as exc:
+        from werkzeug.exceptions import Conflict
+        raise Conflict('Local JSON store unreadable; restore a backup before writing') from exc
 
 
 def _store_write(path, data):
@@ -5714,7 +5809,9 @@ def _store_write(path, data):
     with _STORE_LOCK:
         f = open(tmp, 'w', encoding='utf-8')
         try:
-            f.write(json.dumps(data, ensure_ascii=False, indent=1))
+            f.write(json.dumps(data, ensure_ascii=False, indent=1, allow_nan=False))
+            f.flush()
+            os.fsync(f.fileno())
         finally:
             f.close()
         os.replace(tmp, path)
@@ -5844,7 +5941,7 @@ def api_alerts_post():
                         'error': f'symbol {SYMBOL_MAX_LEN} char se lamba nahi ho sakta'}), 400
     with _STORE_LOCK:                                          # FIX-98: RMW atomic
         items = [a for a in _alerts_list() if isinstance(a, dict)]
-        items.append({'id': int(time.time() * 1000) % 10 ** 9, 'symbol': sym, 'exchange': ex,
+        items.append({'id': uuid.uuid4().hex, 'symbol': sym, 'exchange': ex,
                       'condition': cond, 'level': level, 'fired': False,
                       'fired_at': None, 'created_at': datetime.now(IST).strftime('%Y-%m-%d %H:%M')})
         _store_write(ALERTS_FILE, items)
@@ -5853,13 +5950,12 @@ def api_alerts_post():
 
 @app.route('/api/alerts', methods=['DELETE'])
 def api_alerts_delete():
-    try:
-        aid = int(request.args.get('id'))
-    except (TypeError, ValueError):
-        return jsonify({'ok': False, 'error': 'id number hona chahiye'}), 400
+    aid = str(request.args.get('id') or '').strip()
+    if not re.fullmatch(r'(?:[0-9]{1,40}|[0-9a-f]{32})', aid):
+        return jsonify({'ok': False, 'error': 'id required'}), 400
     with _STORE_LOCK:                                          # FIX-98: RMW atomic
         items = [a for a in _alerts_list() if isinstance(a, dict)]
-        keep = [a for a in items if a.get('id') != aid]
+        keep = [a for a in items if str(a.get('id')) != aid]
         if len(keep) == len(items):
             return jsonify({'ok': False, 'error': 'alert nahi mila'}), 404
         _store_write(ALERTS_FILE, keep)
@@ -5885,6 +5981,12 @@ def api_alerts_check():
         if not q or not isinstance(q.get('price'), (int, float)):
             errors.append('%s: quote nahi mila' % sym)
             continue
+        if (not q.get('is_realtime') or q.get('stale')
+                or exchange_from_source(q.get('source')) != ex
+                or not math.isfinite(float(q['price'])) or q['price'] <= 0
+                or not is_market_open(exchange=ex)):
+            errors.append(f'{sym}: live same-exchange quote unavailable; alert not evaluated')
+            continue
         checked += 1
         price = float(q['price'])
         upd = {'last_price': price, 'checked_at': now}
@@ -5895,15 +5997,18 @@ def api_alerts_check():
     # FIX-98: write lock ke andar aur FRESH list par. Pehle network calls ke
     # dauraan wala snapshot hi write hota tha — beech me add/delete hua alert
     # kho jaata, aur do parallel /check ek doosre ka update mita dete.
+    fired_now = []
     with _STORE_LOCK:
         items = [a for a in _alerts_list() if isinstance(a, dict)]
         for a in items:
             upd = seen.get(a.get('id'))
-            if upd:
+            if upd and not a.get('fired'):
                 a.update(upd)
+                if upd.get('fired'):
+                    fired_now.append(a)
         _store_write(ALERTS_FILE, items)
     return jsonify({'ok': True, 'alerts': items, 'checked': checked,
-                    'fired_now': [a for a in items if a.get('fired_at') == now],
+                    'fired_now': fired_now,
                     'errors': errors[:8]}), 200
 
 
@@ -5955,6 +6060,13 @@ def _journal_read():
     return rows, False, (len(data) - len(rows))
 
 
+def journal_cost(entry, exit_price, qty, mode, side):
+    cfg = _cost_config()
+    buy, sell = ('buy_intraday', 'sell_intraday') if mode == 'intraday' else ('buy', 'sell')
+    first, second = (buy, sell) if side == 'LONG' else (sell, buy)
+    return round(cfg.cost(entry*qty, first) + cfg.cost(exit_price*qty, second), 2)
+
+
 def journal_r_multiple(entry, stop, exit_price, side):
     """R = outcome / initial risk. Full stop-out = exactly -1R.
 
@@ -5966,6 +6078,8 @@ def journal_r_multiple(entry, stop, exit_price, side):
         stop = float(stop)
         exit_price = float(exit_price)
     except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(x) and x > 0 for x in (entry, stop, exit_price)) or str(side).upper() not in ('LONG', 'SHORT'):
         return None
     short = str(side).upper() == 'SHORT'
     risk = (stop - entry) if short else (entry - stop)
@@ -5982,7 +6096,7 @@ def _journal_confidence(n):
         return 'thin'
     if n < JN_RELIABLE:
         return 'rough'
-    return 'reliable'
+    return 'larger_sample'
 
 
 _JN_NOTE = {
@@ -5992,7 +6106,7 @@ _JN_NOTE = {
                  'noise hain (20–29).'),
     'rough':    ('%d closed trades — expectancy ka rough minimum (30). Reliable '
                  'kehne ke liye 100+ chahiye.'),
-    'reliable': ('%d closed trades — 100+, sample reliable hai.'),
+    'larger_sample': ('%d closed trades — larger sample; independence, regime coverage and net edge NOT established.'),
 }
 
 
@@ -6007,7 +6121,10 @@ def journal_stats(items):
     gross_win = sum(wins)
     gross_loss = -sum(losses)
     conf = _journal_confidence(n)
+    net_rs = [float(t['r_net']) for t in closed if isinstance(t.get('r_net'), (int, float)) and math.isfinite(t['r_net'])]
     return {
+        'expectancy_net_r': round(sum(net_rs)/len(net_rs), 4) if net_rs else None,
+        'net_r_samples': len(net_rs),
         'open': len(rows) - n,
         'closed': n,
         'wins': len(wins),
@@ -6022,7 +6139,7 @@ def journal_stats(items):
         'net_pnl': round(sum(float(t.get('pnl_net') or 0.0) for t in closed), 2),
         'confidence': conf,
         'thresholds': {'anecdote_below': JN_ANECDOTE, 'rough_from': JN_ROUGH,
-                       'reliable_from': JN_RELIABLE},
+                       'larger_sample_from': JN_RELIABLE},
         'disclosure': (_JN_NOTE[conf] % n) + (' Ye aapke khud log kiye trades ka '
                        'record hai — kisi model/score ki accuracy nahi, aur na '
                        'hi koi prediction.'),
@@ -6080,9 +6197,9 @@ def api_journal_post():
 
     mode = str(body.get('mode') or 'intraday').strip().lower()
     if mode not in ('intraday', 'delivery'):
-        mode = 'intraday'
+        return jsonify({'ok': False, 'error': 'mode intraday ya delivery hona chahiye'}), 422
     notional = entry * qty
-    cost = round(trade_cost_pct(mode, notional) / 100.0 * notional, 2)
+    cost = journal_cost(entry, exit_price if exit_price is not None else entry, qty, mode, side)
     r = journal_r_multiple(entry, stop, exit_price, side) if exit_price else None
     pnl_gross = pnl_net = None
     if exit_price:
@@ -6090,7 +6207,7 @@ def api_journal_post():
                            else (entry - exit_price)) * qty, 2)
         pnl_net = round(pnl_gross - cost, 2)
     rec = {
-        'id': '%x%s' % (time.time_ns(), os.urandom(2).hex()),
+        'id': uuid.uuid4().hex,
         'symbol': sym,
         'exchange': str(body.get('exchange') or 'NSE').strip().upper(),
         'side': side,
@@ -6099,6 +6216,9 @@ def api_journal_post():
         'risk_per_share': round(abs(entry - stop), 4),
         'risk_rupees': round(abs(entry - stop) * qty, 2),
         'r': r,
+        'r_net': round(pnl_net / (abs(entry-stop)*qty), 6) if pnl_net is not None else None,
+        'cost_basis': 'NSE cash estimate; BSE tariff/DP/borrow/actual broker fees not verified',
+        'cost_status': 'both recorded notionals' if exit_price is not None else 'reference round-trip at entry; not realized cost',
         'pnl_gross': pnl_gross,
         'pnl_net': pnl_net,
         'cost': cost,
@@ -6118,11 +6238,46 @@ def api_journal_post():
                 'trade_journal.json corrupt hai — us file ko rename/delete karein, '
                 'phir dobara save karein (purana data overwrite na ho isliye write '
                 'block kiya)')}), 409
+        if len(items) >= 10000:
+            return jsonify({'ok': False, 'error': 'journal limit reached; archive records first'}), 413
         items.append(rec)
         _store_write(JOURNAL_FILE, items)
     return jsonify({'ok': True, 'item': rec, 'items': items,
                     'stats': journal_stats(items), 'corrupt': False,
                     'dropped_rows': dropped}), 200
+
+
+@app.route('/api/journal/<tid>/close', methods=['PATCH'])
+def api_journal_close(tid):
+    body = request.get_json()
+    exit_price = sfx(body.get('exit'))
+    if exit_price is None or exit_price <= 0:
+        return jsonify({'ok': False, 'error': 'finite positive exit required'}), 422
+    with _STORE_LOCK:
+        items, corrupt, dropped = _journal_read()
+        if corrupt:
+            return jsonify({'ok': False, 'error': 'journal corrupt; write blocked'}), 409
+        row = next((t for t in items if str(t.get('id')) == tid), None)
+        if row is None:
+            return jsonify({'ok': False, 'error': 'trade not found'}), 404
+        if row.get('exit') is not None:
+            if row['exit'] != exit_price:
+                return jsonify({'ok': False, 'error': 'already closed at a different price'}), 409
+        else:
+            r = journal_r_multiple(row.get('entry'), row.get('stop'), exit_price, row.get('side'))
+            if r is None:
+                return jsonify({'ok': False, 'error': 'invalid stored risk fields; repair required'}), 409
+            qty = row.get('qty')
+            if not isinstance(qty, int) or isinstance(qty, bool) or qty <= 0:
+                return jsonify({'ok': False, 'error': 'invalid stored quantity'}), 409
+            cost = journal_cost(row['entry'], exit_price, qty, row.get('mode', 'intraday'), row['side'])
+            pnl = (exit_price-row['entry']) * qty * (1 if row['side']=='LONG' else -1)
+            risk = abs(row['entry']-row['stop'])*qty
+            row.update(exit=exit_price, r=r, pnl_gross=round(pnl,2), pnl_net=round(pnl-cost,2),
+                       cost=cost, cost_status='both recorded notionals', r_net=round((pnl-cost)/risk,6),
+                       closed_at=_naive_ist().isoformat(timespec='seconds'))
+            _store_write(JOURNAL_FILE, items)
+    return jsonify({'ok': True, 'items': items, 'stats': journal_stats(items), 'dropped_rows': dropped})
 
 
 @app.route('/api/journal', methods=['DELETE'])
@@ -6174,10 +6329,10 @@ if __name__ == '__main__':
     else:
         _n = sum(1 for d in NSE_HOLIDAYS if d.year == _this_year)
         print(f"👉 NSE holidays: {_n} dates loaded for {_this_year} "
-              f"(aaj {'HOLIDAY — market band' if is_market_holiday() else 'trading day'})")
+              f"(aaj {'HOLIDAY — market band' if is_market_holiday() or _naive_ist().weekday() > 4 else 'scheduled trading day'})")
     maybe_autorefresh_scan()
     if SECURITY['TOKEN']:
-        print("🔒 Token auth ON — neeche wali link me token pehle se juda hua hai")
+        print("🔒 Token auth ON — token hidden; use configured token to sign in")
         # FIX-48: token KAHAN se aaya — .env se ya Windows/process env se. Pehle ye
         # nahi dikhta tha, isliye user apne .env me token dhoondhta reh gaya jabki wo
         # Windows User env var me tha (aur .env ka value override=False ki wajah se
@@ -6196,11 +6351,11 @@ if __name__ == '__main__':
     plain = startup_urls(HOST, PORT)  # same hosts, token ke bina
     print("👉 Dashboard kholein (Ctrl+click / copy-paste):")
     for i, u in enumerate(urls):
-        print(f"   {'🖥 ' if i == 0 else '📱'} {u}")
+        print(f"   {'🖥 ' if i == 0 else '📱'} {re.sub(r'([?&]token=)[^&]+', r'\1<configured-token>', u)}")
     if SECURITY['TOKEN']:
         print("   ℹ️  Cookie set hone ke baad ye saaf link chalegi (24 ghante):")
         for u in plain:
-            print(f"      {u.replace('?token=' + SECURITY['TOKEN'], '')}")
+            print(f"      {u.split('?')[0]}")
         print("   🔒 Console log me token mask hota hai (token=***)")
     print("=" * 78)
     if urls and auto_open_enabled():

@@ -86,9 +86,9 @@ check('n=20 → thin', S([{'r': 1}] * 20)['confidence'] == 'thin')
 check('n=29 → thin', S([{'r': 1}] * 29)['confidence'] == 'thin')
 check('n=30 → rough', S([{'r': 1}] * 30)['confidence'] == 'rough')
 check('n=99 → rough', S([{'r': 1}] * 99)['confidence'] == 'rough')
-check('n=100 → reliable', S([{'r': 1}] * 100)['confidence'] == 'reliable')
+check('n=100 → reliable', S([{'r': 1}] * 100)['confidence'] == 'larger_sample')
 check('thresholds disclosed in payload',
-      S([])['thresholds'] == {'anecdote_below': 20, 'rough_from': 30, 'reliable_from': 100})
+      S([])['thresholds'] == {'anecdote_below': 20, 'rough_from': 30, 'larger_sample_from': 100})
 
 print("\n── C. API: validation, cost reuse, persistence, corrupt ──────────")
 r = C.get('/api/journal')
@@ -108,12 +108,12 @@ bad2 = C.post('/api/journal', json={'symbol': 'X', 'side': 'SHORT', 'entry': 100
                                     'stop': 90, 'qty': 10})
 check('POST SHORT with stop BELOW entry → 422', bad2.status_code == 422
       and 'UPAR' in (bad2.get_json() or {}).get('error', ''))
-check('POST qty=0 → 422', C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG',
-                                                       'entry': 100, 'stop': 90, 'qty': 0}).status_code == 422)
-check('POST entry=abc → 422', C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG',
-                                                           'entry': 'abc', 'stop': 90, 'qty': 1}).status_code == 422)
-check('POST exit=-5 → 422', C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG', 'entry': 100,
-                                                         'stop': 90, 'qty': 1, 'exit': -5}).status_code == 422)
+check('POST qty=0 → 400', C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG',
+                                                       'entry': 100, 'stop': 90, 'qty': 0}).status_code == 400)
+check('POST entry=abc → 400', C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG',
+                                                           'entry': 'abc', 'stop': 90, 'qty': 1}).status_code == 400)
+check('POST exit=-5 → 400', C.post('/api/journal', json={'symbol': 'X', 'side': 'LONG', 'entry': 100,
+                                                         'stop': 90, 'qty': 1, 'exit': -5}).status_code == 400)
 check('galat POSTs ke baad bhi journal khaali', C.get('/api/journal').get_json()['items'] == [])
 
 ok1 = C.post('/api/journal', json={'symbol': 'reliance', 'side': 'LONG', 'entry': 1000,
@@ -126,8 +126,8 @@ check('symbol uppercase + trim hota hai', rec['symbol'] == 'RELIANCE', rec['symb
 check('R = (1100-1000)/(1000-950) = 2.0', rec['r'] == 2.0, str(rec['r']))
 check('risk_rupees = 50 x 10 = 500', rec['risk_rupees'] == 500.0, str(rec['risk_rupees']))
 check('pnl_gross = 1000.0', rec['pnl_gross'] == 1000.0, str(rec['pnl_gross']))
-_exp_cost = round(A.trade_cost_pct('intraday', 1000 * 10) / 100.0 * (1000 * 10), 2)
-check('cost NAYE model se nahi — trade_cost_pct() reuse', rec['cost'] == _exp_cost,
+_exp_cost = A.journal_cost(1000, 1100, 10, 'intraday', 'LONG')
+check('cost uses actual entry and exit notionals', rec['cost'] == _exp_cost,
       f"{rec['cost']} vs {_exp_cost}")
 check('cost > 0 (free trade ka jhooth nahi)', rec['cost'] > 0, str(rec['cost']))
 check('pnl_net = gross - cost', rec['pnl_net'] == round(1000.0 - _exp_cost, 2), str(rec['pnl_net']))
@@ -210,7 +210,7 @@ check('disclosure: "aapke khud log kiye trades"', 'aapke khud log kiye trades' i
 check('disclosure: model/score ki accuracy NAHI (negation)', 'accuracy nahi' in d0)
 check('disclosure: prediction NAHI (negation)', 'prediction' in d0)
 check('chhota sample: ANECDOTE saaf likha', 'ANECDOTE' in A.journal_stats([{'r': 1}])['disclosure'])
-check('100+: "reliable" likha', 'reliable' in A.journal_stats([{'r': 1}] * 100)['disclosure'])
+check('100+: "reliable" likha', 'larger sample' in A.journal_stats([{'r': 1}] * 100)['disclosure'])
 check('confidence ek LABEL hai, number nahi (fake % nahi)',
       isinstance(A.journal_stats([])['confidence'], str))
 check('stats me koi "accuracy" key nahi',

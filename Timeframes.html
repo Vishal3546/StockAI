@@ -301,11 +301,12 @@ function renderJournal(d){
       '<div class="kv">'
       + kv('Closed trades', String(s.closed === undefined ? 0 : s.closed))
       + kv('Open', String(s.open === undefined ? 0 : s.open))
-      + kv('Win rate', pct(s.win_rate))
+      + kv('Gross win rate', pct(s.win_rate))
       + kv('Avg win', rr(s.avg_win_r))
       + kv('Avg loss', rr(s.avg_loss_r))
-      + kv('Expectancy', rr(s.expectancy_r))
-      + kv('Profit factor', (s.profit_factor === null || s.profit_factor === undefined)
+      + kv('Gross expectancy', rr(s.expectancy_r))
+      + kv('Net expectancy (estimated costs)', rr(s.expectancy_net_r))
+      + kv('Gross profit factor', (s.profit_factor === null || s.profit_factor === undefined)
                             ? '—' : Number(s.profit_factor).toFixed(2))
       + kv('Worst R', rr(s.worst_r))
       + kv('Stop breaches (&lt; −1R)', String(s.stop_breaches === undefined ? 0 : s.stop_breaches))
@@ -373,6 +374,7 @@ function journalSend(method, url, body){
 function journalAdd(){
   var b = {
     symbol: document.getElementById('j_sym').value.trim(),
+    exchange: document.getElementById('exch').value,
     side:   document.getElementById('j_side').value,
     entry:  document.getElementById('j_entry').value.trim(),
     stop:   document.getElementById('j_stop').value.trim(),
@@ -408,15 +410,7 @@ document.getElementById('jtable').addEventListener('click', function(ev){
     var inp = document.getElementById('x_' + cid);
     var x = inp ? inp.value.trim() : '';
     if(!x){ jfail('Exit price likho, phir close karein.'); return; }
-    var row = null, cur = null;
-    fetch('/api/journal').then(function(r){ return r.json(); }).then(function(d){
-      (d.items || []).forEach(function(t){ if(String(t.id) === String(cid)){ cur = t; } });
-      if(!cur){ jfail('trade nahi mila'); return; }
-      row = {symbol: cur.symbol, exchange: cur.exchange, side: cur.side, entry: cur.entry,
-             stop: cur.stop, qty: cur.qty, exit: x, mode: cur.mode, setup: cur.setup};
-      journalSend('DELETE', '/api/journal?id=' + encodeURIComponent(cid))
-        .then(function(){ return journalSend('POST', '/api/journal', row); });
-    });
+    journalSend('PATCH', '/api/journal/' + encodeURIComponent(cid) + '/close', {exit: x});
     return;
   }
   if(did){ journalSend('DELETE', '/api/journal?id=' + encodeURIComponent(did)); }
@@ -431,7 +425,7 @@ function load(){
   if(!sym){ e.style.display='block'; e.textContent='Symbol likho.'; cards.style.display='none'; return; }
   e.style.display='none';
   document.getElementById('exwarn').style.display='none';
-  m.innerHTML = '<span class="spin">🔄</span> '+sym+' load ho raha hai…';
+  m.textContent = sym + ' load ho raha hai…';
   cards.style.display='none'; fund.style.display='none';
   document.getElementById('planbox').style.display='none';
 

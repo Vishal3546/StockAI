@@ -852,8 +852,8 @@ function checkPriceGap(tickerPrice) {
     + ` (${analysisBasis || 'daily frame close'}) me ${diff > 0 ? '+' : '−'}`
     + `₹${Math.abs(diff).toFixed(2)} (${pct.toFixed(2)}%) ka fark. SL/Target/indicators`
     + ` analysis price se bane hain. Wajah: live quote ek point-in-time snapshot hai`
-    + ` (uska apna timestamp hota hai), aur daily frame ka close pichhle completed`
-    + ` session ka final close hai — market khula ho to ye dono alag hote hain`
+    + ` (uska apna timestamp hota hai), aur daily frame ka latest Close completed ya partial`
+    + ` session ka observation hai — market khula ho to ye dono alag hote hain`
     + ` (thin/illiquid stocks par fark aur bada ho sakta hai).`;
 }
 let liveTickerInterval = null;
@@ -1275,7 +1275,11 @@ function showBanner(msg, color) {
 }
 
 // Fetch Core Stock Data (With Advanced Fetch Control)
+let stockRequestSeq = 0;
+let stockRequestController = null;
 async function loadStock() {
+  const requestSeq = ++stockRequestSeq;
+  if(stockRequestController) stockRequestController.abort();
   const sym = symInput.value.trim().toUpperCase();
   if (!sym) return;
   activeSymbol = sym;
@@ -1283,13 +1287,15 @@ async function loadStock() {
   document.getElementById('loadingScreen').style.display = 'block';
   document.getElementById('mainContent').style.opacity = '0.3';
 
+  let timeoutId = null;
   try {
     const controller = new AbortController();
+    stockRequestController = controller;
     // FIX-85: 40s chhota tha. BSE-only / illiquid stocks par teeno tiers × dono
     // exchange try hote hain (TradingView + NSE Direct + Yahoo .NS/.BO), aur Yahoo
     // ke read-timeout par ye 45-50s tak ja sakta hai — user ke log me TAPARIA ne
     // 47s liye (search 18:24:18 → response 18:25:05), isliye 40s par abort ho gaya.
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    timeoutId = setTimeout(() => controller.abort(), 90000);
 
     const r = await apiFetch(`/api/stock/${sym}?ex=${activeExchange}`, {
       signal: controller.signal
@@ -1297,6 +1303,7 @@ async function loadStock() {
     clearTimeout(timeoutId);
 
     const d = await r.json();
+    if(requestSeq !== stockRequestSeq) return;
     if (d.error) {
       // FIX-83: strict-exchange 409 — requested exchange ka data nahi, par doosre ka
       // hai. Sirf error mat dikhao, rasta bhi batao.
@@ -1316,6 +1323,7 @@ async function loadStock() {
     render(d);
     startLiveTicker(sym);
   } catch (e) {
+    if(requestSeq !== stockRequestSeq) return;
     if (e.name === 'AbortError') {
       // FIX-85: purana message galat cheez ko blame karta tha ("ML walk-forward
       // needs 5-10s"). Asli cause data tier cascade hai — illiquid/BSE-only stocks
@@ -1331,6 +1339,8 @@ async function loadStock() {
     }
     console.error('Fetch Error:', e);
   } finally {
+    clearTimeout(timeoutId);
+    if(requestSeq !== stockRequestSeq) return;
     document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('mainContent').style.opacity = '1';
   }
@@ -1468,8 +1478,8 @@ function render(d) {
       </div>
       <div class="col-md-3 text-center">
         <div class="mono" style="font-size:1.6rem;font-weight:900;color:${mlColor}">${pctd(ml.probability)}</div>
-        <div style="font-size:0.75rem;color:var(--text-secondary)">UP Probability</div>
-        <div class="eng-sig ${ml.confidence === 'HIGH' ? 'sig-buy' : ml.confidence === 'LOW' ? 'sig-sell' : 'sig-hold'}">${sv(ml.confidence, 'UNKNOWN')} Confidence</div>
+        <div style="font-size:0.75rem;color:var(--text-secondary)">Uncalibrated UP score</div>
+        <div class="eng-sig ${ml.confidence === 'HIGH' ? 'sig-buy' : ml.confidence === 'LOW' ? 'sig-sell' : 'sig-hold'}">${sv(ml.confidence, 'UNKNOWN')} model agreement</div>
       </div>
       <div class="col-md-3">
         <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:6px">Model Backtest Accuracies</div>`;
@@ -1671,7 +1681,7 @@ function render(d) {
             <div style="font-weight:600">${p.name}</div>
             <div style="font-size:0.68rem;color:var(--text-muted)">${p.candles}-Candle • ${p.type}</div>
           </div>
-          <div class="pat-str" style="color:${pColor}">${p.strength}%</div>
+          <div class="pat-str" style="color:${pColor}">${p.strength}/100 heuristic</div>
         </div>`;
     });
   }
@@ -1770,10 +1780,10 @@ function render(d) {
     finalVerdictHtml = safeHtml`<strong style="color:var(--color-yellow)">⚠️ ${sv(ens.action, 'N/A')} — Ensemble rank: ${svd(ens.score)}/100 (${ens.calibration?.ready ? 'Relative rank only; no executable trade' : 'Threshold fit unavailable'})</strong><br><br>`;
   }
   
-  finalVerdictHtml += safeHtml`<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} probability (${sv(ml.confidence, 'UNKNOWN')} Confidence) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
+  finalVerdictHtml += safeHtml`<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} uncalibrated UP score (${sv(ml.confidence, 'UNKNOWN')} model agreement) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
   finalVerdictHtml += safeHtml`<strong>Engines:</strong> VolProfile: ${sv(d.engines?.vol_profile?.score, '?')} | RVOL: ${sv(d.engines?.rvol_cvd?.score, '?')} (${sv(d.engines?.rvol_cvd?.rvol, '?')}x) | VCP: ${sv(d.engines?.vcp?.score, '?')} | SMC: ${sv(d.engines?.smc?.score, '?')} | Regime: ${sv(d.engines?.regime?.score, '?')} | MTF: ${sv(d.engines?.mtf?.score, '?')}<br>`;
   finalVerdictHtml += safeHtml`<strong>Risk Plan (illustrative):</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Kelly before regime: ${pctd(rk.kelly_pct)} | after regime: ${pctd(rk.kelly_pct_after_regime)} | qty: ${svd(rk.qty)}<br><br>`;
-  finalVerdictHtml += safeHtml`<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Percentiles describe relative rank, not future profit. Strategy edge has not been independently verified; research only, not investment advice.</span>`;
+  finalVerdictHtml += safeHtml`<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Percentiles describe relative rank, not future profit. Strategy edge has not been independently verified; research only, not investment advice. Volume profile/CVD are candle proxies, not exchange order-flow. LIVE denotes a recent provider timestamp, not certified zero latency.</span>`;
   
   document.getElementById('aiVerdict').innerHTML = finalVerdictHtml;
 }

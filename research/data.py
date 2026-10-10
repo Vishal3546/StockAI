@@ -42,9 +42,11 @@ def _period_bars(period: str) -> int:
         return _PERIOD_BARS['2y']
 
 
-def load(symbol: str, period: str = '2y', use_cache: bool = True) -> pd.DataFrame | None:
+def load(symbol: str, period: str = '2y', use_cache: bool = True, exchange: str = 'NSE') -> pd.DataFrame | None:
+    exchange = str(exchange).upper()
+    if exchange not in ('NSE', 'BSE'): raise ValueError('invalid exchange')
     CACHE.mkdir(parents=True, exist_ok=True)
-    f = CACHE / f'{symbol.replace("^", "_")}_{period}.csv'
+    f = CACHE / f'{symbol.replace("^", "_")}_{exchange}_{period}_raw.csv'
     if use_cache and f.exists() and (time.time() - f.stat().st_mtime) < 12 * 3600:
         try:
             return _norm(pd.read_csv(f, index_col=0, parse_dates=True))
@@ -54,11 +56,8 @@ def load(symbol: str, period: str = '2y', use_cache: bool = True) -> pd.DataFram
     # Tier 1: yfinance
     try:
         import yfinance as yf
-        df = yf.download(f'{symbol}.NS', period=period, interval='1d',
+        df = yf.download(f'{symbol}{".BO" if exchange == "BSE" else ".NS"}', period=period, interval='1d',
                          progress=False, threads=False, auto_adjust=False)
-        if df is None or df.empty:
-            df = yf.download(f'{symbol}.BO', period=period, interval='1d',
-                             progress=False, threads=False, auto_adjust=False)
         if df is not None and not df.empty:
             df = _norm(df)
             if len(df) >= 250:
@@ -78,7 +77,7 @@ def load(symbol: str, period: str = '2y', use_cache: bool = True) -> pd.DataFram
     want = _period_bars(period)
     try:
         from tvDatafeed import TvDatafeed, Interval
-        df = TvDatafeed().get_hist(symbol=symbol, exchange='NSE',
+        df = TvDatafeed().get_hist(symbol=symbol, exchange=exchange,
                                    interval=Interval.in_daily, n_bars=want)
         if df is not None and not df.empty:
             df = _norm(df.rename(columns=str.title))
