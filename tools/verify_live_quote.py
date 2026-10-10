@@ -720,7 +720,7 @@ check('Dashboard header-vs-analysis gap check karta hai',
 check('gap threshold 0.25% hai (measured TCS gap 0.207% tha)',
       'pct < 0.25' in _HTML)
 check('analysis price /api/stock se record hota hai',
-      'analysisPrice = d.frame_close ?? d.price' in _HTML)
+      'analysisPrice = d.risk?.reference_price ?? d.price ?? d.frame_close' in _HTML)
 check('updatePriceDOM gap check call karta hai', 'checkPriceGap(p);' in _HTML)
 
 print('\n-- FIX-52: search bar me exchange suffix')
@@ -821,7 +821,7 @@ check('priceGapWarn me galat CAS explanation nahi bacha (comments me theek hai)'
 # FIX-67: Dashboard.html audit — gap-warning ki wording ab asli wajah batati hai
 # (live market me daily frame = pichhla close), sirf "thin/illiquid" nahi.
 check('priceGapWarn ab live-market wajah batata hai (sirf thin/illiquid nahi)',
-      'market khula ho to ye dono alag hote hain' in _HTML)
+      'Provider snapshots can differ' in _HTML and 'indicators use historical candles and do not update with quote ticks' in _HTML)
 
 # ── FIX-55: NSE/BSE toggle — user ka original request, ab properly bana ────
 # Pehle maine kaha tha "BSE ka multi-year historical reliable source se nahi

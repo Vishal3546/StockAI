@@ -639,6 +639,7 @@ body::after {
             <span class="lc-dot"></span><span id="liveChipTxt">LIVE</span>
           </span>
           <span class="live-src" id="liveSrc"></span>
+          <div class="live-src" id="historySource"></div>
           <button class="rf-btn" id="refreshBtn" onclick="manualRefresh()"
                   aria-label="Refresh live price" title="Live refresh (R)">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -682,7 +683,7 @@ body::after {
         <div class="gc kpi-card">
           <svg class="gauge-svg" viewBox="0 0 100 100"><circle class="gauge-bg" cx="50" cy="50" r="47"/><circle class="gauge-fill" cx="50" cy="50" r="47" id="gIntra" style="stroke:var(--accent-cyan)"/></svg>
           <div class="kpi-score mono" id="kpiIntraScore" style="color:var(--accent-cyan)">—</div>
-          <div class="kpi-label">Intraday</div>
+          <div class="kpi-label">Intraday heuristic (daily inputs)</div>
           <div class="kpi-action sig-hold" id="kpiIntraAction">—</div>
         </div>
       </div>
@@ -690,7 +691,7 @@ body::after {
         <div class="gc kpi-card">
           <svg class="gauge-svg" viewBox="0 0 100 100"><circle class="gauge-bg" cx="50" cy="50" r="47"/><circle class="gauge-fill" cx="50" cy="50" r="47" id="gSwing" style="stroke:var(--color-green)"/></svg>
           <div class="kpi-score mono" id="kpiSwingScore" style="color:var(--color-green)">—</div>
-          <div class="kpi-label">Swing</div>
+          <div class="kpi-label">Swing heuristic</div>
           <div class="kpi-action sig-hold" id="kpiSwingAction">—</div>
         </div>
       </div>
@@ -698,7 +699,7 @@ body::after {
         <div class="gc kpi-card">
           <svg class="gauge-svg" viewBox="0 0 100 100"><circle class="gauge-bg" cx="50" cy="50" r="47"/><circle class="gauge-fill" cx="50" cy="50" r="47" id="gLong" style="stroke:var(--accent-purple-light)"/></svg>
           <div class="kpi-score mono" id="kpiLongScore" style="color:var(--accent-purple-light)">—</div>
-          <div class="kpi-label">Long-Term</div>
+          <div class="kpi-label">Long-Term heuristic</div>
           <div class="kpi-action sig-hold" id="kpiLongAction">—</div>
         </div>
       </div>
@@ -706,7 +707,7 @@ body::after {
         <div class="gc kpi-card" style="border-color:rgba(0,240,255,0.15)">
           <svg class="gauge-svg" viewBox="0 0 100 100"><circle class="gauge-bg" cx="50" cy="50" r="47"/><circle class="gauge-fill" cx="50" cy="50" r="47" id="gMaster" style="stroke:var(--accent-cyan)"/></svg>
           <div class="kpi-score mono" id="kpiMasterScore" style="background:linear-gradient(135deg,var(--accent-cyan),var(--accent-purple-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent">—</div>
-          <div class="kpi-label">Master</div>
+          <div class="kpi-label">Master heuristic (not fitted rank)</div>
           <div class="kpi-action sig-hold" id="kpiMasterAction">—</div>
         </div>
       </div>
@@ -849,13 +850,11 @@ function checkPriceGap(tickerPrice) {
   if (pct < 0.25) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   el.textContent = `⚠️ Header ₹${t.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`
-    + ` (live quote) aur analysis ₹${a.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`
-    + ` (${analysisBasis || 'daily frame close'}) me ${diff > 0 ? '+' : '−'}`
-    + `₹${Math.abs(diff).toFixed(2)} (${pct.toFixed(2)}%) ka fark. SL/Target/indicators`
-    + ` analysis price se bane hain. Wajah: live quote ek point-in-time snapshot hai`
-    + ` (uska apna timestamp hota hai), aur daily frame ka latest Close completed ya partial`
-    + ` session ka observation hai — market khula ho to ye dono alag hote hain`
-    + ` (thin/illiquid stocks par fark aur bada ho sakta hai).`;
+    + ` differs from the analysis-request price ₹${a.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`
+    + ` (${analysisBasis || 'request price'}) by ₹${Math.abs(diff).toFixed(2)} (${pct.toFixed(2)}%).`
+    + ` Provider snapshots can differ. Any illustrative plan uses its disclosed request-price reference;`
+    + ` indicators use historical candles and do not update with quote ticks. Re-analyze to refresh.`;
+
 }
 let liveTickerInterval = null;
 
@@ -1183,14 +1182,14 @@ function setLiveChip(opts) {
   const src = document.getElementById('liveSrc');
   const o = opts || {};
   // Purane callers (sirf stale/source) bhi chalein — isliye fallback.
-  const state = o.feedState || (o.stale ? 'DELAYED' : 'LIVE');
+  const state = o.feedState || 'DELAYED';
   if (chip) chip.className = 'live-chip ' + (state === 'LIVE' ? 'live' : state.toLowerCase());
   if (txt) txt.textContent = state === 'LIVE' ? 'LIVE' : state === 'CLOSED' ? 'CLOSED' : 'DELAYED';
   if (src) {
     // Quote ka asli waqt server se aata hai (`quote_time`). Na mile to browser ki
     // ghadi NAHI dikhayenge — warna "abhi ka" lagta hai jabki data kal ka ho.
     const parts = [];
-    if (o.source) parts.push(o.source);
+    if (o.source) parts.push('Quote: ' + o.source);
     if (o.quoteTime) parts.push(String(o.quoteTime));
     else parts.push('quote time nahi mila');
     src.textContent = parts.join(' · ');
@@ -1214,7 +1213,7 @@ function setLiveBadge(feedState, feedLabel, source) {
   if (txt) txt.textContent = feedLabel || (isLive ? 'LIVE' : state === 'CLOSED' ? 'MARKET CLOSED' : 'DELAYED');
   if (badge) { badge.style.background = bg; badge.style.color = fg; }
   if (tag) {
-    if (source) tag.textContent = source;
+    tag.textContent = 'Quote: ' + (source || 'unknown');
     tag.style.background = bg; tag.style.color = fg;
   }
 }
@@ -1249,7 +1248,10 @@ function updatePriceDOM(newPrice, change, pChange, opts) {
     changeEl.innerHTML = '<span style="color:var(--text-muted)">— change unavailable</span>';
   }
 
-  if (opts) setLiveChip(opts);
+  if (opts) {
+    setLiveChip(opts);
+    setLiveBadge(opts.feedState || 'DELAYED', opts.feedLabel, opts.source);
+  }
   checkPriceGap(p);                             // FIX-52: header vs analysis gap
 }
 
@@ -1416,7 +1418,9 @@ function render(d) {
     _exTxt = 'exchange unknown';
   }
   document.getElementById('stockName').textContent = `${d.symbol} — ${_exTxt}`;
-  const src = sv(d.data_source, 'UNKNOWN');
+  const src = sv(d.quote_source || d.data_source, 'UNKNOWN');
+  const historySrc = document.getElementById('historySource');
+  if(historySrc) historySrc.textContent = `History / indicators: ${d.analysis_source || d.data_provenance?.analysis_source || 'unknown'} · ${d.analysis_session || 'session unknown'} · frame close ₹${svd(d.frame_close)}`;
   const srcBadge = document.getElementById('activeEngineTag');
   srcBadge.textContent = src;
   // FIX-51: pehle ye `/NSE/i.test(src)` se liveness nikalta tha — yaani source ke
@@ -1426,7 +1430,7 @@ function render(d) {
   setLiveBadge(d.feed_state, d.feed_label, src);
   
   // FIX-52: analysis kis price se bani — gap check ke liye pehle record karo.
-  analysisPrice = d.frame_close ?? d.price;
+  analysisPrice = d.risk?.reference_price ?? d.price ?? d.frame_close;
   analysisBasis = d.price_basis || 'daily frame close';
 
   // FIX-53: frame kis exchange se aaya. TradingView ka fetch silently NSE se BSE
@@ -1440,26 +1444,19 @@ function render(d) {
     // kaun sa fit laga — wahi dikhao. BSE fit missing ho to purani warning.
     const _calEx = String(d.ensemble?.calibration?.exchange || '').toUpperCase();
     const _frameEx = String(d.frame_exchange || '').toUpperCase();
-    const _calLine = (_calEx && _calEx === _frameEx)
-      ? `Score percentile ${_calEx} universe par fitted hai (alag ${_calEx} calibration).`
-      : `Score percentile ${_calEx || 'NSE'} universe par fitted hai, isliye ${_frameEx || 'BSE'} frame par rank indicative hai.`;
+    const _calLine = (d.ensemble?.calibration?.ready === true && _calEx === _frameEx)
+      ? `Relative rank fitted on ${_calEx} history; not a profit probability or trade signal.`
+      : `Score UNFITTED for this ${_frameEx || 'unknown'} frame; no fitted rank or directional action.`;
     if (d.frame_exchange === 'BSE') {
       exchEl.style.display = 'block';
-      if (d.on_nse_master === false) {
-        // FIX-54: 'feed fail hua' aur 'NSE par listed hi nahi' alag baatein hain.
-        exchEl.textContent = 'ℹ️ Ye stock sirf BSE par listed hai (NSE master list me nahi), isliye '
-          + 'saara data BSE se aa raha hai. BSE aur NSE ke closing prices alag hote hain. ' + _calLine;
-      } else {
-        exchEl.textContent = '⚠️ Ye frame BSE se aaya hai. BSE aur NSE ke '
-          + 'closing prices alag hote hain — TCS par 01-Oct ko BSE ₹2,079.30 vs NSE ₹2,075.00. ' + _calLine;
-      }
+      exchEl.textContent = 'History exchange: BSE. NSE and BSE prices can differ; they are not interchangeable. ' + _calLine;
     } else {
       exchEl.style.display = 'none';
     }
   }
 
   // Initialize Live Price Ticker
-  updatePriceDOM(d.price, d.change, d.pChange);
+  updatePriceDOM(d.price, d.change, d.pChange, {source:src, feedState:d.feed_state, feedLabel:d.feed_label, quoteTime:d.quote_time});
     
   document.getElementById('stockMeta').textContent = `
     ${sv(d.fundamentals?.sector, 'N/A')} | ${sv(d.fundamentals?.industry, 'N/A')} | 52W Position: ${pctd(d.week52?.position)}
@@ -1482,11 +1479,14 @@ function render(d) {
     scoreCal.textContent = `📊 Score FIT: ${fit.sessions} past sessions, ${fit.samples} stock-scores (as-of ${fit.asof_session}, current bar ${fit.reference_session || '—'}). Relative rank ${svd(fit.relative_rank_pct)}% · p80 ≥ ${svd(th.buy_dip)} · p95 ≥ ${svd(th.buy_breakout)}. Percentile = rank, NOT profit probability. Regime → exposure; MTF → diagnostic only.`;
     scoreCal.style.color = 'var(--accent-cyan)';
   } else if (scoreCal) {
-    scoreCal.textContent = `⚠️ Score UNFITTED — ${sv(fit?.note, 'score history unavailable')}. No directional signal/position. Run python tools/build_score_calibration.py; do not use old 65/78.`;
+    const reason = String(fit?.note || 'score history unavailable').replace(/^UNFITTED\s*[—-]\s*/i, '');
+    const history = fit?.bars_available != null ? ` Completed bars: ${fit.bars_available}/${fit.bars_required || 250} required.` : '';
+    const rebuild = fit?.rebuild_command ? ` Existing-universe rebuild (not an edge validation): ${fit.rebuild_command}` : '';
+    scoreCal.textContent = `⚠️ Score UNFITTED — ${reason}.${history} ${fit?.remediation || 'No fitted directional signal/position.'}${rebuild}`;
     scoreCal.style.color = 'var(--color-yellow)';
   }
 
-  // KPI Score Gauges Map
+  // KPI Score Gauges Map — separate heuristic scales, NOT ensemble percentile fits
   const gaugeKeys = ['intraday', 'swing', 'longterm', 'master'];
   const gaugeIds = ['Intra', 'Swing', 'Long', 'Master'];
   const gaugePaths = ['gIntra', 'gSwing', 'gLong', 'gMaster'];
@@ -1497,7 +1497,7 @@ function render(d) {
     document.getElementById(`kpi${gaugeIds[index]}Action`).textContent = sv(v.action, '—');
     document.getElementById(`kpi${gaugeIds[index]}Action`).className = 'kpi-action ' + sc(v.score);
     // FIX-32: KPI score kitne indicators se bana — tooltip me (fake votes nahi lagte)
-    if (v.basis) document.getElementById(`kpi${gaugeIds[index]}Action`).title = 'Data: ' + v.basis;
+    if (v.basis) document.getElementById(`kpi${gaugeIds[index]}Action`).title = 'Uncalibrated daily-input heuristic, not a trade instruction. Data: ' + v.basis;
     setGauge(gaugePaths[index], v.score);                     // FIX-29: missing → khaali gauge
   });
 
@@ -1564,7 +1564,7 @@ function render(d) {
           (baseline ${sv(ml.baseline_accuracy, '?')}%, edge ${wfEdge === null ? '—' : (wfEdge > 0 ? '+' : '') + wfEdge.toFixed(1) + 'pp'})
           → <b>${honest}</b><br>
           <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.
-          Ye in-app number <b>diagnostic</b> hai; edge ka faisla neeche wali recorded OOS study karta hai.</span>
+          Ye in-app number <b>diagnostic</b> hai. Archived studies do not validate the current pipeline; no current predictive or net trading edge is established.</span>
         </div>`;
 
     // FIX-41 (C-2): recorded out-of-sample study — "ML me asli edge hai ya nahi"
@@ -1572,7 +1572,8 @@ function render(d) {
     // number nahi. Costs ke baad ka result RESEARCH_REPORT.md me hai.
     const study = d.ml_study || {};
     if (study.ready) {
-      const stColor = study.edge_found ? 'var(--color-green)' : 'var(--color-red)';
+      const archived = study.rebuild_required === true;
+      const stColor = archived ? 'var(--color-yellow)' : study.edge_found ? 'var(--color-green)' : 'var(--color-red)';
       let stRows = '';
       Object.keys(study.strategies || {}).forEach(k => {
         const s = study.strategies[k] || {};
@@ -1588,7 +1589,7 @@ function render(d) {
           <div style="color:var(--text-muted)">Shuffled-label null: mean ${sv(nul.mean_pct, '—')}%, max ${sv(nul.max_pct, '—')}% — model isse upar nahi gaya.</div>`;
       mlh += safeHtml`
         <div style="font-size:0.65rem;margin-top:6px;padding:6px;border-radius:6px;background:rgba(255,77,79,0.07);border:1px solid rgba(255,77,79,0.35)">
-          🎯 <b>OOS study</b> · purged walk-forward · ${sv(study.period, '?')} · ${sv(study.as_of, '?')}${study.stale ? ' · ⚠️ stale' : ''}
+          🎯 <b>${archived ? 'ARCHIVED OOS study — NOT current validation' : 'Recorded OOS study — not live validation'}</b> · purged walk-forward · ${sv(study.period, '?')} · ${sv(study.as_of, '?')}${study.stale ? ' · ⚠️ stale' : ''}
           <div class="mono" style="color:${stColor};margin:3px 0"><b>${sv(study.verdict, '—')}</b></div>
           ${raw(stRows)}
           ${raw(nullLine)}
@@ -1639,9 +1640,9 @@ function render(d) {
     // FIX-29: display '—' jab value missing ho; verdict bhi tab '—' (pehle missing
     // RSI "50 / NEUTRAL" aur missing volume-ratio "NORMAL" jaisa dikhta tha).
     ['RSI (14)', svd(ind.rsi), verdict(ind.rsi, v => v < 30 ? 'OVERSOLD' : v > 70 ? 'OVERBOUGHT' : 'NEUTRAL')],
-    ['MACD', svd(ind.macd), (isMissing(ind.macd) || isMissing(ind.macd_signal)) ? '—' : (ind.macd > ind.macd_signal ? 'BUY' : 'SELL')],
+    ['MACD', svd(ind.macd), (isMissing(ind.macd) || isMissing(ind.macd_signal)) ? '—' : (ind.macd > ind.macd_signal ? 'BULLISH' : 'BEARISH')],
     ['MACD Hist', svd(ind.macd_hist), verdict(ind.macd_hist, v => v > 0 ? 'POSITIVE' : 'NEGATIVE')],
-    ['Supertrend', svd(ind.supertrend), verdict(ind.st_direction, v => v === 1 ? 'BUY' : 'SELL')],
+    ['Supertrend', svd(ind.supertrend), verdict(ind.st_direction, v => v === 1 ? 'BULLISH' : 'BEARISH')],
     // FIX-51: pehle sirf `< 0` aur `> 1` flag hote the, isliye %B = 0.05 (price
     // lower band ke bilkul paas) "MID" kehlata tha — jabki RSI/CCI/Williams/%R sab
     // OVERSOLD bol rahe the. Ab band ke paas hona alag dikhta hai.
@@ -1684,12 +1685,13 @@ function render(d) {
   document.getElementById('indList').innerHTML = techHtmlMarkup;
 
   // Stop Loss & Targets Section Rendering
-  document.getElementById('targetsBox').innerHTML = safeHtml`
+  const hasPlan = rk.plan_available === true && fit?.ready === true && ['LONG','SHORT'].includes(rk.direction);
+  document.getElementById('targetsBox').innerHTML = !hasPlan ? safeHtml`<div class="mut">NO DIRECTIONAL PLAN — fitted directional rank unavailable or neutral. No entry, stop, targets or trailing instructions. Executable quantity: 0.</div>` : safeHtml`
     <div class="mb-2 text-center" style="font-size:0.8rem;font-weight:700;padding:6px;border-radius:8px;background:${ens.tradeable ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)'};color:${ens.tradeable ? 'var(--color-green)' : 'var(--color-yellow)'}">
       ${sv(rk.exec_status, '—')}
     </div>
     <div class="ind-row" style="background:rgba(0,240,255,0.05);padding:6px 10px;border-radius:8px;margin-bottom:8px">
-      <span style="color:var(--accent-cyan);font-weight:700;font-size:0.75rem">📍 Ideal Entry Zone:</span>
+      <span style="color:var(--accent-cyan);font-weight:700;font-size:0.75rem">📍 Illustrative entry zone (not an order):</span>
       <span class="mono" style="font-weight:700;color:var(--text-primary)">${sv(rk.entry_zone, 'N/A')}</span>
     </div>
     <div class="row g-2 mb-2">
@@ -1698,7 +1700,7 @@ function render(d) {
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Target 2 (50%)</div><div class="lvl-val mono" style="color:var(--accent-cyan)">₹${svd(rk.t2)}</div></div></div>
     </div>
     <div style="font-size:0.68rem;color:var(--text-muted);margin-top:6px;text-align:center">
-      🛡️ <strong>Trailing Plan:</strong> ${sv(rk.trail_sl_plan, 'N/A')}
+      🛡️ <strong>Illustrative trailing scenario:</strong> ${sv(rk.trail_sl_plan, 'N/A')}
     </div>`;
 
   // Pattern Output Engine
@@ -1780,16 +1782,16 @@ function render(d) {
     <div class="row g-2 mb-2">
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly % (before regime)</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div>${!isMissing(rk.kelly_pct_after_regime) ? raw(safeHtml`<small style="color:var(--text-muted)">after regime: ${pctd(rk.kelly_pct_after_regime)}</small>`) : ''}</div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${svd(rk.qty)}</div></div></div>
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">1:${svd(rk.rr_ratio)}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">${hasPlan ? '1:' + svd(rk.rr_ratio) : '—'}</div></div></div>
     </div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Direction</span><span class="mono">${sv(rk.direction, 'NONE')}</span></div>
-    <div class="ind-row"><span style="color:var(--text-secondary)">Capital used</span><span class="mono">₹${money(rk.capital)}</span></div>
+    <div class="ind-row"><span style="color:var(--text-secondary)">Capital budget (not deployed)</span><span class="mono">₹${money(rk.capital)}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>
     ${(rk.cost === null || rk.cost === undefined) ? '' :
-      raw(safeHtml`<div class="ind-row" title="NSE published charges + slippage. .env: STOCKAI_COST_MODE / STOCKAI_COST_SLIPPAGE / STOCKAI_COST_BROKERAGE / STOCKAI_COST_STT"><span style="color:var(--text-secondary)">💸 Break-even move (sirf fees cover karne ke liye)</span><span class="mono" style="color:var(--color-yellow)">+${svd(rk.cost.break_even_pct)}% = ₹${svd(rk.cost.break_even_rs)}<br><small style="color:var(--text-muted)">${sv(rk.cost.mode, 'intraday')} round-trip ${svd(rk.cost.round_trip_pct)}% · ye SL ka ${svd(rk.cost.cost_to_risk_pct)}% hai${(rk.cost.qty ? ' · is qty par ≈ ₹' + money(rk.cost.round_trip_on_notional) : '')}${rk.cost.notional ? ' · ₹' + money(rk.cost.notional) + ' par' : ''}${rk.cost.notional_basis ? ' (' + sv(rk.cost.notional_basis, '') + ')' : ''}</small></span></div>`)}
-    ${(rk.cost && rk.cost.targets_net_pct) ?
-      raw(safeHtml`<div class="ind-row" title="Gross target minus round-trip cost. Ye net hi asli profit hai."><span style="color:var(--text-secondary)">Targets NET (cost ke baad)</span><span class="mono" style="color:var(--color-green)">T1 ${isMissing(rk.cost.targets_net_pct.t1) ? '—' : (rk.cost.targets_net_pct.t1 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t1 + '%'} · T2 ${isMissing(rk.cost.targets_net_pct.t2) ? '—' : (rk.cost.targets_net_pct.t2 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t2 + '%'} · T3 ${isMissing(rk.cost.targets_net_pct.t3) ? '—' : (rk.cost.targets_net_pct.t3 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t3 + '%'}<br><small style="color:var(--text-muted)">gross se ${svd(rk.cost.round_trip_pct)}% kam</small></span></div>`) : ''}
+      raw(safeHtml`<div class="ind-row" title="Estimated costs, not an exchange or broker bill. Verify fee scope below."><span style="color:var(--text-secondary)">💸 Estimated fee break-even (illustrative)</span><span class="mono" style="color:var(--color-yellow)">+${svd(rk.cost.break_even_pct)}% = ₹${svd(rk.cost.break_even_rs)}<br><small style="color:var(--text-muted)">${sv(rk.cost.mode, 'intraday')} round-trip ${svd(rk.cost.round_trip_pct)}%${hasPlan ? ' · estimated cost / stop risk ' + svd(rk.cost.cost_to_risk_pct) + '%' : ''}${(rk.cost.qty ? ' · is qty par ≈ ₹' + money(rk.cost.round_trip_on_notional) : '')}${rk.cost.notional ? ' · ₹' + money(rk.cost.notional) + ' par' : ''}${rk.cost.notional_basis ? ' (' + sv(rk.cost.notional_basis, '') + ')' : ''}<br>${sv(rk.cost.fee_scope, 'Provider/broker charges not independently verified')}</small></span></div>`)}
+    ${(hasPlan && rk.cost && rk.cost.targets_net_pct) ?
+      raw(safeHtml`<div class="ind-row" title="Hypothetical gross target minus estimated fees; not realized profit. Slippage and actual broker/exchange charges may differ."><span style="color:var(--text-secondary)">Targets NET (cost ke baad)</span><span class="mono" style="color:var(--color-green)">T1 ${isMissing(rk.cost.targets_net_pct.t1) ? '—' : (rk.cost.targets_net_pct.t1 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t1 + '%'} · T2 ${isMissing(rk.cost.targets_net_pct.t2) ? '—' : (rk.cost.targets_net_pct.t2 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t2 + '%'} · T3 ${isMissing(rk.cost.targets_net_pct.t3) ? '—' : (rk.cost.targets_net_pct.t3 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t3 + '%'}<br><small style="color:var(--text-muted)">gross se ${svd(rk.cost.round_trip_pct)}% kam</small></span></div>`) : ''}
     ${(rk.cost && rk.cost.warning) ?
       raw(safeHtml`<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(247,147,26,0.12);border-left:3px solid #f7931a;font-size:0.7rem;line-height:1.45;color:#f7931a">💸 ${sv(rk.cost.warning, '')}</div>`) : ''}
     ${(rk.regime_exposure_factor === null || rk.regime_exposure_factor === undefined) ? '' :
@@ -1818,7 +1820,7 @@ function render(d) {
   
   finalVerdictHtml += safeHtml`<strong>ML Engine:</strong> ${sv(ml.prediction, 'N/A')} with ${pctd(ml.probability)} uncalibrated UP score (${sv(ml.confidence, 'UNKNOWN')} model agreement) | Baseline accuracy of ${sv(ml.baseline_accuracy, '?')}% | Best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'}<br>`;
   finalVerdictHtml += safeHtml`<strong>Engines:</strong> VolProfile: ${sv(d.engines?.vol_profile?.score, '?')} | RVOL: ${sv(d.engines?.rvol_cvd?.score, '?')} (${sv(d.engines?.rvol_cvd?.rvol, '?')}x) | VCP: ${sv(d.engines?.vcp?.score, '?')} | SMC: ${sv(d.engines?.smc?.score, '?')} | Regime: ${sv(d.engines?.regime?.score, '?')} | MTF: ${sv(d.engines?.mtf?.score, '?')}<br>`;
-  finalVerdictHtml += safeHtml`<strong>Risk Plan (illustrative):</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Kelly before regime: ${pctd(rk.kelly_pct)} | after regime: ${pctd(rk.kelly_pct_after_regime)} | qty: ${svd(rk.qty)}<br><br>`;
+  if(hasPlan) finalVerdictHtml += safeHtml`<strong>Risk Plan (illustrative):</strong> Stop Loss ₹${svd(rk.sl)} (${pctd(rk.sl_pct)}) | Target 1 ₹${svd(rk.t1)} | Target 2 ₹${svd(rk.t2)} | Kelly before regime: ${pctd(rk.kelly_pct)} | after regime: ${pctd(rk.kelly_pct_after_regime)} | qty: ${svd(rk.qty)}<br><br>`;
   finalVerdictHtml += safeHtml`<span style="color:var(--text-muted);font-size:0.75rem">⚠️ Percentiles describe relative rank, not future profit. Strategy edge has not been independently verified; research only, not investment advice. Volume profile/CVD are candle proxies, not exchange order-flow. LIVE denotes a recent provider timestamp, not certified zero latency.</span>`;
   
   document.getElementById('aiVerdict').innerHTML = finalVerdictHtml;

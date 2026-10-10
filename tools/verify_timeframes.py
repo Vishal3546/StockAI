@@ -99,7 +99,7 @@ try:
           payload['kpi'] == direct,
           f"{payload['kpi']['master']} vs {direct['master']}")
     check('har horizon me score/action/basis teeno hain',
-          all(set(v) == {'score', 'action', 'basis'} for v in payload['kpi'].values()))
+          all(set(v) == {'score', 'action', 'basis', 'interpretation', 'tradeable'} for v in payload['kpi'].values()))
     check('score int 5..98 range me hai (clamp kaam karta hai)',
           all(isinstance(v['score'], int) and 5 <= v['score'] <= 98
               for v in payload['kpi'].values()),

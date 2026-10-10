@@ -69,8 +69,11 @@ if rk.get('direction') == 'NONE':
 else:
     check("notional never exceeds capital (no leverage bug)",
           rk['notional'] <= rk['capital'] * 1.001, f"notional={rk['notional']} capital={rk['capital']}")
-check("Kelly uses the REAL reward:risk (not hardcoded 2.5)",
-      abs(rk.get('kelly_rr_used', 0) - rk.get('rr_ratio', 0)) < 0.01, f"b={rk.get('kelly_rr_used')}")
+if rk.get('plan_available'):
+    check("Kelly uses the REAL reward:risk (not hardcoded 2.5)",
+          abs(rk['kelly_rr_used'] - rk['rr_ratio']) < 0.01, f"b={rk.get('kelly_rr_used')}")
+else:
+    check("No plan exposes no invented reward:risk", rk.get('rr_ratio') is None and rk.get('kelly_rr_used') is None)
 check("ML cached: warm request < 60% of cold", warm < max(cold * 0.6, 1.0), f"cold={cold:.2f}s warm={warm:.2f}s")
 dy = d['fundamentals']['div_yield']
 check("dividend yield not inflated 100x", (dy == 'N/A' or float(dy.rstrip('%')) < 25), f"{dy!r} (was '50.00%')")

@@ -78,7 +78,7 @@ const malicious = {
     mtf: { score: 50, signal: evil('sig6'),
            timeframes: { '5m': { trend: evil('mtf5m'), rsi: 55 } } },
   },
-  risk: { direction: 'LONG', qty: 0, kelly_pct: 0, kelly_pct_after_regime: 0, rr_ratio: 1.67,
+  risk: { plan_available: true, direction: 'LONG', qty: 0, kelly_pct: 0, kelly_pct_after_regime: 0, rr_ratio: 1.67,
           sl: 1180, t1: 1230, t2: 1260, sl_pct: -1.7, entry_zone: evil('entry'),
           exec_status: evilScript('exec'), trail_sl_plan: evil('trail'),
           risk_note: evil('risknote'), win_rate_used: 0.5, regime_basis: evil('regimebasis'),

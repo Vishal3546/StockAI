@@ -34,9 +34,9 @@ const check = (n, ok, d = '') => {
 // RELIANCE ke ASLI scores (06-Oct-2026) — /api/timeframe aur /api/stock dono se
 // verify kiye gaye hain (tools/verify_timeframes.py section E).
 const KPI = {
-  intraday: { score: 23, action: 'SELL', basis: '7/7 indicators measured' },
-  swing: { score: 43, action: 'HOLD', basis: '6/6 indicators measured' },
-  longterm: { score: 39, action: 'WATCH', basis: '5/6 indicators measured' },
+  intraday: { score: 23, action: 'BEARISH', basis: '7/7 indicators measured' },
+  swing: { score: 43, action: 'MIXED', basis: '6/6 indicators measured' },
+  longterm: { score: 39, action: 'MIXED', basis: '5/6 indicators measured' },
   master: { score: 35, action: 'NEUTRAL', basis: '18/19 indicators measured' },
 };
 
@@ -102,13 +102,13 @@ const PLAIN = 'http://localhost/timeframes';
   // ── 1. DEEP LINK (?sym=) ──────────────────────────────────────────────
   let s = await render(DEEP, base());
   check('deep link par cards dikhte hain', s.cardsShown === true);
-  check('intraday 23 SELL + basis render hua',
-    s.h.intraday === '23SELL7/7 indicators measured', s.h.intraday);
-  check('swing 43 HOLD render hua', s.h.swing === '43HOLD6/6 indicators measured', s.h.swing);
-  check('longterm 39 WATCH + "5/6" (partial) render hua',
-    s.h.longterm === '39WATCH5/6 indicators measured', s.h.longterm);
+  check('intraday 23 BEARISH + heuristic disclosure renders',
+    s.h.intraday === '23BEARISH7/7 indicators measuredUncalibrated daily-input heuristic; not fitted rank or an order.', s.h.intraday);
+  check('swing 43 MIXED renders', s.h.swing === '43MIXED6/6 indicators measuredUncalibrated daily-input heuristic; not fitted rank or an order.', s.h.swing);
+  check('longterm 39 MIXED + "5/6" (partial) render hua',
+    s.h.longterm === '39MIXED5/6 indicators measuredUncalibrated daily-input heuristic; not fitted rank or an order.', s.h.longterm);
   check('master 35 NEUTRAL + "18/19" render hua',
-    s.h.master === '35NEUTRAL18/19 indicators measured', s.h.master);
+    s.h.master === '35NEUTRAL18/19 indicators measuredUncalibrated daily-input heuristic; not fitted rank or an order.', s.h.master);
   check('score 23 (<=35) red class me', /class="sc red"/.test(s.html.intraday));
   check('score 43 (mid) amber class me', /class="sc amber"/.test(s.html.swing));
   check('action pill par bhi wahi colour class', /class="act red"/.test(s.html.intraday));
@@ -157,13 +157,13 @@ const PLAIN = 'http://localhost/timeframes';
 
   // ── 6. HIGH score -> green ────────────────────────────────────────────
   const hi = JSON.parse(JSON.stringify(KPI));
-  hi.intraday = { score: 78, action: 'BUY', basis: '7/7 indicators measured' };
-  hi.longterm = { score: 90, action: 'INVEST', basis: '6/6 indicators measured' };
+  hi.intraday = { score: 78, action: 'BULLISH', basis: '7/7 indicators measured' };
+  hi.longterm = { score: 90, action: 'BULLISH', basis: '6/6 indicators measured' };
   s = await render(DEEP, base({ kpi: hi }));
   check('score 78 -> green class', /class="sc green"/.test(s.html.intraday));
   check('score 90 -> green class', /class="sc green"/.test(s.html.longterm));
   check('score 78 -> bar 78%', /width:78%/.test(s.html.intraday));
-  check('BUY action render hua', s.h.intraday.includes('BUY'), s.h.intraday);
+  check('BULLISH heuristic renders', s.h.intraday.includes('BULLISH'), s.h.intraday);
 
   // ── 7. kpi missing -> "data nahi", crash nahi ─────────────────────────
   s = await render(DEEP, base({ kpi: {} }));

@@ -2854,22 +2854,30 @@ def calculate_kpi_scores(df, fund_data):
     return {
         'intraday': {
             'score': i_s,
-            'action': 'BUY' if i_s >= 65 else 'SELL' if i_s <= 35 else 'HOLD',
+            'action': 'BULLISH' if i_s >= 65 else 'BEARISH' if i_s <= 35 else 'MIXED',
+            'interpretation': 'Uncalibrated heuristic from daily inputs; not an entry signal or fitted ensemble rank',
+            'tradeable': False,
             'basis': f'{i_used}/{i_total} indicators measured'
         },
         'swing': {
             'score': s_s,
-            'action': 'BUY' if s_s >= 65 else 'SELL' if s_s <= 35 else 'HOLD',
+            'action': 'BULLISH' if s_s >= 65 else 'BEARISH' if s_s <= 35 else 'MIXED',
+            'interpretation': 'Uncalibrated heuristic from daily inputs; not an entry signal or fitted ensemble rank',
+            'tradeable': False,
             'basis': f'{s_used}/{s_total} indicators measured'
         },
         'longterm': {
             'score': lt_s,
-            'action': 'INVEST' if lt_s >= 65 else 'AVOID' if lt_s <= 35 else 'WATCH',
+            'action': 'BULLISH' if lt_s >= 65 else 'BEARISH' if lt_s <= 35 else 'MIXED',
+            'interpretation': 'Uncalibrated heuristic from daily inputs; not an entry signal or fitted ensemble rank',
+            'tradeable': False,
             'basis': f'{lt_used}/{lt_total} indicators measured'
         },
         'master': {
             'score': master,
-            'action': 'STRONG BUY' if master >= 72 else 'STRONG SELL' if master <= 28 else 'NEUTRAL',
+            'action': 'STRONG BULLISH' if master >= 72 else 'STRONG BEARISH' if master <= 28 else 'NEUTRAL',
+            'interpretation': 'Uncalibrated heuristic from daily inputs; not an entry signal or fitted ensemble rank',
+            'tradeable': False,
             'basis': f'{i_used + s_used + lt_used}/{i_total + s_total + lt_total} indicators measured'
         }
     }
@@ -3819,9 +3827,10 @@ def _score_history_for(asof_session, bars, symbol, exchange='NSE'):
     pipeline. Only 250 historical snapshots of THIS exact stock-score formula
     can supply percentile bands.
     """
-    if symbol not in SCORE_CAL.UNIVERSE:
-        return None, 'symbol calibration universe me nahi (30 NSE names)'
     exch = str(exchange or 'NSE').strip().upper()
+    if symbol not in SCORE_CAL.UNIVERSE:
+        return None, (f'{symbol} is outside the supported {len(SCORE_CAL.UNIVERSE)}-symbol {exch} calibration universe; '
+                      'rebuilding the current universe does not add this symbol')
     if exch not in ('NSE', 'BSE'):
         exch = 'NSE'
     path = SCORE_CAL.artifact_path(exch)
@@ -3912,6 +3921,19 @@ def ensemble_score(engines, *, asof_session=None, bars=None, symbol=None,
         'relative_rank_pct': (SCORE_CAL.percentile_rank(fitted['_sorted_scores'], result['score'])
                               if ready else None),
         'universe_size': len(SCORE_CAL.UNIVERSE),
+        'symbol_supported': symbol in SCORE_CAL.UNIVERSE,
+        'bars_available': bars,
+        'bars_required': SCORE_CAL.LOOKBACK_BARS,
+        'rebuild_command': (f'python tools/build_score_calibration.py --exchange {str(exchange).upper()}'
+                            if symbol in SCORE_CAL.UNIVERSE and not ready and not fitted
+                            and str(exchange).upper() in ('NSE','BSE')
+                            and bars is not None and bars >= SCORE_CAL.LOOKBACK_BARS and data_fresh else None),
+        'remediation': ('Coverage expansion and validated history are required; a routine rebuild will not add this symbol.'
+                        if symbol not in SCORE_CAL.UNIVERSE else
+                        'Insufficient completed history; do not pad or synthesize bars.'
+                        if bars is not None and bars < SCORE_CAL.LOOKBACK_BARS else
+                        'Refresh the requested-exchange history before fitting.' if not data_fresh else
+                        'A rebuild only refreshes the existing universe; it does not establish a profitable edge.'),
         # FIX-84: kaun sa exchange fit use hua — UI ko sach bolne ke liye zaroori.
         # Pehle 'basis' me hamesha "NSE-universe" hardcoded tha, chahe BSE fit laga ho.
         'exchange': (str(exchange or 'NSE').strip().upper()
@@ -4730,6 +4752,18 @@ def stock_api(symbol):
         risk['edge_verified'] = False
         risk['exec_status'] = 'RESEARCH ONLY / NO EXECUTABLE ORDER'
         risk['risk_note'] = risk.get('risk_note', '') + ' | Illustrative sizing only; executable quantity is zero.'
+        # FIX-103: NONE must not silently receive LONG-shaped execution levels.
+        risk['plan_available'] = bool(ens['calibration']['ready'] and risk.get('direction') in ('LONG','SHORT'))
+        risk['reference_price'] = price
+        risk['reference_source'] = active_source
+        if not risk['plan_available']:
+            for key in ('sl','sl_pct','t1','t2','t3','entry_zone','trail_sl_plan','rr_ratio','kelly_rr_used'):
+                risk[key] = None
+            if risk.get('cost'):
+                risk['cost']['targets_net_pct'] = {}
+                risk['cost']['cost_to_risk_pct'] = None
+        if risk.get('cost'):
+            risk['cost']['fee_scope'] = ('NSE-default estimate; BSE and broker-specific fees are not verified' if req_exch == 'BSE' else 'Estimated NSE costs; verify broker, slippage and applicable charges')
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 
@@ -4777,7 +4811,11 @@ def stock_api(symbol):
 
         response_payload = {
             'symbol': resolved,
-            'data_source': active_source,
+            'data_source': active_source,  # legacy alias: headline price provider, not history
+            'analysis_source': daily_source,
+            'quote_source': active_source,
+            'quote_time': (live_nse.get('quote_time') if live_nse else
+                           f"{str(df.index[-1])[:10]} (daily bar close; not a live tick)"),
             'price': price,
             'change': change,
             'pChange': pChange,

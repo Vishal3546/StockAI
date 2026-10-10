@@ -1,0 +1,248 @@
+{
+  "history": [
+    {
+      "symbol": "TCS",
+      "exchange": "BSE",
+      "interval": "1d",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.74,
+      "passed": true
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "BSE",
+      "interval": "5m",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.59,
+      "passed": true
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "NSE",
+      "interval": "1d",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.39,
+      "passed": true
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "NSE",
+      "interval": "5m",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.46,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "BSE",
+      "interval": "1d",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.48,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "BSE",
+      "interval": "5m",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.43,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "NSE",
+      "interval": "1d",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.59,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "NSE",
+      "interval": "5m",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.57,
+      "passed": true
+    }
+  ],
+  "stock_routes": [
+    {
+      "path": "/api/stock/TCS?ex=NSE",
+      "status": 200,
+      "frame_exchange": "NSE",
+      "quote_source": "yahoo.ns",
+      "analysis_source": "TradingView Direct (NSE)",
+      "calibration": {
+        "asof_session": "2026-10-08",
+        "bars_available": 300,
+        "bars_required": 250,
+        "basis": "250 completed NSE-universe sessions; 4 daily OHLCV engines; trailing 250 bars",
+        "exchange": "NSE",
+        "model": "daily4-trailing250-v1",
+        "note": "Relative ranking ONLY \u2014 calibrated labels do not imply future return / edge",
+        "percentiles": {
+          "buy_breakout": 0.95,
+          "buy_dip": 0.8,
+          "short_sell": 0.1,
+          "watchlist": 0.4
+        },
+        "ready": true,
+        "rebuild_command": null,
+        "reference_session": "2026-10-09",
+        "relative_rank_pct": 49.3,
+        "remediation": "A rebuild only refreshes the existing universe; it does not establish a profitable edge.",
+        "samples": 7500,
+        "sessions": 250,
+        "symbol_supported": true,
+        "thresholds": {
+          "buy_breakout": 62.05,
+          "buy_dip": 57.0,
+          "short_sell": 43.0,
+          "watchlist": 50.0
+        },
+        "universe_size": 30
+      },
+      "plan_available": false,
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 11.03,
+      "passed": true
+    },
+    {
+      "path": "/api/stock/TCS?ex=BSE",
+      "status": 200,
+      "frame_exchange": "BSE",
+      "quote_source": "yahoo.bo",
+      "analysis_source": "TradingView Direct (BSE)",
+      "calibration": {
+        "asof_session": "2026-10-08",
+        "bars_available": 300,
+        "bars_required": 250,
+        "basis": "250 completed BSE-universe sessions; 4 daily OHLCV engines; trailing 250 bars",
+        "exchange": "BSE",
+        "model": "daily4-trailing250-v1",
+        "note": "Relative ranking ONLY \u2014 calibrated labels do not imply future return / edge",
+        "percentiles": {
+          "buy_breakout": 0.95,
+          "buy_dip": 0.8,
+          "short_sell": 0.1,
+          "watchlist": 0.4
+        },
+        "ready": true,
+        "rebuild_command": null,
+        "reference_session": "2026-10-09",
+        "relative_rank_pct": 24.9,
+        "remediation": "A rebuild only refreshes the existing universe; it does not establish a profitable edge.",
+        "samples": 7000,
+        "sessions": 250,
+        "symbol_supported": true,
+        "thresholds": {
+          "buy_breakout": 63.0,
+          "buy_dip": 57.0,
+          "short_sell": 43.0,
+          "watchlist": 49.0
+        },
+        "universe_size": 30
+      },
+      "plan_available": false,
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 9.0,
+      "passed": true
+    },
+    {
+      "path": "/api/stock/JIOFIN?ex=BSE",
+      "status": 200,
+      "frame_exchange": "BSE",
+      "quote_source": "yahoo.bo",
+      "analysis_source": "TradingView Direct (BSE)",
+      "calibration": {
+        "asof_session": null,
+        "bars_available": 300,
+        "bars_required": 250,
+        "basis": "250 completed BSE-universe sessions; 4 daily OHLCV engines; trailing 250 bars",
+        "exchange": "BSE",
+        "model": "daily4-trailing250-v1",
+        "note": "UNFITTED \u2014 JIOFIN is outside the supported 30-symbol BSE calibration universe; rebuilding the current universe does not add this symbol; no directional action",
+        "percentiles": {
+          "buy_breakout": 0.95,
+          "buy_dip": 0.8,
+          "short_sell": 0.1,
+          "watchlist": 0.4
+        },
+        "ready": false,
+        "rebuild_command": null,
+        "reference_session": "2026-10-09",
+        "relative_rank_pct": null,
+        "remediation": "Coverage expansion and validated history are required; a routine rebuild will not add this symbol.",
+        "samples": 0,
+        "sessions": 0,
+        "symbol_supported": false,
+        "thresholds": null,
+        "universe_size": 30
+      },
+      "plan_available": false,
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 7.02,
+      "passed": true
+    },
+    {
+      "path": "/api/stock/LGEINDIA?ex=BSE",
+      "status": 200,
+      "frame_exchange": "BSE",
+      "quote_source": "yahoo.bo",
+      "analysis_source": "TradingView Direct (BSE)",
+      "calibration": {
+        "asof_session": null,
+        "bars_available": 245,
+        "bars_required": 250,
+        "basis": "250 completed BSE-universe sessions; 4 daily OHLCV engines; trailing 250 bars",
+        "exchange": "BSE",
+        "model": "daily4-trailing250-v1",
+        "note": "UNFITTED \u2014 LGEINDIA is outside the supported 30-symbol BSE calibration universe; rebuilding the current universe does not add this symbol; no directional action",
+        "percentiles": {
+          "buy_breakout": 0.95,
+          "buy_dip": 0.8,
+          "short_sell": 0.1,
+          "watchlist": 0.4
+        },
+        "ready": false,
+        "rebuild_command": null,
+        "reference_session": "2026-10-09",
+        "relative_rank_pct": null,
+        "remediation": "Coverage expansion and validated history are required; a routine rebuild will not add this symbol.",
+        "samples": 0,
+        "sessions": 0,
+        "symbol_supported": false,
+        "thresholds": null,
+        "universe_size": 30
+      },
+      "plan_available": false,
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 4.27,
+      "passed": true
+    }
+  ]
+}

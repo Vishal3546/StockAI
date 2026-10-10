@@ -121,7 +121,8 @@ function card(k){
   return '<div class="sc '+c+'">'+k.score+'</div>'+
     '<div class="bar"><i style="width:'+Math.max(0,Math.min(100,k.score))+'%;background:'+barCol(k.score)+'"></i></div>'+
     '<span class="act '+c+'" style="border-color:currentColor">'+(k.action||'—')+'</span>'+
-    '<div class="basis">'+(k.basis||'')+'</div>';
+    '<div class="basis">'+(k.basis||'')+'</div>'+
+    '<div class="basis">Uncalibrated daily-input heuristic; not fitted rank or an order.</div>';
 }
 
 // ── FIX-93: Trade Plan render ──────────────────────────────────────────────
