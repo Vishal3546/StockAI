@@ -78,11 +78,11 @@ else:
 
     canned = {'symbol': 'TEST', 'price': 1234.5, 'change': 12.5, 'pChange': 1.02,
               'close_price': 1222.0, 'dayHigh': 1240.0, 'dayLow': 1215.0,
-              'timestamp': '10:00:00', 'is_realtime': True, 'source': 'stub'}
+              'timestamp': '10:00:00', 'is_realtime': True, 'source': 'nse'}
 
     # --- tier 1/2 (live source mil gaya) ---
     # FIX-55: get_live_quote ab prefer_exch pass karta hai, isliye **k
-    A.fetch_nse_live_ltp = lambda s: dict(canned)
+    A.fetch_nse_live_ltp = lambda s: dict(canned, symbol=s)
     A.fetch_yahoo_live_ltp = lambda s, **k: None
     A._LIVE_CACHE.clear()
     q1 = A.get_live_quote('TESTX', force=True)
@@ -106,7 +106,7 @@ else:
     A.fetch_nse_live_ltp = lambda s: None
     A.fetch_yahoo_live_ltp = lambda s, **k: None
     orig_fetch = A.DATA_MANAGER.smart_fetch
-    A.DATA_MANAGER.smart_fetch = lambda *a, **k: (fake, 'stub-daily')
+    A.DATA_MANAGER.smart_fetch = lambda *a, **k: (fake, 'TradingView Direct (NSE)')
     A._LIVE_CACHE.clear()
     q4 = A.get_live_quote('TESTX', force=True)
     A.DATA_MANAGER.smart_fetch = orig_fetch
@@ -660,7 +660,7 @@ check('setLiveChip teen states handle karta hai',
 check('top badge setLiveBadge(feed_state) se chalta hai',
       'setLiveBadge(d.feed_state, d.feed_label, src)' in _HTML)
 check('quote ka asli waqt (quote_time) dikhaya jaata hai',
-      'quoteTime: t.quote_time' in _HTML and 'quoteTime: tick.quote_time' in _HTML)
+      'quoteTime:t.quote_time' in _HTML.replace(' ', '') and 'paintTick(tick)' in _HTML)
 check('OBV label ab obv vs obv_ema se banta hai (obv > 0 se nahi)',
       'ind.obv > ind.obv_ema' in _HTML and 'ind.obv > 0 ?' not in _HTML)
 check('OBV negative value ab dikhti hai (pehle "0" ban jaati thi)',
@@ -772,8 +772,8 @@ try:
     _fake = _FakeTV(nse_bars=0, bse_bars=60)
     A.DATA_MANAGER.tv = _fake
     _df, _ex = A.DATA_MANAGER.fetch_tradingview('TCS', n_bars=60, interval_str='1d')
-    check('NSE khaali → BSE par girta hai aur exchange batata hai', _ex == 'BSE', f'got {_ex!r}')
-    check('dono exchanges try hue', _fake.calls == ['NSE', 'BSE'], f'calls={_fake.calls}')
+    check('NSE unavailable → no cross-exchange request/substitution', _ex is None and _df is None, f'got {_ex!r}')
+    check('only requested exchange contacted', _fake.calls == ['NSE'], f'calls={_fake.calls}')
 
     _fake2 = _FakeTV(nse_bars=60, bse_bars=60)
     A.DATA_MANAGER.tv = _fake2
@@ -896,10 +896,10 @@ print('\n-- FIX-55: exchange toggle (dashboard) + D/E precision')
 check('activeExchange state hai', 'let activeExchange = "NSE"' in _HTML)
 check('search item exchange carry karta hai', "item.dataset.ex =" in _HTML)
 check('selectStock exchange set karta hai', 'function selectStock(sym, ex)' in _HTML)
-check('/api/stock call me ex jaata hai', '?ex=${activeExchange}' in _HTML)
-check('SSE URL me ex jaata hai', '/api/stream/${symbol}?ex=${activeExchange}' in _HTML)
-check('polling URL me ex jaata hai', '/api/quote/${symbol}?ex=${activeExchange}' in _HTML)
-check('manual refresh me ex jaata hai', '?force=1&ex=${activeExchange}' in _HTML)
+check('/api/stock call me ex jaata hai', '?ex=${exchange}' in _HTML)
+check('SSE URL me ex jaata hai', '/api/stream/${encodeURIComponent(symbol)}?ex=${exchange}' in _HTML)
+check('polling URL me ex jaata hai', '/api/quote/${encodeURIComponent(c.symbol)}?ex=${c.exchange}' in _HTML)
+check('manual refresh me ex jaata hai', '?force=1&ex=${c.exchange}' in _HTML)
 check("D/E chhoti value par 3 decimals (0.027 -> '0.027%', '0.0%' nahi)",
       "{fund_data['debt_val']:.3f}% D/E" in app_src)
 
@@ -944,8 +944,8 @@ print('\n-- FIX-56: tier-3 timestamp (tvDatafeed UTC-naive deta hai)')
 # Live measured: TradingView tier se quote_time "2026-10-01 03:45:00" aata tha —
 # wo UTC hai (IST me 09:15, session open). Aur daily bar ka timestamp session ka
 # OPEN hota hai, close nahi — use "quote ka waqt" kehna jhooth tha.
-check('tvDatafeed ka naive timestamp UTC maan kar IST me convert hota hai',
-      "_lb.tz_localize('UTC').tz_convert(IST)" in app_src)
+check('TV epoch normalized at adapter; no guessed naive-UTC correction',
+      "utc=True" in (ROOT/'tv_history.py').read_text() and "_lb.tz_localize('UTC').tz_convert(IST)" not in app_src)
 check('daily bar par quote_time "(daily close)" kehta hai (09:15 open nahi)',
       "_lb_note = ' (daily close)'" in app_src
       and "{_lb_note}" in app_src)
@@ -1563,7 +1563,7 @@ _LC_saved = dict(A._LIVE_CACHE)
 _lnll_orig = A.fetch_nse_live_ltp
 _FAKE_Q = {'symbol': 'FIX88TEST', 'price': 100.0, 'change': 1.0, 'pChange': 1.0,
            'close_price': 99.0, 'dayHigh': 101.0, 'dayLow': 98.0,
-           'timestamp': '15:30:00', 'is_realtime': True, 'source': 'stub'}
+           'timestamp': '15:30:00', 'is_realtime': True, 'source': 'nse'}
 try:
     for _state, _want in ((False, A.LIVE_TTL_CLOSED), (True, A.LIVE_TTL)):
         A.is_market_open = lambda *a, _s=_state, **k: _s

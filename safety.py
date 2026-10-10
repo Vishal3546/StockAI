@@ -47,3 +47,21 @@ def valid_ohlcv(df):
                     and (a.Low<=a[['Open','Close','High']].min(axis=1)).all())
     except (KeyError, TypeError, ValueError, AttributeError):
         return False
+
+
+def checked_symbol(symbol, exchange):
+    """Reject qualified identities that contradict the requested exchange."""
+    ex = str(exchange).strip().upper()
+    sym = str(symbol).strip().upper()
+    if ':' in sym:
+        prefix, sym = sym.split(':', 1)
+        if prefix != ex or ':' in sym:
+            raise ValueError('symbol prefix conflicts with requested exchange')
+    for suffix, actual in (('.NS','NSE'),('.BO','BSE')):
+        if sym.endswith(suffix):
+            if actual != ex:
+                raise ValueError('symbol suffix conflicts with requested exchange')
+            sym = sym[:-len(suffix)]
+    if not sym:
+        raise ValueError('symbol required')
+    return sym

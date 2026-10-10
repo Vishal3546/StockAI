@@ -417,11 +417,16 @@ document.getElementById('jtable').addEventListener('click', function(ev){
 });
 
 
+let timeframeGeneration = 0;
 function load(){
+  const generation = ++timeframeGeneration;
+  LASTPLAN = null;
   var sym = document.getElementById('sym').value.trim();
   var ex = document.getElementById('exch').value;
   var e = document.getElementById('err'), m = document.getElementById('meta'),
       cards = document.getElementById('cards'), fund = document.getElementById('fund');
+  cards.style.display='none'; fund.style.display='none';
+  document.getElementById('planbox').style.display='none';
   if(!sym){ e.style.display='block'; e.textContent='Symbol likho.'; cards.style.display='none'; return; }
   e.style.display='none';
   document.getElementById('exwarn').style.display='none';
@@ -432,6 +437,7 @@ function load(){
   fetch('/api/timeframe/'+encodeURIComponent(sym)+'?exch='+encodeURIComponent(ex))
     .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); })
     .then(function(res){
+      if(generation !== timeframeGeneration || document.getElementById('exch').value !== ex || document.getElementById('sym').value.trim().toUpperCase() !== sym.toUpperCase()) return;
       var j = res.j || {};
       // HTTP status bhi dekho — pehle sirf `j.ok === false` check hota tha,
       // isliye 500 par (jaha body {} ho sakti hai) page "undefined · ₹— ·
@@ -456,19 +462,23 @@ function load(){
         return;
       }
       var xw = document.getElementById('exwarn');
-      if(j.exchange_mismatch && j.exchange_note){
+      if(j.exchange_mismatch || j.exchange_actual !== ex || j.exchange_requested !== ex){
         xw.style.display = 'block';
-        xw.textContent = '⚠️ ' + j.exchange_note;
+        xw.textContent = '⚠️ ' + (j.exchange_note || 'Response exchange missing/mismatched; no data displayed.');
+        cards.style.display='none'; fund.style.display='none';
+        document.getElementById('planbox').style.display='none';
+        m.textContent=''; return;
       } else {
         xw.style.display = 'none';
       }
+      if(j.historical_only){ xw.style.display='block'; xw.textContent='HISTORICAL ONLY — '+ex+' history through '+j.last_session+'; expected '+j.expected_session+'. Current trade plan disabled.'; }
       var k = j.kpi || {};
       ['intraday','swing','longterm','master'].forEach(function(h){
         document.getElementById('h_'+h).innerHTML = card(k[h]);
       });
       cards.style.display='grid';
       // FIX-93: execution layer render (score se alag section)
-      renderPlan(j.plan);
+      renderPlan(j.historical_only ? null : j.plan);
       var price = (j.price===null||j.price===undefined) ? '—' : Number(j.price).toFixed(2);
       m.innerHTML = '<b>'+j.symbol+'</b> · ₹'+price+
         ' · '+j.bars+' daily bars · source: '+(j.source||'—')+
@@ -484,6 +494,7 @@ function load(){
         '<br><span class="mut">'+(j.note||'')+'</span>';
     })
     .catch(function(err){
+      if(generation !== timeframeGeneration || document.getElementById('exch').value !== ex || document.getElementById('sym').value.trim().toUpperCase() !== sym.toUpperCase()) return;
       e.style.display='block'; e.className='err'; e.textContent='Load fail: '+err.message;
       m.textContent=''; cards.style.display='none'; fund.style.display='none';
       document.getElementById('planbox').style.display='none';
@@ -491,6 +502,11 @@ function load(){
     });
 }
 
+document.getElementById('exch').addEventListener('change', function(){
+  ++timeframeGeneration; LASTPLAN=null;
+  ['cards','fund','planbox'].forEach(function(id){document.getElementById(id).style.display='none';});
+  document.getElementById('meta').textContent='Exchange changed — load this exchange before using the analysis.';
+});
 document.getElementById('go').addEventListener('click', load);
 document.getElementById('sym').addEventListener('keydown', function(ev){
   if(ev.key === 'Enter') load();

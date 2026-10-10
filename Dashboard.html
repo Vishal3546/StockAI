@@ -620,10 +620,11 @@ body::after {
   <!-- Loading Screen -->
   <div id="loadingScreen" class="text-center py-5" style="display:none">
     <div class="spinner-border" style="color:var(--accent-cyan);width:3rem;height:3rem"></div>
-    <p style="color:var(--text-secondary);margin-top:12px">Running 6-Engine AI + Direct NSE Realtime Fetch...</p>
+    <p style="color:var(--text-secondary);margin-top:12px">Loading requested-exchange history and research analysis...</p>
   </div>
 
   <div id="mainContent">
+    <div id="historyWarning" role="status" style="display:none;padding:12px;border:1px solid orange;color:orange"></div>
 
     <!-- Header Price & Regime -->
     <div class="d-flex align-items-end justify-content-between flex-wrap gap-3 mb-3">
@@ -1106,42 +1107,61 @@ document.addEventListener('click', function(e) {
 
 // ⚡ MONEYCONTROL STYLE LIVE TICKER (Selective Number Update without Full Reload)
 let liveSource = null;
-function startLiveTicker(symbol) {
+let quoteGeneration = 0;
+let quoteContext = null;
+function stopLiveTicker() {
+  ++quoteGeneration;
+  quoteContext = null;
   if (liveTickerInterval) clearInterval(liveTickerInterval);
-  if (liveSource) { liveSource.close(); liveSource = null; }
-  // FIX(D9): prefer the server-sent-events stream; poll only if it fails.
-  try {
-    liveSource = new EventSource(`${API}/api/stream/${symbol}?ex=${activeExchange}`);
-    let gotData = false;
-    liveSource.onmessage = (ev) => {
-      gotData = true;
-      try {
-        const t = JSON.parse(ev.data);
-        if (t && t.price) updatePriceDOM(t.price, t.change, t.pChange,
-                                         { stale: t.stale || !t.is_realtime, source: t.source,
-                                           feedState: t.feed_state, quoteTime: t.quote_time });
-      } catch (e) {}
-    };
-    liveSource.onerror = () => {
-      if (liveSource) { liveSource.close(); liveSource = null; }
-      if (!gotData) startPolling(symbol);
-    };
-  } catch (e) { startPolling(symbol); }
+  liveTickerInterval = null;
+  if (liveSource) liveSource.close();
+  liveSource = null;
 }
-function startPolling(symbol) {
+function currentQuoteContext(c) {
+  return c && quoteContext === c && c.generation === quoteGeneration
+    && c.symbol === activeSymbol && c.exchange === activeExchange;
+}
+function acceptTick(c, t) {
+  return currentQuoteContext(c) && t && t.symbol === c.symbol && t.exchange === c.exchange
+    && Number.isFinite(t.price) && t.price > 0;
+}
+function paintTick(t) {
+  updatePriceDOM(t.price, t.change, t.pChange,
+    {stale:t.stale || !t.is_realtime, source:t.source, feedState:t.feed_state, quoteTime:t.quote_time});
+}
+function startLiveTicker(symbol, exchange = activeExchange) {
+  stopLiveTicker();
+  const c = Object.freeze({symbol, exchange, generation:quoteGeneration});
+  quoteContext = c;
+  try {
+    const source = new EventSource(`${API}/api/stream/${encodeURIComponent(symbol)}?ex=${exchange}`);
+    liveSource = source;
+    source.onmessage = (ev) => {
+      if (!currentQuoteContext(c) || liveSource !== source) return;
+      try {const t=JSON.parse(ev.data); if(acceptTick(c,t)) paintTick(t);} catch(e) {}
+    };
+    source.onerror = () => {
+      source.close();
+      if (!currentQuoteContext(c) || liveSource !== source) return;
+      liveSource = null;
+      startPolling(c);
+    };
+  } catch(e) {startPolling(c);}
+}
+function startPolling(c) {
+  if (!currentQuoteContext(c)) return;
+  if (liveTickerInterval) clearInterval(liveTickerInterval);
+  let pending = false;
   liveTickerInterval = setInterval(async () => {
+    if (pending || !currentQuoteContext(c)) return;
+    pending = true;
     try {
-      const res = await apiFetch(`/api/quote/${symbol}?ex=${activeExchange}`);
+      const res = await apiFetch(`/api/quote/${encodeURIComponent(c.symbol)}?ex=${c.exchange}`);
       const tick = await res.json();
-      if (tick && tick.price) {
-        updatePriceDOM(tick.price, tick.change, tick.pChange,
-                       { stale: tick.stale || !tick.is_realtime, source: tick.source,
-                         feedState: tick.feed_state, quoteTime: tick.quote_time });
-      }
-    } catch (e) {
-      console.log('Live tick polling error:', e);
-    }
-  }, 2500); // 2.5-second background refresh
+      if (acceptTick(c, tick)) paintTick(tick);
+    } catch(e) { /* Next bounded polling interval may try again. */ }
+    finally { pending = false; }
+  }, 2500);
 }
 
 // FIX-25: har field ko guard karo — koi bhi missing value UI me `undefined` nahi dikhayegi
@@ -1237,12 +1257,15 @@ function updatePriceDOM(newPrice, change, pChange, opts) {
 async function manualRefresh() {
   const b = document.getElementById('refreshBtn');
   if (!b || b.classList.contains('busy')) return;
+  const c = quoteContext;
+  if (!currentQuoteContext(c)) return;
   b.classList.add('busy');
   const t0 = Date.now();
   try {
-    const res = await apiFetch(`/api/quote/${activeSymbol}?force=1&ex=${activeExchange}`);
+    const res = await apiFetch(`/api/quote/${encodeURIComponent(c.symbol)}?force=1&ex=${c.exchange}`);
     const t = await res.json();
-    if (!t || t.error || t.price === undefined) throw new Error((t && t.error) || 'no data');
+    if (!currentQuoteContext(c)) {b.classList.remove('busy'); return;}
+    if (!acceptTick(c,t)) throw new Error((t && t.error) || 'no data');
     updatePriceDOM(t.price, t.change, t.pChange,
                    { stale: t.stale || !t.is_realtime, source: t.source,
                      feedState: t.feed_state, quoteTime: t.quote_time });
@@ -1255,7 +1278,7 @@ async function manualRefresh() {
     b.classList.remove('busy');
     b.classList.add('err');
     setTimeout(() => b.classList.remove('err'), 600);
-    if (typeof showBanner === 'function') showBanner('⚠️ Refresh fail — purana price dikh raha hai', 'var(--color-red)');
+    if (currentQuoteContext(c) && typeof showBanner === 'function') showBanner('⚠️ Refresh fail — purana price dikh raha hai', 'var(--color-red)');
   }
 }
 document.addEventListener('keydown', (e) => {
@@ -1279,6 +1302,9 @@ let stockRequestSeq = 0;
 let stockRequestController = null;
 async function loadStock() {
   const requestSeq = ++stockRequestSeq;
+  stopLiveTicker();
+  document.getElementById('mainContent').style.visibility = 'hidden';
+  const exchange = activeExchange;
   if(stockRequestController) stockRequestController.abort();
   const sym = symInput.value.trim().toUpperCase();
   if (!sym) return;
@@ -1297,7 +1323,7 @@ async function loadStock() {
     // 47s liye (search 18:24:18 → response 18:25:05), isliye 40s par abort ho gaya.
     timeoutId = setTimeout(() => controller.abort(), 90000);
 
-    const r = await apiFetch(`/api/stock/${sym}?ex=${activeExchange}`, {
+    const r = await apiFetch(`/api/stock/${encodeURIComponent(sym)}?ex=${exchange}`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -1320,8 +1346,15 @@ async function loadStock() {
       }
       return;
     }
+    if (d.frame_exchange !== exchange) {
+      showBanner('Requested exchange does not match analysis response; data not displayed.', 'var(--color-red)');
+      return;
+    }
+    activeSymbol = d.symbol || sym;
     render(d);
-    startLiveTicker(sym);
+    document.getElementById('mainContent').style.visibility = 'visible';
+    if (d.historical_only) showBanner(`HISTORICAL ONLY — ${exchange} history ends ${d.analysis_session}; expected ${d.expected_session}. Not current-session analysis.`, 'var(--color-yellow)');
+    startLiveTicker(activeSymbol, exchange);
   } catch (e) {
     if(requestSeq !== stockRequestSeq) return;
     if (e.name === 'AbortError') {
@@ -1348,6 +1381,9 @@ async function loadStock() {
 
 // Main Advanced Dashboard Render Engine (Fully Expanded)
 function render(d) {
+  const hw = document.getElementById('historyWarning');
+  if(hw){hw.style.display=d.historical_only?'block':'none';hw.textContent=d.historical_only?`HISTORICAL ONLY: ${d.frame_exchange} history through ${d.analysis_session}; expected ${d.expected_session}. Current quotes do not update historical indicators.`:'';}
+
   // Extract key modules safely
   // FIX-29: pehle fallback {score: 50, action: 'HOLD'} tha — ensemble missing ho to
   // UI "Score 50/100, HOLD" dikhata tha, jaise asli reading ho.

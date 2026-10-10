@@ -42,7 +42,7 @@ const KPI = {
 
 function base(over = {}) {
   return Object.assign({
-    ok: true, cached: false, symbol: 'RELIANCE', source: 'Yahoo Finance (NSE)',
+    ok: true, cached: false, exchange_requested: 'NSE', exchange_actual: 'NSE', symbol: 'RELIANCE', source: 'Yahoo Finance (NSE)',
     bars: 501, last_session: '2026-10-06', price: 1218.0, kpi: KPI,
     fund_data: { pe_val: 21.711231, roe_val: null, debt_val: 46.278 },
     fund_note: 'FUND NOTE', note: 'THE NOTE',
@@ -178,7 +178,7 @@ const PLAIN = 'http://localhost/timeframes';
   check('banner me poora note hai', s.exwarn.includes('BSE maanga tha')
     && s.exwarn.includes('NSE se aaya hai'), s.exwarn.slice(0, 90));
   check('banner me warning sign hai', s.exwarn.startsWith('⚠️'), s.exwarn.slice(0, 6));
-  check('mismatch par cards phir bhi dikhte hain (data valid hai)', s.cardsShown === true);
+  check('mismatch response never displays cards', s.cardsShown === false);
 
   // ── 9. NO mismatch — banner chhupna chahiye ───────────────────────────
   s = await render(DEEP, base({ exchange_requested: 'NSE', exchange_actual: 'NSE',
@@ -186,9 +186,9 @@ const PLAIN = 'http://localhost/timeframes';
   check('match par banner chhupa hai', s.exwarnShown === false);
 
   // ── 10. fields absent (purana response) — crash nahi, banner nahi ─────
-  s = await render(DEEP, base());
-  check('exchange fields na hon to bhi crash nahi', s.cardsShown === true);
-  check('exchange fields na hon to banner nahi', s.exwarnShown === false);
+  s = await render(DEEP, base({exchange_requested:undefined, exchange_actual:undefined}));
+  check('missing exchange identity fails closed', s.cardsShown === false);
+  check('missing exchange identity warns', s.exwarnShown === true);
 
   // ── 11. error paths par banner chhupna chahiye (stale warning na rahe) ─
   s = await render(DEEP, { ok: false, error: 'data usable nahi', exchange_mismatch: true,

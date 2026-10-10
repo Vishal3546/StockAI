@@ -55,8 +55,11 @@ print(' (A) smart_fetch — strict_exch behaviour')
 print('=' * 84)
 
 DF = synth()
+DF.index = pd.bdate_range(end=A.last_completed_session(), periods=len(DF))
 orig_fetch = A.DATA_MANAGER.smart_fetch
 orig_tv = A.DATA_MANAGER.tv
+orig_yf_adapter = A.DATA_MANAGER.fetch_yahoo
+orig_nse_adapter = A.DATA_MANAGER.fetch_nse_direct
 
 
 class _TierStub:
@@ -78,6 +81,9 @@ class _TierStub:
 
 
 try:
+    # All provider results in this fixture are controlled; no live fallback.
+    A.DATA_MANAGER.fetch_yahoo = lambda *a, **k: (None, None)
+    A.DATA_MANAGER.fetch_nse_direct = lambda *a, **k: None
     # A1: requested exchange ka data hai -> dono mode me wahi milta hai
     for strict in (False, True):
         A.DATA_MANAGER.tv = object()
@@ -121,6 +127,8 @@ try:
     check('A5 DataManager.exch_fallback attribute pehle se defined hai',
           hasattr(A.DATA_MANAGER, 'exch_fallback'))
 finally:
+    A.DATA_MANAGER.fetch_yahoo = orig_yf_adapter
+    A.DATA_MANAGER.fetch_nse_direct = orig_nse_adapter
     A.DATA_MANAGER.smart_fetch = orig_fetch
     A.DATA_MANAGER.tv = orig_tv
     if hasattr(A.DATA_MANAGER, 'fetch_tradingview'):
@@ -344,7 +352,7 @@ check('E1 Dashboard available_exchange handle karta hai',
 check('E1 Dashboard hint me doosra exchange chunne ko kehta hai',
       'chunein' in dash and 'available hai' in dash)
 check('E1 Dashboard exchange selector abhi bhi ex= bhejta hai',
-      '?ex=${activeExchange}' in dash)
+      '?ex=${exchange}' in dash)
 check('E2 Timeframes available_exchange handle karta hai',
       'j.available_exchange' in tf)
 check('E2 Timeframes strict miss par red error ki jagah amber warning',

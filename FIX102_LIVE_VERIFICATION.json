@@ -1,0 +1,119 @@
+{
+  "history": [
+    {
+      "symbol": "TCS",
+      "exchange": "BSE",
+      "interval": "1d",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.49,
+      "passed": true
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "BSE",
+      "interval": "5m",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.47,
+      "passed": true
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "NSE",
+      "interval": "1d",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.39,
+      "passed": true
+    },
+    {
+      "symbol": "TCS",
+      "exchange": "NSE",
+      "interval": "5m",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.43,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "BSE",
+      "interval": "1d",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.4,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "BSE",
+      "interval": "5m",
+      "returned_exchange": "BSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.47,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "NSE",
+      "interval": "1d",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 09:15:00+05:30",
+      "seconds": 0.42,
+      "passed": true
+    },
+    {
+      "symbol": "JIOFIN",
+      "exchange": "NSE",
+      "interval": "5m",
+      "returned_exchange": "NSE",
+      "bars": 100,
+      "last_bar": "2026-10-09 15:10:00+05:30",
+      "seconds": 0.46,
+      "passed": true
+    }
+  ],
+  "stock_routes": [
+    {
+      "path": "/api/stock/TCS?ex=NSE",
+      "status": 200,
+      "frame_exchange": "NSE",
+      "source": "yahoo.ns",
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 9.73,
+      "passed": true
+    },
+    {
+      "path": "/api/stock/TCS?ex=BSE",
+      "status": 200,
+      "frame_exchange": "BSE",
+      "source": "yahoo.bo",
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 7.01,
+      "passed": true
+    },
+    {
+      "path": "/api/stock/JIOFIN?ex=BSE",
+      "status": 200,
+      "frame_exchange": "BSE",
+      "source": "yahoo.bo",
+      "analysis_session": "2026-10-09",
+      "qty": 0,
+      "error": null,
+      "seconds": 6.12,
+      "passed": true
+    }
+  ]
+}

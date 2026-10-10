@@ -243,7 +243,7 @@ c = 100 + np.arange(len(idx)) * .08 + np.sin(np.arange(len(idx)) / 9)
 synthetic = pd.DataFrame({'Open': c - .3, 'High': c + 1, 'Low': c - 1,
                           'Close': c, 'Volume': np.full(len(idx), 1e6)}, index=idx)
 mtf = {'name': 'Multi-Timeframe', 'score': 5, 'timeframes': {}, 'signal': 'test'}
-with (patch.object(A.DATA_MANAGER, 'smart_fetch', return_value=(synthetic, 'synthetic daily')),
+with (patch.object(A.DATA_MANAGER, 'smart_fetch', return_value=(synthetic, 'synthetic daily (NSE)')),
       patch.object(A, 'ml_engine', return_value={'available': False}),
       patch.object(A, 'fetch_nse_live_ltp', return_value=None),
       patch.object(A, 'engine_multitimeframe', return_value=mtf),
@@ -256,7 +256,7 @@ with (patch.object(A.DATA_MANAGER, 'smart_fetch', return_value=(synthetic, 'synt
          'name': 'Market Regime', 'score': 85, 'regime': 'STRONG BULL', 'signal': 'test'}):
         res2 = A.app.test_client().get('/api/stock/RELIANCE')
         data2 = res2.get_json()
-    with (patch.object(A.DATA_MANAGER, 'smart_fetch', return_value=(synthetic, 'STALE synthetic daily')),
+    with (patch.object(A.DATA_MANAGER, 'smart_fetch', return_value=(synthetic, 'STALE synthetic daily (NSE)')),
           patch.object(A, 'engine_market_regime', return_value={
               'name': 'Market Regime', 'score': 85, 'regime': 'STRONG BULL', 'signal': 'test'})):
         res3 = A.app.test_client().get('/api/stock/RELIANCE')

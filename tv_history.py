@@ -7,9 +7,13 @@ chart sessions and requested exchange. This grants no additional permissions
 and is NOT a real-time quote API. No global monkey patch or site-packages edits.
 
 Private hooks are version-sensitive: requirements.txt pins the tested upstream.
-This hotfix deliberately leaves timestamp parsing and exchange/stale policies
-unchanged. See FIX101_RELEASE_NOTES.md for outstanding issues.
+FIX-102 parses completed chart epochs into timezone-aware IST, independent of the host timezone.
 """
+import json
+import re
+import math
+import pandas as pd
+from safety import checked_symbol
 import logging
 import threading
 from tvDatafeed import TvDatafeed as _Upstream
@@ -31,9 +35,60 @@ class HistoryDatafeed(_Upstream):
             return None
         return super()._TvDatafeed__send_message(func, args)
 
+    @staticmethod
+    def _TvDatafeed__create_df(raw_data, symbol):
+        # Read wire epoch seconds directly, never host-local fromtimestamp().
+        # Incomplete/error chart replies must not become apparently valid history.
+        rows = {}
+        complete = False
+        decoder = json.JSONDecoder()
+        for header in re.finditer(r'~m~\d+~m~', raw_data):
+            try:
+                message, _ = decoder.raw_decode(raw_data[header.end():])
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(message, dict):
+                continue
+            method = message.get('m')
+            if method in ('symbol_error', 'series_error', 'protocol_error', 'critical_error'):
+                _LOG.warning('TradingView chart refused/incomplete: %s', method)
+                return None
+            if method == 'series_completed':
+                complete = True
+            if method not in ('timescale_update', 'du'):
+                continue
+            params = message.get('p') or []
+            if len(params) < 2 or not isinstance(params[1], dict):
+                continue
+            for series in params[1].values():
+                if not isinstance(series, dict):
+                    continue
+                for point in series.get('s', []):
+                    values = point.get('v') if isinstance(point, dict) else None
+                    try:
+                        if not values or len(values) < 6:
+                            return None
+                        row = [float(x) for x in values[:6]]
+                        if not all(math.isfinite(x) for x in row):
+                            return None
+                        rows[row[0]] = row[1:]
+                    except (TypeError, ValueError, OverflowError):
+                        return None
+        if not complete or not rows:
+            return None
+        epochs = sorted(rows)
+        index = pd.to_datetime(epochs, unit='s', utc=True).tz_convert('Asia/Kolkata')
+        frame = pd.DataFrame([rows[t] for t in epochs], index=index,
+                             columns=['open','high','low','close','volume'])
+        frame.index.name = 'datetime'
+        frame.insert(0, 'symbol', symbol)
+        frame.attrs['adjustment'] = 'TradingView requested splits adjustment; not independently reconciled'
+        return frame
+
     def get_hist(self, *args, **kwargs):
         symbol = kwargs.get('symbol', args[0] if args else '?')
         exchange = kwargs.get('exchange', args[1] if len(args) > 1 else 'NSE')
+        checked_symbol(symbol, exchange)  # reject explicit cross-exchange identifiers
         # The base library mutates self.ws and session state; do not interleave
         # calls on one client, including standalone scanner/research callers.
         with self._history_lock:

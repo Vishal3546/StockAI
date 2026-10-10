@@ -93,6 +93,9 @@ try:
     ):
         A.DATA_MANAGER.smart_fetch = _Stub(src)
         ok, p = A.kpi_scores_for('stubsym', prefer_exch=req)
+        if want_act != req:
+            check(f'req={req} src={src!r} -> rejected before KPI', not ok and bool(p.get('error')) and 'kpi' not in p)
+            continue
         check(f'req={req} src={src!r} -> actual={want_act}',
               ok and p['exchange_actual'] == want_act, str(p.get('exchange_actual')))
         check(f'req={req} src={src!r} -> mismatch={want_mm}',
@@ -109,20 +112,14 @@ try:
         check(f'req={req} -> exchange_requested uppercase normalized',
               p['exchange_requested'] == req)
 
-    # lowercase / khaali / None
-    A.DATA_MANAGER.smart_fetch = _Stub('Yahoo Finance (NSE)')
-    # lowercase normalize hota hai. Khaali/None par requested None rehta hai —
-    # matlab "aapne kuch maanga hi nahi", aur mismatch tab False hota hai.
-    # (Pehle maine yahan 'NSE' expect kiya tha — GALAT. 'NSE' default ROUTE level
-    # par _q('exch','NSE') bharta hai, function level par nahi. Function ka None
-    # zyada honest hai: jhootha "aapne NSE maanga tha" claim nahi karta.)
-    for raw, want in (('bse', 'BSE'), ('Bse', 'BSE'), ('', None), (None, None)):
+    # Explicit internal exchange required; public route defaults NSE.
+    for raw, src in (('bse','BSE'),('Bse','BSE'),('', 'NSE'),(None, 'NSE')):
+        A.DATA_MANAGER.smart_fetch = _Stub(f'Yahoo Finance ({src})')
         ok, p = A.kpi_scores_for('stubsym', prefer_exch=raw)
-        check(f'prefer_exch={raw!r} -> requested={want!r}',
-              p['exchange_requested'] == want, str(p['exchange_requested']))
-        if want is None:
-            check('  requested None -> mismatch False (jhootha flag nahi)',
-                  p['exchange_mismatch'] is False, str(p['exchange_mismatch']))
+        if raw:
+            check(f'normalized {raw}', ok and p.get('exchange_requested') == 'BSE')
+        else:
+            check(f'missing internal exchange {raw!r} fails closed', not ok and 'kpi' not in p)
 
     print()
     print(' (C2) ROUTE level — _q default "NSE" bharta hai')
@@ -220,7 +217,7 @@ page = (ROOT / 'Timeframes.html').read_text(encoding='utf-8')
 appsrc = (ROOT / 'app.py').read_text(encoding='utf-8')
 blk = appsrc[appsrc.index('# FIX-80:'):appsrc.index('@app.route(\'/api/timeframe/<symbol>\')')]
 check('page par #exwarn banner hai', 'id="exwarn"' in page)
-check('banner mismatch par dikhta hai', 'j.exchange_mismatch && j.exchange_note' in page)
+check('banner mismatch par dikhta hai', 'j.exchange_mismatch || j.exchange_actual !== ex || j.exchange_requested !== ex' in page)
 check('banner me note ka text jaata hai', 'j.exchange_note' in page)
 check('banner else me chhupta hai', "xw.style.display = 'none'" in page)
 # har error path par banner ya to chhupna chahiye ya fresh message lena chahiye —

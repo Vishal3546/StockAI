@@ -110,9 +110,9 @@ for ex in ('NSE', 'BSE'):
     check('%s: meta me samples+sessions+source' % ex,
           all(d.get('meta', {}).get(k) for k in ('samples', 'sessions', 'source')))
 
-# bad exchange silently NSE par fall back kare, 500 na de
+# FIX-102: invalid exchange rejected, never silently reinterpreted as NSE
 r = c.get('/api/backtest?ex=XYZ')
-check('bad exchange par 500 nahi', r.status_code == 200, str(r.status_code))
+check('bad exchange explicitly rejected', r.status_code == 400, str(r.status_code))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

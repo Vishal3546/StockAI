@@ -162,7 +162,7 @@ print()
 print(' (D) fund_data suffix logic (FIX-54: BSE frame -> .BO)')
 src_txt = (ROOT / 'app.py').read_text(encoding='utf-8')
 blk77 = src_txt[src_txt.index('# FIX-77: TIMEFRAME SCORES'):src_txt.index("@app.route('/')")]
-check("BSE frame par '.BO' suffix", "'.BO' if '(BSE)' in str(daily_source)" in blk77)
+check("BSE frame par '.BO' suffix", "'.BO' if exchange_from_source(daily_source) == 'BSE'" in blk77)
 check("warna '.NS'", "'.NS'" in blk77)
 check('fund_data teeno wahi keys jo /api/stock/ use karta hai',
       all(k in blk77 for k in ('trailingPE', 'returnOnEquity', 'debtToEquity')))

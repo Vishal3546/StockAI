@@ -130,13 +130,13 @@ try:
     A.fetch_yahoo_live_ltp = lambda _s, **_k: None
     q_nan = bare.tail(5).copy()
     q_nan.loc[q_nan.index[-1], 'Close'] = np.nan
-    A.DATA_MANAGER.smart_fetch = lambda *a, **kw: (q_nan, 'test')
+    A.DATA_MANAGER.smart_fetch = lambda *a, **kw: (q_nan, 'TradingView Direct (NSE)')
     A._LIVE_CACHE.clear()
     check("tier-3 quote missing last Close → no quote, not fake ₹0",
           A.get_live_quote('TESTNAN', force=True) is None)
     q_prev = bare.tail(5).copy()
     q_prev.loc[q_prev.index[-2], 'Close'] = np.nan
-    A.DATA_MANAGER.smart_fetch = lambda *a, **kw: (q_prev, 'test')
+    A.DATA_MANAGER.smart_fetch = lambda *a, **kw: (q_prev, 'TradingView Direct (NSE)')
     A._LIVE_CACHE.clear()
     q = A.get_live_quote('TESTPREV', force=True)
     check("tier-3 quote missing prev Close → change + pChange None",

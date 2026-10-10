@@ -23,7 +23,7 @@
 
 import hashlib
 import uuid
-from safety import frame_digest, validate_body
+from safety import frame_digest, validate_body, checked_symbol
 from store_lock import ProcessRLock
 import inspect
 import io
@@ -61,6 +61,15 @@ app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
 @app.before_request
 def _validate_write_body():
     g.request_started = time.perf_counter()
+    if request.path.startswith('/api/'):
+        ex = str(request.args.get('ex') or request.args.get('exch') or 'NSE').strip().upper()
+        if ex not in ('NSE', 'BSE'):
+            return jsonify({'error': 'exchange must be NSE or BSE'}), 400
+        try:
+            if (request.view_args or {}).get('symbol'):
+                checked_symbol(request.view_args['symbol'], ex)
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
     if request.path.startswith('/api/') and request.method in ('POST', 'PUT', 'PATCH'):
         body = request.get_json(silent=True)
         error = ('JSON object required; malformed/null JSON rejected' if request.content_length and body is None else validate_body(body))
@@ -801,8 +810,11 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
             _ttl = hit[2] if len(hit) > 2 else LIVE_TTL
             if (now - hit[0]) < _ttl:
                 payload = dict(hit[1])
-                payload['cached'] = True
-                return payload
+                if (payload.get('symbol') == clean_sym
+                        and exchange_from_source(payload.get('source')) == str(prefer_exch).upper()):
+                    payload['exchange'] = str(prefer_exch).upper()
+                    payload['cached'] = True
+                    return payload
 
     # FIX-56: BSE par Yahoo ka data noticeably kam reliable hai — measured
     # DHOOTIN.BO vs TV-BSE, 21 sessions me 7 mismatch (-5.00 tak), jabki NSE par
@@ -833,12 +845,6 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
                         _lb = pd.Timestamp(df.index[-1])
                         if _lb.tzinfo is not None:
                             _lb = _lb.tz_convert(IST).tz_localize(None)
-                        elif 'TradingView' in str(src):
-                            # FIX-56: tvDatafeed NAIVE-UTC index deta hai — measured
-                            # 2026-10-01 03:45:00, jo IST me 09:15 hai (session open).
-                            # Purana code sirf tz-aware convert karta tha, isliye
-                            # 03:45:00 seedha UI me chala jaata tha.
-                            _lb = _lb.tz_localize('UTC').tz_convert(IST).tz_localize(None)
                         if True:      # tier-3 hamesha interval='1d' fetch karta hai
                             # Daily bar ka timestamp session ka OPEN hota hai (09:15),
                             # close nahi. Use "quote ka waqt" bolna jhooth hoga — price
@@ -875,6 +881,13 @@ def get_live_quote(symbol, force=False, prefer_exch='NSE'):
 
     # FIX-32: missing fields ki keys zaroor hon, lekin current price ko
     # fake previous close/day high/day low ya 0% change bana kar na bhejein.
+    actual_ex = exchange_from_source(quote.get('source'))
+    if actual_ex != str(prefer_exch).upper():
+        return None
+    if quote.get('symbol') and str(quote['symbol']).upper() != clean_sym:
+        return None
+    quote['symbol'] = clean_sym
+    quote['exchange'] = actual_ex
     quote.setdefault('change', None)
     quote.setdefault('pChange', None)
     quote.setdefault('close_price', None)
@@ -1341,7 +1354,7 @@ class MultiTechDataSourceManager:
         try:
             from tv_history import HistoryDatafeed as TvDatafeed
             self.tv = TvDatafeed()
-            print("🟢 [TradingView chart-only client initialized] Provider availability is checked on fetch; live quote access is not verified.")
+            print("🟢 [TradingView FIX-102 chart-only client initialized; timestamps normalized to IST] Provider availability is checked on fetch; live quote access is not verified.")
         except Exception as e:
             self.tv = None
             print(f"⚠️ [TradingView Notice] Could not initialize tvDatafeed: {e}")
@@ -1353,7 +1366,7 @@ class MultiTechDataSourceManager:
 
         try:
             from tvDatafeed import Interval
-            clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
+            clean_sym = checked_symbol(symbol, prefer_exch)
             
             tv_interval = Interval.in_daily
             if interval_str == '5m':
@@ -1377,10 +1390,8 @@ class MultiTechDataSourceManager:
             # Direct' se pata hi nahi chalta tha. Ab exchange track hota hai.
             df = None
             used_exch = None
-            # FIX-55: user jo exchange chune wahi pehle try ho. Pehle hamesha
-            # NSE-first tha, isliye BSE chunne ka koi rasta hi nahi tha.
-            _order = (('BSE', 'NSE') if str(prefer_exch).upper() == 'BSE'
-                      else ('NSE', 'BSE'))
+            # FIX-102: query only the explicitly requested exchange.
+            _order = (str(prefer_exch).strip().upper(),)
             for exch in _order:
                 with self._tv_lock:
                     _d = self.tv.get_hist(
@@ -1515,21 +1526,20 @@ class MultiTechDataSourceManager:
     def fetch_yahoo(self, symbol, period='2y', interval='1d', prefer_exch='NSE'):
         """Tier 3 Fetch: Yahoo Finance Universal Backup.
 
-        FIX-68: ab `(df, exchange)` lautata hai aur requested exchange ka suffix
-        PEHLE try karta hai — NSE maangne par `.NS` jab tak mile; `.BO` sirf fallback.
-        Pehle hamesha `.NS`-first tha aur exchange report hi nahi hota tha, isliye
-        smart_fetch Yahoo-BSE ko NSE samajh baithta.
+        FIX-102: returns (frame, actual exchange), querying only the requested
+        suffix. No opposite-exchange network probe or substitution.
         """
         try:
             import yfinance as yf
-            clean = symbol.replace('.NS', '').replace('.BO', '')
+            clean = checked_symbol(symbol, prefer_exch)
             if symbol.startswith('^'):
-                order = [(symbol, 'NSE')]                       # indices NSE
+                actual = {'^NSEI':'NSE','^NSEBANK':'NSE','^INDIAVIX':'NSE','^BSESN':'BSE'}.get(symbol)
+                if actual != str(prefer_exch).upper():
+                    return None, None
+                order = [(symbol, actual)]
             else:
                 first = '.BO' if str(prefer_exch).upper() == 'BSE' else '.NS'
-                second = '.NS' if first == '.BO' else '.BO'
-                order = [(f"{clean}{first}", 'BSE' if first == '.BO' else 'NSE'),
-                         (f"{clean}{second}", 'BSE' if second == '.BO' else 'NSE')]
+                order = [(f"{clean}{first}", 'BSE' if first == '.BO' else 'NSE')]
 
             for target, exch in order:
                 df = yf.download(target, period=period, interval=interval,
@@ -1559,7 +1569,7 @@ class MultiTechDataSourceManager:
         ho jaata tha; ab wahi tier reject hota hai aur agla try hota hai. Sab
         stale ho to sabse fresh ko clearly "STALE" label ke saath return karte hain.
         """
-        clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
+        clean_sym = checked_symbol(symbol, prefer_exch)
         prefer = str(prefer_exch).upper()
         # FIX-83: HAR call ke shuru me reset — warna pichhli call ka fallback
         # chipak rehta aur /api/stock galat "available_exchange" bata deta.
@@ -1578,8 +1588,9 @@ class MultiTechDataSourceManager:
             from safety import valid_ohlcv
             if not valid_ohlcv(df):
                 return 'reject', 'invalid OHLCV geometry/schema'
-            df.attrs.update(source=src, exchange=exch, adjustment='provider raw OHLCV')
-            fresh, why = frame_is_fresh(df, interval, now=_now, exchange=prefer)
+            df.attrs.update(source=src, exchange=exch)
+            df.attrs.setdefault('adjustment', 'provider convention; corporate actions not independently reconciled')
+            fresh, why = frame_is_fresh(df, interval, now=_now, exchange=exch)
             if fresh:
                 if exch == prefer:
                     return 'return', why
@@ -1610,7 +1621,7 @@ class MultiTechDataSourceManager:
                     return df_tv, _tv_src
 
         # ── TIER 2: NSE Official Direct Scraper ──
-        if interval == '1d' and not symbol.startswith('^') and not (strict_exch and prefer == 'BSE'):
+        if interval == '1d' and not symbol.startswith('^') and prefer == 'NSE':
             df_nse = self.fetch_nse_direct(clean_sym, days=500)
             if df_nse is not None:
                 act, why = _consider(df_nse, 'NSE Direct', 'NSE')
@@ -1627,6 +1638,19 @@ class MultiTechDataSourceManager:
             if act == 'return':
                 print(f"🌐 [Yahoo] {symbol} ({interval}) · {len(df_yf)} bars · {why}")
                 return df_yf, _yf_src
+
+        # ── Last resort: sabse fresh stale frame (honest label ke saath) ──
+        # FIX-102: available same-exchange stale data is consistently historical-only.
+        # Vendor agreement cannot establish a holiday; retain the calendar expectation.
+        if stale_candidates:
+            stale_candidates.sort(key=lambda t: t[0])
+            age, df, src = stale_candidates[0]
+            bar_date = frame_last_date(df)
+            expected = last_completed_session(_now, exchange=prefer)
+            print(f"🟡 [HISTORICAL ONLY] {symbol} {interval} [{prefer}] — {src}; "
+                  f"last session {bar_date}, expected {expected}. "
+                  "Same-exchange historical display only; no missing candle invented.")
+            return df, src + ' (STALE)'
 
         # FIX-68: requested exchange ka koi fresh source nahi mila — doosre exchange
         # ka held fresh frame use karo (frame_exchange se disclosed rahega).
@@ -1645,30 +1669,6 @@ class MultiTechDataSourceManager:
                 return None, None
             print(f"ℹ️  {prefer} ka koi fresh source nahi mila — fallback [{src}] use ho raha hai")
             return df, src
-
-        # ── Last resort: sabse fresh stale frame (honest label ke saath) ──
-        # FIX-47: message ab session-date batata hai, sirf minutes nahi. Aur agar sab
-        # tiers EK HI session par agree karte hain to ye "stale feed" nahi, "us din
-        # session tha hi nahi" (holiday) ho sakta hai — dono me farq karna zaroori hai,
-        # warna har holiday par jhootha STALE alarm bajta.
-        if stale_candidates:
-            stale_candidates.sort(key=lambda t: t[0])
-            age, df, src = stale_candidates[0]
-            bar_date = frame_last_date(df)
-            expected = last_completed_session(_now)
-            gap = session_gap_days(df, _now)
-            dates = {frame_last_date(d) for _, d, _ in stale_candidates}
-            if len(dates) == 1 and gap is not None and gap > CLOSED_GRACE_DAYS:
-                # Sabhi source same purane session par — feed stale nahi, session missing.
-                print(f"🟡 [NO NEWER SESSION] {symbol} {interval} — teeno tiers ke paas last "
-                      f"session {bar_date} hai (expected {expected}). Agar {expected} ko market "
-                      f"holiday tha to ye normal hai; warna data genuinely purana hai. "
-                      f"UI ko is_realtime=False milega.")
-            else:
-                print(f"🟡 [STALE DATA] {symbol} {interval} — sab tiers purane; '{src}' "
-                      f"use kar rahe hain (last session {bar_date}, expected {expected}, "
-                      f"{gap}d behind). UI ko is_realtime=False milega.")
-            return df, src + ' (STALE)'
 
         print(f"❌ [Data Stream Failed] All 3 engines failed for symbol: {symbol}")
         return None, 'None'
@@ -4515,7 +4515,7 @@ def quick_quote_api(symbol):
     force = request.args.get('force', '0') in ('1', 'true', 'yes')
     # FIX-55: ?ex=NSE|BSE
     _ex = (request.args.get('ex') or 'NSE').strip().upper()
-    quote = get_live_quote(resolve_symbol(symbol), force=force,
+    quote = get_live_quote(resolve_symbol(checked_symbol(symbol, _ex)), force=force,
                            prefer_exch=(_ex if _ex in ('NSE', 'BSE') else 'NSE'))
     if quote:
         return jsonify(clean_json(quote))
@@ -4536,7 +4536,7 @@ def sse_live_stream(symbol):
         _sse_ex = 'NSE'
 
     def event_stream():
-        resolved = resolve_symbol(symbol)
+        resolved = resolve_symbol(checked_symbol(symbol, _sse_ex))
         while True:
             # FIX-24: wahi unified payload jo /api/quote deta hai — isliye
             # change/pChange hamesha present rehte hain (pehle SSE fallback me
@@ -4567,7 +4567,7 @@ def stock_api(symbol):
     if time.time() < _hit:
         return jsonify({'error': f"Symbol '{symbol}' could not be resolved "
                                   f"(cached miss, retry in {int(_hit - time.time())}s)"}), 404
-    resolved = resolve_symbol(symbol)
+    resolved = resolve_symbol(checked_symbol(symbol, _miss_ex))
     # FIX-55: user jo exchange chune wahi data aaye. Pehle pipeline hamesha
     # NSE-first tha — BSE chunne ka koi rasta hi nahi tha.
     req_exch = (request.args.get('ex') or 'NSE').strip().upper()
@@ -4580,6 +4580,8 @@ def stock_api(symbol):
     df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d',
                                                  n_bars=CONFIG['CHART_CANDLES'] * 2,
                                                  prefer_exch=req_exch, strict_exch=True)
+    if df is not None and exchange_from_source(active_source) != req_exch:
+        return jsonify({'error': 'Historical provider exchange unverified or mismatched; response refused', 'requested_exchange': req_exch}), 503
     daily_source = active_source  # price path NSE live source se baad me replace ho sakta hai
 
     if df is None or len(df) < 20:
@@ -4611,7 +4613,9 @@ def stock_api(symbol):
         live_nse = fetch_nse_live_ltp(resolved) if req_exch == 'NSE' else None
         if not live_nse:
             live_nse = fetch_yahoo_live_ltp(resolved, prefer_exch=req_exch)
-        if live_nse and (not sfx(live_nse.get('price')) or sfx(live_nse.get('price')) <= 0):
+        if live_nse and (exchange_from_source(live_nse.get('source')) != req_exch
+                         or (live_nse.get('symbol') and live_nse['symbol'] != resolved)
+                         or not sfx(live_nse.get('price')) or sfx(live_nse.get('price')) <= 0):
             live_nse = None
         if live_nse:
             price = live_nse['price']
@@ -4921,6 +4925,9 @@ def stock_api(symbol):
             'chart': chart_data
         }
 
+        response_payload['historical_only'] = 'STALE' in str(daily_source).upper()
+        response_payload['history_status'] = 'STALE' if response_payload['historical_only'] else 'CURRENT_SESSION'
+        response_payload['expected_session'] = str(last_completed_session(exchange=req_exch))
         response_payload['data_provenance'] = {
             'analysis_source': daily_source, 'quote_source': active_source, 'exchange': req_exch,
             'adjustment_policy': df.attrs.get('adjustment', 'provider-dependent; not reconciled'),
@@ -5394,7 +5401,7 @@ def _tf_fund_data(resolved, daily_source):
     """/api/stock/ jaisa hi fund_data. FIX-54: BSE frame par .BO suffix."""
     try:
         import yfinance as _yf
-        suffix = '.BO' if '(BSE)' in str(daily_source) else '.NS'
+        suffix = '.BO' if exchange_from_source(daily_source) == 'BSE' else '.NS'
         info = _yf.Ticker(f'{resolved}{suffix}').info or {}
     except Exception:
         info = {}
@@ -5405,7 +5412,7 @@ def _tf_fund_data(resolved, daily_source):
 
 def kpi_scores_for(symbol, prefer_exch='NSE'):
     """(ok, payload). Heavy /api/stock/ ke bina wahi kpi scores."""
-    resolved = resolve_symbol(symbol)
+    resolved = resolve_symbol(checked_symbol(symbol, prefer_exch))
     if not resolved:
         return False, {'error': f'symbol "{symbol}" resolve nahi hua'}
     ok, reason = None, None
@@ -5432,6 +5439,8 @@ def kpi_scores_for(symbol, prefer_exch='NSE'):
                                    f"{_fb[1]} ka data {_req} bana kar nahi dikha rahe."}
         return False, {'error': f'{resolved} ka data usable nahi: {reason}',
                        'source': src}
+    if exchange_from_source(src) != str(prefer_exch).upper():
+        return False, {'error': 'Historical provider exchange unverified or mismatched; response refused'}
     dfi = calculate_all_indicators(df)
     fd = _tf_fund_data(resolved, src)
     kpi = calculate_kpi_scores(dfi, fd)
@@ -5447,6 +5456,8 @@ def kpi_scores_for(symbol, prefer_exch='NSE'):
     return True, {
         'symbol': resolved,
         'source': src,
+        'historical_only': 'STALE' in str(src).upper(),
+        'expected_session': str(last_completed_session(exchange=req)),
         'exchange_requested': req,
         'exchange_actual': act,
         'exchange_mismatch': mismatch,
@@ -5462,7 +5473,7 @@ def kpi_scores_for(symbol, prefer_exch='NSE'):
         # FIX-93: execution layer — score (direction) ke saath stop/target/RR/
         # squeeze/MTF/confluence. Alag field isliye ki purana score chheda na
         # jaye (screener + FIX-89a backtest usi par bane hain).
-        'plan': calculate_trade_plan(dfi),
+        'plan': calculate_trade_plan(dfi) if 'STALE' not in str(src).upper() else None,
         'fund_data': fd,
         'fund_note': ('PE / ROE / D/E Yahoo .info se. Koi value None ho to us '
                       'indicator ka vote SKIP hota hai (FIX-32) — isi liye '
