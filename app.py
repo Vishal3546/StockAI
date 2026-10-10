@@ -45,6 +45,9 @@ from typing import Any
 
 import score_calibration as SCORE_CAL
 import own_history as OWN_HISTORY
+import validation_metrics as VALIDATION
+import eod_validation as EOD_VALIDATION
+import html as html_entities
 
 from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
@@ -2233,9 +2236,12 @@ def ml_engine(df, symbol=None, exchange=None):
 
     res = _ml_engine_uncached(df)
     if isinstance(res, dict):
-        res['wf_window_sigma'] = round(math.sqrt(0.25 / 20) * 100, 1)
-        wf, bl = res.get('walk_forward_accuracy'), res.get('baseline_accuracy')
-        res['walk_forward_edge'] = round(wf - bl, 1) if (wf is not None and bl is not None) else None
+        res['wf_window_sigma'] = res.get('wf_fold_std_pp')
+        wf, bl = res.get('walk_forward_accuracy'), res.get('walk_forward_baseline')
+        # Edge was pooled from the SAME unrounded fold observations.
+        from research.provenance import pipeline_fingerprint
+        if df is not None and len(df):
+            res['reproducibility'] = VALIDATION.reproducibility(df, CONFIG, pipeline_fingerprint())
     if key:
         with _ML_LOCK:
             _cache_put(_ML_CACHE, key, res)                        # FIX-99
@@ -2251,16 +2257,16 @@ def _ml_engine_uncached(df):
         'available': False,
         'error': '',
         'prediction': 'N/A',
-        'probability': 50,
-        'confidence': 'LOW',
+        'probability': None,
+        'confidence': 'N/A',
         'models': {},
         'top_features': [],
         'train_days': 0,
         'test_days': 0,
-        'baseline_accuracy': 50.0,
-        'pos_rate': 50.0,
-        'best_edge': 0.0,
-        'walk_forward_accuracy': 0
+        'baseline_accuracy': None,
+        'pos_rate': None,
+        'best_edge': None,
+        'walk_forward_accuracy': None
     }
 
     try:
@@ -2355,8 +2361,10 @@ def _ml_engine_uncached(df):
 
         # ── Expanding Window Walk-Forward Validation ──
         wf_results = []
+        wf_folds = []
+        wf_models = []
         test_window = 20
-        for start in range(120, len(d_clean) - test_window, test_window):
+        for start in range(120, len(d_clean) - test_window + 1, test_window):
             train_sub = d_clean.iloc[:max(0, start - 1)]
             test_sub = d_clean.iloc[start:start + test_window]
             if len(test_sub) < 10:
@@ -2366,18 +2374,23 @@ def _ml_engine_uncached(df):
             X_te_wf = np.nan_to_num(test_sub[feats].values)
             y_te_wf = test_sub['target'].values
 
-            sc_wf = StandardScaler()
-            X_tr_wf_s = sc_wf.fit_transform(X_tr_wf)
-            X_te_wf_s = sc_wf.transform(X_te_wf)
-
-            gb_wf = GradientBoostingClassifier(**ml_params('ML_GB_PARAMS'))
-            gb_wf.fit(X_tr_wf_s, y_tr_wf)
-            wf_results.append(accuracy_score(y_te_wf, gb_wf.predict(X_te_wf_s)))
+            probs, wf_models = VALIDATION.ensemble_predict(X_tr_wf, y_tr_wf, X_te_wf, CONFIG)
+            predicted = (probs >= 0.5).astype(int)
+            wf_results.append(accuracy_score(y_te_wf, predicted))
+            fold = VALIDATION.fold_measure(y_tr_wf, y_te_wf, predicted,
+                first_session=test_sub.index[0], last_session=test_sub.index[-1])
+            scores = np.round(probs * 100, 1)
+            selected = (scores >= 55) | (scores <= 45)
+            fold.update(policy_n=int(selected.sum()),
+                        policy_correct=int(((scores[selected] >= 55).astype(int) == y_te_wf[selected]).sum()),
+                        policy_baseline_correct=int((y_te_wf[selected] == fold['training_majority']).sum()))
+            wf_folds.append(fold)
 
         # FIX-28: pehle '0.0' tha — UI par ye 'model 0% accurate' jaisa padha
         # jaata tha, jabki sach ye hai ki walk-forward chali hi nahi. Ab None
         # (dashboard ise 'UNKNOWN' dikhata hai).
-        wf_accuracy = round(np.mean(wf_results) * 100, 1) if wf_results else None
+        wf_summary = VALIDATION.summarize(wf_folds)
+        wf_accuracy = wf_summary['accuracy']
 
         # ── Final Train/Test Split (80/20) ──
         train_n = int(len(d_clean) * 0.8)
@@ -2455,6 +2468,8 @@ def _ml_engine_uncached(df):
         except Exception:
             pass
 
+        if wf_models and sorted(models) != sorted(wf_models):
+            raise ValueError('walk-forward and final prediction model availability disagree')
         weights = weights[:len(all_probs)]
         w_sum = sum(weights)
         ens_prob = round(sum(p * w / w_sum for p, w in zip(all_probs, weights)) * 100, 1)
@@ -2482,6 +2497,15 @@ def _ml_engine_uncached(df):
             'pos_rate': round(pos_rate * 100, 1),
             'best_edge': best_edge,
             'walk_forward_accuracy': wf_accuracy,
+            'walk_forward_baseline': wf_summary['baseline'],
+            'walk_forward_edge': wf_summary['edge'],
+            'wf_fold_std_pp': wf_summary['fold_std_pp'],
+            'wf_n_oos': wf_summary['n_oos'],
+            'wf_neutral_policy': {k: wf_summary.get(k) for k in ('policy_n','policy_coverage_pct','policy_accuracy','policy_baseline')},
+            'wf_folds': wf_summary['folds'],
+            'wf_models': wf_models,
+            'wf_model_scope': 'Weighted ensemble, same configured models/weights; threshold 0.5',
+            'wf_uncertainty_note': 'Observed sample SD across fold accuracies, NOT a confidence interval or independence-adjusted significance test.',
             'top_features': [{'name': str(f[0]), 'importance': round(float(f[1]) * 100, 1)} for f in top_f],
             'train_days': int(train_n),
             'test_days': int(len(d_clean) - train_n),
@@ -2636,6 +2660,8 @@ def detect_all_candle_patterns(df):
         
     recent = df.tail(5)
     for i in range(2, len(recent)):
+        occurrence = {'session': str(recent.index[i])[:10], 'age_bars': len(recent)-1-i,
+                      'is_latest_bar': i == len(recent)-1, 'trend_context_confirmed': False}
         c1 = recent.iloc[i-2]
         c2 = recent.iloc[i-1]
         c3 = recent.iloc[i]
@@ -2652,67 +2678,67 @@ def detect_all_candle_patterns(df):
 
         # Single Candle Patterns
         if b3 / t3 < 0.1:
-            patterns.append({'name': 'Doji', 'type': 'REVERSAL', 'direction': 'NEUTRAL', 'strength': 55, 'candles': 1})
+            patterns.append({**occurrence, 'name': 'Doji', 'type': 'REVERSAL', 'direction': 'NEUTRAL', 'strength': 55, 'candles': 1})
             
         if b3 > 0 and l3 >= 2 * b3 and u3 < b3 * 0.5:
-            patterns.append({'name': 'Hammer', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 72, 'candles': 1})
+            patterns.append({**occurrence, 'name': 'Hammer', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 72, 'candles': 1})
             
         if b3 > 0 and u3 >= 2 * b3 and l3 < b3 * 0.5 and c3['Close'] > c3['Open']:
-            patterns.append({'name': 'Inverted Hammer', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 68, 'candles': 1})
+            patterns.append({**occurrence, 'name': 'Inverted Hammer', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 68, 'candles': 1})
             
         if b3 > 0 and u3 >= 2 * b3 and l3 < b3 * 0.5 and c3['Close'] < c3['Open']:
-            patterns.append({'name': 'Shooting Star', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 72, 'candles': 1})
+            patterns.append({**occurrence, 'name': 'Shooting Star', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 72, 'candles': 1})
             
         if b3 / t3 > 0.85:
-            patterns.append({'name': 'Marubozu', 'type': 'CONTINUATION', 'direction': 'BULLISH' if c3['Close'] > c3['Open'] else 'BEARISH', 'strength': 78, 'candles': 1})
+            patterns.append({**occurrence, 'name': 'Marubozu', 'type': 'CONTINUATION', 'direction': 'BULLISH' if c3['Close'] > c3['Open'] else 'BEARISH', 'strength': 78, 'candles': 1})
             
         if b3 / t3 < 0.3 and u3 > b3 and l3 > b3:
-            patterns.append({'name': 'Spinning Top', 'type': 'INDECISION', 'direction': 'NEUTRAL', 'strength': 45, 'candles': 1})
+            patterns.append({**occurrence, 'name': 'Spinning Top', 'type': 'INDECISION', 'direction': 'NEUTRAL', 'strength': 45, 'candles': 1})
 
         # Double Candle Patterns
         if c3['Close'] > c3['Open'] and c2['Close'] < c2['Open'] and c3['Open'] <= c2['Close'] and c3['Close'] >= c2['Open']:
-            patterns.append({'name': 'Bullish Engulfing', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 90, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Bullish Engulfing', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 90, 'candles': 2})
             
         if c3['Close'] < c3['Open'] and c2['Close'] > c2['Open'] and c3['Open'] >= c2['Close'] and c3['Close'] <= c2['Open']:
-            patterns.append({'name': 'Bearish Engulfing', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 90, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Bearish Engulfing', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 90, 'candles': 2})
             
         if c2['Close'] < c2['Open'] and c3['Close'] > c3['Open'] and c3['Open'] > c2['Close'] and c3['Close'] < c2['Open']:
-            patterns.append({'name': 'Bullish Harami', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 73, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Bullish Harami', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 73, 'candles': 2})
             
         if c2['Close'] > c2['Open'] and c3['Close'] < c3['Open'] and c3['Open'] < c2['Close'] and c3['Close'] > c2['Open']:
-            patterns.append({'name': 'Bearish Harami', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 73, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Bearish Harami', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 73, 'candles': 2})
 
         mid2 = (c2['Open'] + c2['Close']) / 2
         if c2['Close'] < c2['Open'] and c3['Close'] > c3['Open'] and c3['Open'] < c2['Low'] and c3['Close'] > mid2 and c3['Close'] < c2['Open']:
-            patterns.append({'name': 'Piercing Line', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 80, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Piercing Line', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 80, 'candles': 2})
             
         if c2['Close'] > c2['Open'] and c3['Close'] < c3['Open'] and c3['Open'] > c2['High'] and c3['Close'] < mid2 and c3['Close'] > c2['Open']:
-            patterns.append({'name': 'Dark Cloud Cover', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 80, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Dark Cloud Cover', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 80, 'candles': 2})
 
         if abs(c2['Low'] - c3['Low']) / (c2['Low'] + 1e-10) < 0.002 and c2['Close'] < c2['Open'] and c3['Close'] > c3['Open']:
-            patterns.append({'name': 'Tweezer Bottom', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 76, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Tweezer Bottom', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 76, 'candles': 2})
             
         if abs(c2['High'] - c3['High']) / (c2['High'] + 1e-10) < 0.002 and c2['Close'] > c2['Open'] and c3['Close'] < c3['Open']:
-            patterns.append({'name': 'Tweezer Top', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 76, 'candles': 2})
+            patterns.append({**occurrence, 'name': 'Tweezer Top', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 76, 'candles': 2})
 
         # Triple Candle Patterns
         if c1['Close'] < c1['Open'] and b2 < b1 * 0.3 and c3['Close'] > c3['Open'] and c3['Close'] > (c1['Open'] + c1['Close']) / 2:
-            patterns.append({'name': 'Morning Star', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 92, 'candles': 3})
+            patterns.append({**occurrence, 'name': 'Morning Star', 'type': 'REVERSAL', 'direction': 'BULLISH', 'strength': 92, 'candles': 3})
             
         if c1['Close'] > c1['Open'] and b2 < b1 * 0.3 and c3['Close'] < c3['Open'] and c3['Close'] < (c1['Open'] + c1['Close']) / 2:
-            patterns.append({'name': 'Evening Star', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 92, 'candles': 3})
+            patterns.append({**occurrence, 'name': 'Evening Star', 'type': 'REVERSAL', 'direction': 'BEARISH', 'strength': 92, 'candles': 3})
             
         if c1['Close'] > c1['Open'] and c2['Close'] > c2['Open'] and c3['Close'] > c3['Open'] and c2['Close'] > c1['Close'] and c3['Close'] > c2['Close']:
-            patterns.append({'name': 'Three White Soldiers', 'type': 'CONTINUATION', 'direction': 'BULLISH', 'strength': 88, 'candles': 3})
+            patterns.append({**occurrence, 'name': 'Three White Soldiers', 'type': 'REVERSAL CANDIDATE', 'direction': 'BULLISH', 'strength': 88, 'candles': 3})
             
         if c1['Close'] < c1['Open'] and c2['Close'] < c2['Open'] and c3['Close'] < c3['Open'] and c2['Close'] < c1['Close'] and c3['Close'] < c2['Close']:
-            patterns.append({'name': 'Three Black Crows', 'type': 'CONTINUATION', 'direction': 'BEARISH', 'strength': 88, 'candles': 3})
+            patterns.append({**occurrence, 'name': 'Three Black Crows', 'type': 'REVERSAL CANDIDATE', 'direction': 'BEARISH', 'strength': 88, 'candles': 3})
 
     seen = set()
     unique = []
-    for p in patterns:
-        if p['name'] not in seen:
-            seen.add(p['name'])
+    for p in reversed(patterns):
+        if (p['name'], p['session']) not in seen:
+            seen.add((p['name'], p['session']))
             unique.append(p)
             
     return unique
@@ -4308,7 +4334,8 @@ def calculate_risk(price, atr, score, capital=None, action=None,
                    measured_accuracy=None, measured_wf_accuracy=None, measured_baseline=None,
                    plan_measure=None, atr_basis=None, regime=None, require_plan=False):
     """
-    Institutional Kelly risk plan.
+    Legacy research geometry helper, not institutional/live sizing validation.
+    The production route supplies plan_measure=None and keeps execution blocked.
 
     FIX-07 (three bugs fixed):
       a) Quantity had NO notional cap: on a ₹1,00,000 account the old code
@@ -4684,7 +4711,6 @@ def stock_api(symbol):
         _atr_raw = sfx(L.get('ATR'))
         atr_basis = 'ATR(14)' if _atr_raw else 'assumed 2% of price (ATR missing)'
         atr = _atr_raw if _atr_raw else price * 0.02
-        ml_res = ml_engine(df, symbol=resolved, exchange=req_exch)
 
         try:
             import yfinance as yf
@@ -4698,6 +4724,10 @@ def stock_api(symbol):
         except Exception:
             info = {}
 
+        for numeric_key in ('trailingPE','returnOnEquity','debtToEquity','priceToBook','dividendYield','marketCap'):
+            info[numeric_key] = sfx(info.get(numeric_key))
+        if info.get('marketCap') is not None and info['marketCap'] < 0:
+            info['marketCap'] = None
         fund_data = {
             'pe_val': info.get('trailingPE'),
             'roe_val': info.get('returnOnEquity'),
@@ -4709,8 +4739,15 @@ def stock_api(symbol):
         # completed bar wins; live LTP still comes from the dedicated quote path.
         now_ist = datetime.now(IST)
         last_daily = pd.Timestamp(df.index[-1]).date()
-        partial_today = last_daily == now_ist.date() and is_market_open(now_ist, exchange=req_exch)
-        ranked_df = df.iloc[:-1] if partial_today else df
+        completed_session = last_completed_session(now_ist, exchange=req_exch)
+        ranked_df = df[[pd.Timestamp(x).date() <= completed_session for x in df.index]]
+        partial_today = len(ranked_df) != len(df)
+        if ranked_df.empty:
+            return jsonify({'error': 'No completed daily sessions for ranking'}), 503
+        ml_res = ml_engine(ranked_df, symbol=resolved, exchange=req_exch)
+        _atr_raw = sfx(ranked_df.iloc[-1].get('ATR'))
+        atr_basis = 'ATR(14), completed daily session' if _atr_raw else 'assumed 2% of price (ATR missing)'
+        atr = _atr_raw if _atr_raw else price * 0.02
         rank_window = ranked_df.tail(SCORE_CAL.LOOKBACK_BARS)
         rank_session = pd.Timestamp(ranked_df.index[-1]).strftime('%Y-%m-%d')
         e1 = engine_volume_profile(rank_window)
@@ -4749,7 +4786,7 @@ def stock_api(symbol):
         # assumption disclose karta hai (pehle 0.62/0.55/0.45 chup-chaap use hote the)
         _ml_acc = ml_res.get('ensemble_accuracy') if isinstance(ml_res, dict) else None
         _ml_wf = ml_res.get('walk_forward_accuracy') if isinstance(ml_res, dict) else None
-        _ml_base = ml_res.get('baseline_accuracy') if isinstance(ml_res, dict) else None
+        _ml_base = ml_res.get('walk_forward_baseline') if isinstance(ml_res, dict) else None
         # FIX-31/33: measured plan geometry calibrated rank band se aati hai.
         # Unfitted/invalid history → no directional label, qty 0. Regime/ML
         # stock rank ko change nahi karte; regime sirf exposure factor hai.
@@ -4763,19 +4800,20 @@ def stock_api(symbol):
                     'regime_basis': 'no stock score', 'qty_pre_regime': 0}
         else:
             _sl_mult, _ = plan_geometry(ens['score'], ens['action'])
-            _plan = (measure_plan_hit_rate(ranked_df, _dir, _sl_mult, symbol=resolved, exchange=req_exch)
-                     if _dir != 'NONE' else None)
+            # Legacy unconditional barrier rates are not the signal-conditioned
+            # partial-exit strategy. They must not enter live Kelly sizing.
             risk = calculate_risk(price, atr, ens['score'], action=ens['action'],
                                   measured_accuracy=_ml_acc,
                                   measured_wf_accuracy=_ml_wf,
                                   measured_baseline=_ml_base,
-                                  plan_measure=_plan, atr_basis=atr_basis,
+                                  plan_measure=None, atr_basis=atr_basis,
                                   regime=e5, require_plan=True)
             if not ens['calibration']['ready']:
-                risk['risk_note'] += ' | ' + ens['calibration']['note']
+                risk['risk_note'] += ' | ' + ('Own-history available; pooled action calibration unavailable.' if ens.get('own_history', {}).get('ready') else ens['calibration']['note'])
         ens['tradeable'] = False
         ens['tradeable_basis'] = 'Research only: out-of-sample net execution edge is not validated'
-        risk['illustrative_qty'] = risk.get('qty', 0)
+        risk['illustrative_qty'] = 0
+        risk['kelly_pct'] = risk['kelly_pct_after_regime'] = 0.0
         risk['qty'] = 0
         risk['notional'] = 0.0
         risk['risk_amount'] = 0.0
@@ -4798,6 +4836,28 @@ def stock_api(symbol):
                 risk['cost']['cost_to_risk_pct'] = None
         if risk.get('cost'):
             risk['cost']['fee_scope'] = ('NSE-default estimate; BSE and broker-specific fees are not verified' if req_exch == 'BSE' else 'Estimated NSE costs; verify broker, slippage and applicable charges')
+        risk['validation'] = {
+            'status': 'BLOCKED', 'execution_ready': False,
+            'scenario': 'Daily ATR geometry only; 50% T1 / 50% T2 with gross entry-stop after T1',
+            'holding_horizon_bars': CONFIG['PLAN_MEASURE_HORIZON'],
+            'reasons': ['No independent out-of-sample validation of the full signal-conditioned scale-out strategy',
+                        'Broker/product-specific per-fill fees, slippage and execution permissions not verified',
+                        'Instrument tick size, lot size, price bands and borrowing permissions not verified',
+                        'Corporate-action-adjusted history and fundamentals not independently reconciled'],
+            'short_policy': 'Overnight cash short requires a verified borrowing/product model; intraday fees cannot validate daily holding',
+            'simulator': 'scaleout_validation.py: next-Open, sequential positions, partial exits, adverse ambiguity, time exits, per-fill costs',
+            'simulator_tested_is_not_strategy_validated': True}
+        # Do not present an intraday round-trip fee as the net cost of a daily scale-out plan.
+        if risk.get('cost'):
+            risk['cost']['applicable_to_plan'] = False
+            risk['cost']['targets_net_pct'] = {}
+            risk['cost']['cost_to_risk_pct'] = None
+            risk['cost']['warning'] = 'Separate one-entry/one-exit fee illustration only; NOT costs of the daily scale-out plan. No net target return is established.'
+        risk['risk_note'] = ('No validated strategy win-rate for Kelly: allocation and executable quantity remain zero. '
+                             'Historical unconditional barrier-touch rates are NOT the full scale-out strategy. '
+                             + ('Own-history available; pooled action calibration unavailable.' if ens.get('own_history', {}).get('ready') else ''))
+        if risk.get('plan_available'):
+            risk['trail_sl_plan'] = 'Research scenario: after T1 move remaining stop to reference entry; this is gross entry-stop, NOT fee-adjusted break-even. Actual fills change risk/reward.'
         kpi = calculate_kpi_scores(df, fund_data)
         patterns = detect_all_candle_patterns(df)
 
@@ -4911,9 +4971,9 @@ def stock_api(symbol):
                                   and (sfx(L.get('Vol_SMA20')) or 0) > 0) else None)
             },
             'fundamentals': {
-                'pe': f"{fund_data['pe_val']:.1f}" if fund_data['pe_val'] else 'N/A',
-                'pb': f"{info.get('priceToBook', 0):.2f}" if info.get('priceToBook') else 'N/A',
-                'roe': f"{_roe:.2f}%" if _roe else 'N/A',
+                'pe': f"{fund_data['pe_val']:.1f}" if fund_data['pe_val'] is not None else 'N/A',
+                'pb': f"{info.get('priceToBook', 0):.2f}" if info.get('priceToBook') is not None else 'N/A',
+                'roe': f"{_roe:.2f}%" if _roe is not None else 'N/A',
                 # FIX-51: yfinance ka `debtToEquity` PERCENTAGE hota hai (36.7 = 36.7%),
                 # ratio nahi. Bina '%' ke 36.7x lagta tha. Aur `if debt_val` falsy-check
                 # tha, isliye asli 0.0 D/E (zero-debt company) bhi 'N/A' ban jaata tha.
@@ -4923,10 +4983,10 @@ def stock_api(symbol):
                                 (f"{fund_data['debt_val']:.3f}% D/E"
                                  if abs(fund_data['debt_val']) < 1
                                  else f"{fund_data['debt_val']:.1f}% D/E")),
-                'div_yield': f"{_dy:.2f}%" if _dy else 'N/A',
+                'div_yield': f"{_dy:.2f}%" if _dy is not None else 'N/A',
                 'mcap': f"₹{info.get('marketCap', 0) / 1e7:,.0f}Cr" if info.get('marketCap') else 'N/A',
-                'sector': info.get('sector') or None,        # FIX-32: 'NSE Equity' invented nahi
-                'industry': info.get('industry') or None
+                'sector': html_entities.unescape(str(info['sector'])) if info.get('sector') else None,        # FIX-32: 'NSE Equity' invented nahi
+                'industry': html_entities.unescape(str(info['industry'])) if info.get('industry') else None
             },
             'week52': {
                 'high': h52,
@@ -5006,6 +5066,14 @@ def stock_api(symbol):
             'licensed_realtime_entitlement': False,
             'latency_verified': False,
             'note': 'LIVE means recent provider timestamp, not certified zero-delay exchange feed. Corporate actions may distort raw lookbacks.'}
+        response_payload['data_validation'] = {
+            'official_eod': EOD_VALIDATION.compare(ranked_df, resolved, req_exch),
+            'fundamentals': {'status': 'PROVIDER_REPORTED_NOT_INDEPENDENTLY_VERIFIED',
+                             'provider_symbol': resolved + ('.BO' if req_exch == 'BSE' else '.NS'),
+                             'financial_statement_asof': info.get('mostRecentQuarter'),
+                             'note': 'Provider ratios may use different reporting dates; no audited-statement reconciliation claimed.'},
+            'history': {'status': 'PROVIDER_OHLCV_NOT_FULLY_RECONCILED',
+                        'corporate_actions_verified': False, 'all_sessions_verified': False}}
         return jsonify(clean_json(response_payload))
 
     except Exception as e:

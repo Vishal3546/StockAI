@@ -140,11 +140,10 @@ check('D1 dataset.ex unknown par khaali set hota hai',
 check("D1 click par `|| 'NSE'` fallback hata diya gaya",
       "(item.dataset.ex || '') : ''" in dash
       and "(item.dataset.ex || 'NSE')" not in dash)
-check('D2 timeout 40s se badha', "controller.abort(), 90000" in dash)
+check('D2 bounded 5-minute full-ensemble browser wait', "controller.abort(), 300000" in dash)
 check('D2 purana 40s nahi bacha', "controller.abort(), 40000" not in dash)
-check('D2 timeout message ab tier cascade bolta hai (ML nahi)',
-      'data fetch slow hai' in dash or 'data ' in dash
-      and 'ML walk-forward needs' not in dash)
+check('D2 timeout does not falsely blame only feeds or claim server cancellation',
+      'full ensemble validation may still be running on the server' in dash and 'avoid repeated retries' in dash)
 check('D2 galat "ML walk-forward needs 5-10s" claim hat gaya',
       'ML walk-forward needs 5-10s' not in dash)
 

@@ -620,7 +620,7 @@ body::after {
   <!-- Loading Screen -->
   <div id="loadingScreen" class="text-center py-5" style="display:none">
     <div class="spinner-border" style="color:var(--accent-cyan);width:3rem;height:3rem"></div>
-    <p style="color:var(--text-secondary);margin-top:12px">Loading requested-exchange history and research analysis...</p>
+    <p style="color:var(--text-secondary);margin-top:12px">Loading requested-exchange history and research analysis... First full-ensemble validation can take minutes on a slower CPU; identical-history results are cached.</p>
   </div>
 
   <div id="mainContent">
@@ -765,6 +765,7 @@ body::after {
         <div class="gc h-100" style="max-height:380px;overflow-y:auto">
           <div class="stitle"><svg class="ic" style="color:var(--color-yellow)" aria-hidden="true"><use href="#i-spark"/></svg> Candlestick Patterns</div>
           <div id="patternsBox"></div>
+          <div id="dataValidationNote" style="font-size:0.7rem;color:var(--color-yellow);padding:8px"></div>
         </div>
       </div>
       <div class="col-md-4">
@@ -1319,11 +1320,9 @@ async function loadStock() {
   try {
     const controller = new AbortController();
     stockRequestController = controller;
-    // FIX-85: 40s chhota tha. BSE-only / illiquid stocks par teeno tiers × dono
-    // exchange try hote hain (TradingView + NSE Direct + Yahoo .NS/.BO), aur Yahoo
-    // ke read-timeout par ye 45-50s tak ja sakta hai — user ke log me TAPARIA ne
-    // 47s liye (search 18:24:18 → response 18:25:05), isliye 40s par abort ho gaya.
-    timeoutId = setTimeout(() => controller.abort(), 90000);
+    // Full-ensemble WF is more expensive than the old GB-only diagnostic.
+    // This is a browser wait budget, not a promise that abort kills server work.
+    timeoutId = setTimeout(() => controller.abort(), 300000);
 
     const r = await apiFetch(`/api/stock/${encodeURIComponent(sym)}?ex=${exchange}`, {
       signal: controller.signal
@@ -1360,14 +1359,7 @@ async function loadStock() {
   } catch (e) {
     if(requestSeq !== stockRequestSeq) return;
     if (e.name === 'AbortError') {
-      // FIX-85: purana message galat cheez ko blame karta tha ("ML walk-forward
-      // needs 5-10s"). Asli cause data tier cascade hai — illiquid/BSE-only stocks
-      // par teeno engines × dono exchange try hote hain. Jhoothi diagnosis se user
-      // galat cheez retry karta hai.
-      showBanner('⏱️ Request 90s me complete nahi hua. Iska matlab ML nahi — data '
-        + 'fetch slow hai: illiquid ya BSE-only stocks par teeno engines (TradingView / '
-        + 'NSE / Yahoo) × dono exchange try hote hain. Ek baar aur try karein; '
-        + 'baar-baar ho to likh dein, main server-side budget add kar dunga.',
+      showBanner('⏱️ Analysis exceeded the 5-minute browser wait budget. Provider fetches or full ensemble validation may still be running on the server. Check terminal logs; avoid repeated retries until that work finishes. No executable order was created.',
         'var(--color-yellow)');
     } else {
       showBanner('🔌 API unreachable. Start the backend (python app.py) or pass ?api=http://host:port', 'var(--color-red)');
@@ -1561,20 +1553,28 @@ function render(d) {
     });
     
     const wf = sv(ml.walk_forward_accuracy, null);
-    const wfEdge = (wf !== null && ml.baseline_accuracy !== undefined) ? (wf - ml.baseline_accuracy) : null;
+    const wfEdge = sv(ml.walk_forward_edge, null);
     const honest = wfEdge === null ? 'UNKNOWN'
-        : wfEdge > 5 ? 'POSSIBLE EDGE (verify)'
+        : wfEdge > 5 ? 'POSITIVE DIAGNOSTIC GAP — NOT validated profit'
         : wfEdge > 0 ? 'MARGINAL / NOISE'
         : 'NO EDGE (below baseline)';
     mlh += safeHtml`
         <div style="font-size:0.65rem;margin-top:6px;padding:5px;border-radius:6px;background:rgba(255,179,0,0.08);color:var(--color-yellow)">
-          🧪 Walk-forward OOS accuracy: <b>${wf === null ? '—' : wf + '%'}</b>
-          (baseline ${sv(ml.baseline_accuracy, '?')}%, edge ${wfEdge === null ? '—' : (wfEdge > 0 ? '+' : '') + wfEdge.toFixed(1) + 'pp'})
+          🧪 Ensemble walk-forward OOS accuracy: <b>${wf === null ? '—' : wf + '%'}</b>
+          (same-fold baseline ${sv(ml.walk_forward_baseline, '?')}%, edge ${wfEdge === null ? '—' : (wfEdge > 0 ? '+' : '') + wfEdge.toFixed(1) + 'pp'})
           → <b>${honest}</b><br>
-          <span style="color:var(--text-muted)">Window σ ≈ ${sv(ml.wf_window_sigma, '—')}pp — a single 80/20 split is not evidence.
+          <span style="color:var(--text-muted)">Binary threshold 0.5 (not trade profitability). Observed fold accuracy SD: ${sv(ml.wf_fold_std_pp, '—')}pp · OOS n=${svd(ml.wf_n_oos)} · ${(ml.wf_models || []).join(', ')}. Not a confidence interval; temporal dependence remains.
           Ye in-app number <b>diagnostic</b> hai. Archived studies do not validate the current pipeline; no current predictive or net trading edge is established.</span>
         </div>`;
 
+    if (ml.wf_neutral_policy) {
+      const pol = ml.wf_neutral_policy;
+      mlh += safeHtml`<div style="font-size:0.65rem">45/55 neutral-zone policy: selected ${svd(pol.policy_n)} OOS observations (${svd(pol.policy_coverage_pct)}% coverage); conditional direction accuracy ${svd(pol.policy_accuracy)}% vs matched baseline ${svd(pol.policy_baseline)}%. Abstentions excluded here only; no return/cost validation.</div>`;
+    }
+    if (ml.reproducibility) {
+      const rp = ml.reproducibility;
+      mlh += safeHtml`<details style="font-size:0.65rem"><summary>Reproducibility: input / code / models</summary>Input SHA256: ${rp.input_sha256}<br>Config SHA256: ${rp.config_sha256}<br>Code SHA256: ${rp.pipeline_sha256}<br>Python ${rp.python} · ${JSON.stringify(rp.versions || {})}<br>${rp.scope}</details>`;
+    }
     // FIX-41 (C-2): recorded out-of-sample study — "ML me asli edge hai ya nahi"
     // ka jawaab yahi hai (purged walk-forward + shuffled-label null), in-app
     // number nahi. Costs ke baad ka result RESEARCH_REPORT.md me hai.
@@ -1650,7 +1650,7 @@ function render(d) {
     // FIX-29: display '—' jab value missing ho; verdict bhi tab '—' (pehle missing
     // RSI "50 / NEUTRAL" aur missing volume-ratio "NORMAL" jaisa dikhta tha).
     ['RSI (14)', svd(ind.rsi), verdict(ind.rsi, v => v < 30 ? 'OVERSOLD' : v > 70 ? 'OVERBOUGHT' : 'NEUTRAL')],
-    ['MACD', svd(ind.macd), (isMissing(ind.macd) || isMissing(ind.macd_signal)) ? '—' : (ind.macd > ind.macd_signal ? 'BULLISH' : 'BEARISH')],
+    ['MACD vs signal', svd(ind.macd), (isMissing(ind.macd) || isMissing(ind.macd_signal)) ? '—' : (ind.macd > ind.macd_signal ? 'BULLISH' : 'BEARISH')],
     ['MACD Hist', svd(ind.macd_hist), verdict(ind.macd_hist, v => v > 0 ? 'POSITIVE' : 'NEGATIVE')],
     ['Supertrend', svd(ind.supertrend), verdict(ind.st_direction, v => v === 1 ? 'BULLISH' : 'BEARISH')],
     // FIX-51: pehle sirf `< 0` aur `> 1` flag hote the, isliye %B = 0.05 (price
@@ -1661,23 +1661,23 @@ function render(d) {
         : v > 1 ? 'ABOVE UPPER' : v > 0.8 ? 'NEAR UPPER' : 'MID')],
     ['ADX', svd(ind.adx), verdict(ind.adx, v => v > 25 ? 'STRONG' : 'WEAK')],
     ['+DI / -DI', `${svd(ind.plus_di)} / ${svd(ind.minus_di)}`, (isMissing(ind.plus_di) || isMissing(ind.minus_di)) ? '—' : (ind.plus_di > ind.minus_di ? 'BULLISH' : 'BEARISH')],
-    ['VWAP', isMissing(ind.vwap) ? '—' : `₹${ind.vwap}`, (isMissing(d.price) || isMissing(ind.vwap)) ? '—' : (d.price > ind.vwap ? 'ABOVE' : 'BELOW')],
+    ['20-session daily VWAP proxy', isMissing(ind.vwap) ? '—' : `₹${ind.vwap}`, (isMissing(d.price) || isMissing(ind.vwap)) ? '—' : (d.price > ind.vwap ? 'ABOVE' : 'BELOW')],
     ['StochRSI K/D', `${svd(ind.stochrsi_k)}/${svd(ind.stochrsi_d)}`, verdict(ind.stochrsi_k, v => v < 20 ? 'OVERSOLD' : v > 80 ? 'OVERBOUGHT' : 'MID')],
     ['CCI', svd(ind.cci), verdict(ind.cci, v => v < -100 ? 'OVERSOLD' : v > 100 ? 'OVERBOUGHT' : 'NEUTRAL')],
     ['Williams %R', svd(ind.williams_r), verdict(ind.williams_r, v => v < -80 ? 'OVERSOLD' : v > -20 ? 'OVERBOUGHT' : 'MID')],
     ['OBV', fmtSigned(ind.obv),
      (isMissing(ind.obv) || isMissing(ind.obv_ema)) ? '—'
        : (ind.obv > ind.obv_ema ? 'ACCUMULATE' : 'DISTRIBUTE')],
-    ['Ichimoku Tenkan', svd(ind.ichi_tenkan), (isMissing(d.price) || isMissing(ind.ichi_kijun)) ? '—' : (d.price > ind.ichi_kijun ? 'ABOVE KIJUN' : 'BELOW KIJUN')],
-    ['EMA 9/21', `${svd(ind.ema9)} / ${svd(ind.ema21)}`, (isMissing(ind.ema9) || isMissing(ind.ema21)) ? '—' : (ind.ema9 > ind.ema21 ? 'BULL CROSS' : 'BEAR CROSS')],
-    ['SMA 50/200', `${svd(ind.sma50)} / ${svd(ind.sma200)}`, (isMissing(ind.sma50) || isMissing(ind.sma200)) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? 'GOLDEN' : 'DEATH')],
+    ['Ichimoku Tenkan vs Kijun', svd(ind.ichi_tenkan), (isMissing(ind.ichi_tenkan) || isMissing(ind.ichi_kijun)) ? '—' : (ind.ichi_tenkan > ind.ichi_kijun ? 'ABOVE KIJUN' : 'BELOW KIJUN')],
+    ['EMA 9/21', `${svd(ind.ema9)} / ${svd(ind.ema21)}`, (isMissing(ind.ema9) || isMissing(ind.ema21)) ? '—' : (ind.ema9 > ind.ema21 ? 'BULL ALIGNMENT' : 'BEAR ALIGNMENT')],
+    ['SMA 50/200', `${svd(ind.sma50)} / ${svd(ind.sma200)}`, (isMissing(ind.sma50) || isMissing(ind.sma200)) ? 'INSUFFICIENT HISTORY' : (ind.sma50 > ind.sma200 ? '50 ABOVE 200' : '50 BELOW 200')],
     ['ATR (14)', svd(ind.atr), (ind.atr_basis && ind.atr_basis.includes('assumed')) ? 'ASSUMED (2% price)' : ''],
     ['Master (v2 diagnostic)', `${sv(d.ensemble_v2 && d.ensemble_v2.score, '—')}`, sv(d.ensemble_v2 && d.ensemble_v2.note, '')],
     ['Volume Ratio', isMissing(ind.vol_ratio) ? '—' : `${ind.vol_ratio}x avg`, verdict(ind.vol_ratio, v => v > 1.5 ? 'SPIKE' : v < 0.5 ? 'DRY' : 'NORMAL')]
   ];
   
-  const bullStatusValues = ['OVERSOLD', 'BUY', 'STRONG', 'BULLISH', 'ABOVE', 'ACCUMULATE', 'BULL CROSS', 'GOLDEN', 'POSITIVE', 'SPIKE', 'ABOVE KIJUN'];
-  const bearStatusValues = ['OVERBOUGHT', 'SELL', 'WEAK', 'BEARISH', 'BELOW', 'DISTRIBUTE', 'BEAR CROSS', 'DEATH', 'NEGATIVE', 'DRY', 'BELOW KIJUN'];
+  const bullStatusValues = ['OVERSOLD', 'BUY', 'STRONG', 'BULLISH', 'ABOVE', 'ACCUMULATE', 'BULL ALIGNMENT', '50 ABOVE 200', 'POSITIVE', 'SPIKE', 'ABOVE KIJUN'];
+  const bearStatusValues = ['OVERBOUGHT', 'SELL', 'WEAK', 'BEARISH', 'BELOW', 'DISTRIBUTE', 'BEAR ALIGNMENT', '50 BELOW 200', 'NEGATIVE', 'DRY', 'BELOW KIJUN'];
   
   let techHtmlMarkup = '';
   techIndicatorTable.forEach(row => {
@@ -1696,7 +1696,7 @@ function render(d) {
 
   // Stop Loss & Targets Section Rendering
   const hasPlan = rk.plan_available === true && fit?.ready === true && ['LONG','SHORT'].includes(rk.direction);
-  const noPlanReason = !fit?.ready ? 'Calibration unavailable: ' + (fit?.note || 'no valid fitted history') : 'Fitted rank band ' + (ens.action || 'unknown') + ' does not provide a LONG/SHORT setup.';
+  const noPlanReason = ens.own_history?.ready ? 'Own-history available; pooled action calibration unavailable.' : !fit?.ready ? 'Calibration unavailable: ' + (fit?.note || 'no valid fitted history') : 'Fitted rank band ' + (ens.action || 'unknown') + ' does not provide a LONG/SHORT setup.';
   document.getElementById('targetsBox').innerHTML = !hasPlan ? safeHtml`<div class="mut">NO DIRECTIONAL PLAN — ${noPlanReason} No entry, stop, targets or trailing instructions. Executable quantity: 0.</div>` : safeHtml`
     <div class="mb-2 text-center" style="font-size:0.8rem;font-weight:700;padding:6px;border-radius:8px;background:${ens.tradeable ? 'var(--color-green-dim)' : 'var(--color-yellow-dim)'};color:${ens.tradeable ? 'var(--color-green)' : 'var(--color-yellow)'}">
       ${sv(rk.exec_status, '—')}
@@ -1715,6 +1715,8 @@ function render(d) {
     </div>`;
 
   // Pattern Output Engine
+  const validationNote = document.getElementById('dataValidationNote');
+  if (validationNote) validationNote.textContent = '';
   const pats = d.patterns || [];
   let patternsHtmlMarkup = '';
   if (pats.length === 0) {
@@ -1728,13 +1730,18 @@ function render(d) {
           <span>${pIcon}</span>
           <div>
             <div style="font-weight:600">${p.name}</div>
-            <div style="font-size:0.68rem;color:var(--text-muted)">${p.candles}-Candle • ${p.type}</div>
+            <div style="font-size:0.68rem;color:var(--text-muted)">${p.candles}-Candle • ${p.type}<br>${sv(p.session, 'Date unavailable')} · ${p.is_latest_bar === true ? 'LATEST BAR' : 'HISTORICAL'} · age ${svd(p.age_bars)} bars · shape only, trend context unconfirmed</div>
           </div>
           <div class="pat-str" style="color:${pColor}">${p.strength}/100 heuristic</div>
         </div>`;
     });
   }
   document.getElementById('patternsBox').innerHTML = patternsHtmlMarkup;
+  if (d.data_validation) {
+    const dv = d.data_validation;
+    const el = document.getElementById('dataValidationNote');
+    if (el) el.textContent = `Data verification: official daily OHLCV ${dv.official_eod?.status || 'UNVERIFIED'} (${dv.official_eod?.session || 'no reference'}). Fundamentals: provider-reported, not reconciled to audited statements. Full history/corporate actions: not independently verified. ${dv.official_eod?.reason || ''}`;
+  }
 
   // Fundamentals Table Mapping
   const f = d.fundamentals || {};
@@ -1793,15 +1800,15 @@ function render(d) {
     <div class="row g-2 mb-2">
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Kelly % (before regime)</div><div class="lvl-val mono" style="color:var(--color-yellow)">${pctd(rk.kelly_pct)}</div>${!isMissing(rk.kelly_pct_after_regime) ? raw(safeHtml`<small style="color:var(--text-muted)">after regime: ${pctd(rk.kelly_pct_after_regime)}</small>`) : ''}</div></div>
       <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Quantity</div><div class="lvl-val mono" style="color:var(--accent-cyan)">${svd(rk.qty)}</div></div></div>
-      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">R:R Ratio</div><div class="lvl-val mono" style="color:var(--color-green)">${hasPlan ? '1:' + svd(rk.rr_ratio) : '—'}</div></div></div>
+      <div class="col-4"><div class="lvl-box"><div class="lvl-lbl">Reference R:R (gross T1)</div><div class="lvl-val mono" style="color:var(--color-green)">${hasPlan ? '1:' + svd(rk.rr_ratio) : '—'}</div></div></div>
     </div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Direction</span><span class="mono">${sv(rk.direction, 'NONE')}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Capital budget (not deployed)</span><span class="mono">₹${money(rk.capital)}</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Notional exposure</span><span class="mono" style="color:${(isMissing(rk.notional) || isMissing(rk.capital)) ? 'var(--text-muted)' : (rk.notional > rk.capital ? 'var(--color-red)' : 'var(--color-green)')}">₹${money(rk.notional)} (${svd(rk.leverage)}x)</span></div>
     <div class="ind-row"><span style="color:var(--text-secondary)">Risk at stop</span><span class="mono">₹${money(rk.risk_amount)}</span></div>
     ${(rk.cost === null || rk.cost === undefined) ? '' :
-      raw(safeHtml`<div class="ind-row" title="Estimated costs, not an exchange or broker bill. Verify fee scope below."><span style="color:var(--text-secondary)">💸 Estimated fee break-even (illustrative)</span><span class="mono" style="color:var(--color-yellow)">+${svd(rk.cost.break_even_pct)}% = ₹${svd(rk.cost.break_even_rs)}<br><small style="color:var(--text-muted)">${sv(rk.cost.mode, 'intraday')} round-trip ${svd(rk.cost.round_trip_pct)}%${hasPlan ? ' · estimated cost / stop risk ' + svd(rk.cost.cost_to_risk_pct) + '%' : ''}${(rk.cost.qty ? ' · is qty par ≈ ₹' + money(rk.cost.round_trip_on_notional) : '')}${rk.cost.notional ? ' · ₹' + money(rk.cost.notional) + ' par' : ''}${rk.cost.notional_basis ? ' (' + sv(rk.cost.notional_basis, '') + ')' : ''}<br>${sv(rk.cost.fee_scope, 'Provider/broker charges not independently verified')}</small></span></div>`)}
-    ${(hasPlan && rk.cost && rk.cost.targets_net_pct) ?
+      raw(safeHtml`<div class="ind-row" title="Estimated costs, not an exchange or broker bill. Verify fee scope below."><span style="color:var(--text-secondary)">💸 Separate fee illustration (not plan costs)</span><span class="mono" style="color:var(--color-yellow)">+${svd(rk.cost.break_even_pct)}% = ₹${svd(rk.cost.break_even_rs)}<br><small style="color:var(--text-muted)">${sv(rk.cost.mode, 'intraday')} round-trip ${svd(rk.cost.round_trip_pct)}%${hasPlan ? ' · estimated cost / stop risk ' + svd(rk.cost.cost_to_risk_pct) + '%' : ''}${(rk.cost.qty ? ' · is qty par ≈ ₹' + money(rk.cost.round_trip_on_notional) : '')}${rk.cost.notional ? ' · ₹' + money(rk.cost.notional) + ' par' : ''}${rk.cost.notional_basis ? ' (' + sv(rk.cost.notional_basis, '') + ')' : ''}<br>${sv(rk.cost.fee_scope, 'Provider/broker charges not independently verified')}</small></span></div>`)}
+    ${(hasPlan && rk.cost && rk.cost.applicable_to_plan !== false && rk.cost.targets_net_pct) ?
       raw(safeHtml`<div class="ind-row" title="Hypothetical gross target minus estimated fees; not realized profit. Slippage and actual broker/exchange charges may differ."><span style="color:var(--text-secondary)">Targets NET (cost ke baad)</span><span class="mono" style="color:var(--color-green)">T1 ${isMissing(rk.cost.targets_net_pct.t1) ? '—' : (rk.cost.targets_net_pct.t1 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t1 + '%'} · T2 ${isMissing(rk.cost.targets_net_pct.t2) ? '—' : (rk.cost.targets_net_pct.t2 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t2 + '%'} · T3 ${isMissing(rk.cost.targets_net_pct.t3) ? '—' : (rk.cost.targets_net_pct.t3 >= 0 ? '+' : '') + rk.cost.targets_net_pct.t3 + '%'}<br><small style="color:var(--text-muted)">gross se ${svd(rk.cost.round_trip_pct)}% kam</small></span></div>`) : ''}
     ${(rk.cost && rk.cost.warning) ?
       raw(safeHtml`<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(247,147,26,0.12);border-left:3px solid #f7931a;font-size:0.7rem;line-height:1.45;color:#f7931a">💸 ${sv(rk.cost.warning, '')}</div>`) : ''}
@@ -1809,6 +1816,7 @@ function render(d) {
       raw(safeHtml`<div class="ind-row" title="Risk policy, not backtested alpha"><span style="color:var(--text-secondary)">Market-regime exposure cap (rank me 0%)</span><span class="mono">${(rk.regime_exposure_factor * 100).toFixed(0)}% · qty ${svd(rk.qty_pre_regime)} → ${svd(rk.qty)}<br><small>${sv(rk.regime_basis, 'unknown')}</small></span></div>`)}
     ${(rk.plan_hit_rate === null || rk.plan_hit_rate === undefined) ? '' :
       raw(safeHtml`<div class="ind-row"><span style="color:var(--text-secondary)">Measured plan win-rate</span><span class="mono" style="color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-red)'}">${(rk.plan_hit_rate * 100).toFixed(1)}% <span style="color:var(--text-muted);font-size:0.65rem">(n=${svd(rk.plan_sample_size)}, breakeven ${isMissing(rk.plan_breakeven) ? '—' : (rk.plan_breakeven * 100).toFixed(1) + '%'}, lower-bound ${isMissing(rk.plan_hit_rate_lcb) ? '—' : (rk.plan_hit_rate_lcb * 100).toFixed(1) + '%'})</span></span></div>`)}
+    ${rk.validation ? raw(safeHtml`<div style="color:var(--color-yellow);font-size:0.7rem"><b>Execution readiness: ${rk.validation.status}</b><br>${(rk.validation.reasons || []).join(' · ')}<br>${rk.validation.short_policy}</div>`) : ''}
     ${(rk.risk_note || (rk.win_rate_used !== null && rk.win_rate_used !== undefined)) ?
       raw(safeHtml`<div style="margin-top:6px;font-size:0.68rem;line-height:1.45;color:${rk.edge_verified ? 'var(--color-green)' : 'var(--color-yellow)'}">⚠️ ${sv(rk.risk_note, 'Position size assumed; basis unavailable.')}</div>`) : ''}`;
 

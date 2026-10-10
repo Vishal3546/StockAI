@@ -289,9 +289,9 @@ check("SEARCH_MAX_RESULTS = 20", A.CONFIG.get('SEARCH_MAX_RESULTS') == 20,
       str(A.CONFIG.get('SEARCH_MAX_RESULTS')))
 check("Layer 2 (Yahoo) always runs — no len() gate",
       "if len(results) < 5" not in src)
-check("frontend abort raised to 90s", "90000" in open(
+check("frontend bounded wait supports full ensemble computation", "300000" in open(
     os.path.join(ROOT, 'Dashboard.html'), encoding='utf-8').read()
-    or "90 000" in open(os.path.join(ROOT, 'Dashboard.html'), encoding='utf-8').read())
+    or "300 000" in open(os.path.join(ROOT, 'Dashboard.html'), encoding='utf-8').read())
 check("strict exchange 409 still wired (FIX-83)", 'strict_exch' in src)
 check("per-exchange calibration intact (FIX-84)",
       os.path.exists(os.path.join(ROOT, 'score_calibration_bse.json')))

@@ -1,3 +1,7 @@
+# FIX106 status — 10 October 2026
+
+Current per-stock diagnostics now evaluate the configured weighted ensemble with a same-fold training-majority baseline, observed fold dispersion, and separately reported 45/55 neutral-zone coverage. These are retrospective classification diagnostics, not independent net execution validation. See `FIX106_REVIEW_AND_RELEASE.md`. A causal-ledger full scale-out simulator is now available, but no independent signal-conditioned strategy holdout has been supplied or certified. The prior FIX104 numerical research artifacts below remain unchanged and archived.
+
 # Archived research results — FIX104 (10 October 2026)
 
 **FIX105 notice:** app/source fingerprints changed for automatic descriptive own-history ranks and study coverage disclosure. These FIX104 studies were NOT rerun or re-stamped. They remain historical evidence, not current-code validation. Own-history percentiles have no predictive/profitability validation; execution remains disabled. TORNTPHARM and PRAKASH were not members of this study.

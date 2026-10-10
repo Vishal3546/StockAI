@@ -50,7 +50,8 @@ check('regime ka hardcoded 23000 gaya', 'else 23000' not in app_src)
 check('regime ka hardcoded 24000 gaya', 'else 24000' not in app_src)
 check('VCP ka 99 tightness sentinel gaya', 'else 99' not in app_src)
 check('ML wf_accuracy 0.0 fallback gaya', "if wf_results else 0.0" not in app_src)
-check('wf_accuracy ab None deta hai', "if wf_results else None" in app_src)
+from validation_metrics import summarize
+check('empty fold summary returns None, not fabricated zero accuracy', summarize([])['accuracy'] is None and "wf_accuracy = wf_summary['accuracy']" in app_src)
 
 n_degraded = len(re.findall(r"'degraded':\s*(True|not enough)", app_src))
 check('engine error paths me degraded flag', n_degraded >= 6, f'{n_degraded} jagah mila')

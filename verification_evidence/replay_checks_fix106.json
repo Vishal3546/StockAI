@@ -1,0 +1,36 @@
+[
+  {
+    "symbol": "INFY",
+    "exchange": "NSE",
+    "matches": {
+      "probability": true,
+      "prediction": true,
+      "models": true,
+      "walk_forward_accuracy": true,
+      "walk_forward_baseline": true,
+      "walk_forward_edge": true,
+      "wf_fold_std_pp": true,
+      "wf_folds": true,
+      "wf_neutral_policy": true,
+      "input_sha256": true
+    },
+    "passed": true
+  },
+  {
+    "symbol": "TORNTPHARM",
+    "exchange": "NSE",
+    "matches": {
+      "probability": true,
+      "prediction": true,
+      "models": true,
+      "walk_forward_accuracy": true,
+      "walk_forward_baseline": true,
+      "walk_forward_edge": true,
+      "wf_fold_std_pp": true,
+      "wf_folds": true,
+      "wf_neutral_policy": true,
+      "input_sha256": true
+    },
+    "passed": true
+  }
+]

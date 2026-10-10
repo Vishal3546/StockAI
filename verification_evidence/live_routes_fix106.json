@@ -1,0 +1,397 @@
+[
+  {
+    "symbol": "INFY",
+    "exchange": "NSE",
+    "status": 200,
+    "seconds": 11.72,
+    "close": 1023.4,
+    "rank_session": "2026-10-09",
+    "qty": 0,
+    "kelly_pct": 0.0,
+    "risk_validation": {
+      "execution_ready": false,
+      "holding_horizon_bars": 20,
+      "reasons": [
+        "No independent out-of-sample validation of the full signal-conditioned scale-out strategy",
+        "Broker/product-specific per-fill fees, slippage and execution permissions not verified",
+        "Instrument tick size, lot size, price bands and borrowing permissions not verified",
+        "Corporate-action-adjusted history and fundamentals not independently reconciled"
+      ],
+      "scenario": "Daily ATR geometry only; 50% T1 / 50% T2 with gross entry-stop after T1",
+      "short_policy": "Overnight cash short requires a verified borrowing/product model; intraday fees cannot validate daily holding",
+      "simulator": "scaleout_validation.py: next-Open, sequential positions, partial exits, adverse ambiguity, time exits, per-fill costs",
+      "simulator_tested_is_not_strategy_validated": true,
+      "status": "BLOCKED"
+    },
+    "own_history_status": null,
+    "wf_accuracy": 49.2,
+    "wf_baseline": 60.0,
+    "wf_edge": -10.8,
+    "wf_std": 14.63,
+    "wf_n": 120,
+    "wf_models": [
+      "gradient_boosting",
+      "random_forest",
+      "logistic_regression",
+      "xgboost"
+    ],
+    "official": {
+      "exchange": "NSE",
+      "fields": {
+        "Close": {
+          "official": 1023.4,
+          "provider": 1023.4,
+          "status": "MATCH"
+        },
+        "High": {
+          "official": 1030.9,
+          "provider": 1030.9,
+          "status": "MATCH"
+        },
+        "Low": {
+          "official": 1007.3,
+          "provider": 1007.3,
+          "status": "MATCH"
+        },
+        "Open": {
+          "official": 1007.3,
+          "provider": 1007.3,
+          "status": "MATCH"
+        },
+        "Volume": {
+          "official": 14094234.0,
+          "provider": 14094234.0,
+          "status": "MATCH"
+        }
+      },
+      "official_isin": "INE009A01021",
+      "refresh_command": "python tools/refresh_official_eod.py",
+      "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+      "session": "2026-10-09",
+      "source": {
+        "sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c",
+        "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20261009_F_0000.csv.zip"
+      },
+      "status": "MATCH",
+      "symbol": "INFY"
+    },
+    "input_hash_matches": true,
+    "passed": true
+  },
+  {
+    "symbol": "TORNTPHARM",
+    "exchange": "NSE",
+    "status": 200,
+    "seconds": 28.84,
+    "close": 4656.9,
+    "rank_session": "2026-10-09",
+    "qty": 0,
+    "kelly_pct": 0.0,
+    "risk_validation": {
+      "execution_ready": false,
+      "holding_horizon_bars": 20,
+      "reasons": [
+        "No independent out-of-sample validation of the full signal-conditioned scale-out strategy",
+        "Broker/product-specific per-fill fees, slippage and execution permissions not verified",
+        "Instrument tick size, lot size, price bands and borrowing permissions not verified",
+        "Corporate-action-adjusted history and fundamentals not independently reconciled"
+      ],
+      "scenario": "Daily ATR geometry only; 50% T1 / 50% T2 with gross entry-stop after T1",
+      "short_policy": "Overnight cash short requires a verified borrowing/product model; intraday fees cannot validate daily holding",
+      "simulator": "scaleout_validation.py: next-Open, sequential positions, partial exits, adverse ambiguity, time exits, per-fill costs",
+      "simulator_tested_is_not_strategy_validated": true,
+      "status": "BLOCKED"
+    },
+    "own_history_status": "READY",
+    "wf_accuracy": 52.4,
+    "wf_baseline": 48.9,
+    "wf_edge": 3.4,
+    "wf_std": 12.29,
+    "wf_n": 380,
+    "wf_models": [
+      "gradient_boosting",
+      "random_forest",
+      "logistic_regression",
+      "xgboost"
+    ],
+    "official": {
+      "exchange": "NSE",
+      "fields": {
+        "Close": {
+          "official": 4656.9,
+          "provider": 4656.9,
+          "status": "MATCH"
+        },
+        "High": {
+          "official": 4660.0,
+          "provider": 4660.0,
+          "status": "MATCH"
+        },
+        "Low": {
+          "official": 4590.0,
+          "provider": 4590.0,
+          "status": "MATCH"
+        },
+        "Open": {
+          "official": 4618.0,
+          "provider": 4618.0,
+          "status": "MATCH"
+        },
+        "Volume": {
+          "official": 341921.0,
+          "provider": 341921.0,
+          "status": "MATCH"
+        }
+      },
+      "official_isin": "INE685A01028",
+      "refresh_command": "python tools/refresh_official_eod.py",
+      "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+      "session": "2026-10-09",
+      "source": {
+        "sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c",
+        "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20261009_F_0000.csv.zip"
+      },
+      "status": "MATCH",
+      "symbol": "TORNTPHARM"
+    },
+    "input_hash_matches": true,
+    "passed": true
+  },
+  {
+    "symbol": "EMIL",
+    "exchange": "BSE",
+    "status": 200,
+    "seconds": 6.2,
+    "close": 191.45,
+    "rank_session": "2026-10-09",
+    "qty": 0,
+    "kelly_pct": 0.0,
+    "risk_validation": {
+      "execution_ready": false,
+      "holding_horizon_bars": 20,
+      "reasons": [
+        "No independent out-of-sample validation of the full signal-conditioned scale-out strategy",
+        "Broker/product-specific per-fill fees, slippage and execution permissions not verified",
+        "Instrument tick size, lot size, price bands and borrowing permissions not verified",
+        "Corporate-action-adjusted history and fundamentals not independently reconciled"
+      ],
+      "scenario": "Daily ATR geometry only; 50% T1 / 50% T2 with gross entry-stop after T1",
+      "short_policy": "Overnight cash short requires a verified borrowing/product model; intraday fees cannot validate daily holding",
+      "simulator": "scaleout_validation.py: next-Open, sequential positions, partial exits, adverse ambiguity, time exits, per-fill costs",
+      "simulator_tested_is_not_strategy_validated": true,
+      "status": "BLOCKED"
+    },
+    "own_history_status": null,
+    "wf_accuracy": 50.0,
+    "wf_baseline": 49.2,
+    "wf_edge": 0.8,
+    "wf_std": 12.25,
+    "wf_n": 120,
+    "wf_models": [
+      "gradient_boosting",
+      "random_forest",
+      "logistic_regression",
+      "xgboost"
+    ],
+    "official": {
+      "exchange": "BSE",
+      "fields": {
+        "Close": {
+          "official": 191.45,
+          "provider": 191.45,
+          "status": "MATCH"
+        },
+        "High": {
+          "official": 199.3,
+          "provider": 199.3,
+          "status": "MATCH"
+        },
+        "Low": {
+          "official": 190.25,
+          "provider": 190.25,
+          "status": "MATCH"
+        },
+        "Open": {
+          "official": 196.15,
+          "provider": 196.15,
+          "status": "MATCH"
+        },
+        "Volume": {
+          "official": 107505.0,
+          "provider": 107505.0,
+          "status": "MATCH"
+        }
+      },
+      "official_isin": "INE02YR01019",
+      "refresh_command": "python tools/refresh_official_eod.py",
+      "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+      "session": "2026-10-09",
+      "source": {
+        "sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449",
+        "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20261009_F_0000.CSV"
+      },
+      "status": "MATCH",
+      "symbol": "EMIL"
+    },
+    "input_hash_matches": true,
+    "passed": true
+  },
+  {
+    "symbol": "PRAKASH",
+    "exchange": "BSE",
+    "status": 200,
+    "seconds": 27.23,
+    "close": 119.2,
+    "rank_session": "2026-10-09",
+    "qty": 0,
+    "kelly_pct": 0.0,
+    "risk_validation": {
+      "execution_ready": false,
+      "holding_horizon_bars": 20,
+      "reasons": [
+        "No independent out-of-sample validation of the full signal-conditioned scale-out strategy",
+        "Broker/product-specific per-fill fees, slippage and execution permissions not verified",
+        "Instrument tick size, lot size, price bands and borrowing permissions not verified",
+        "Corporate-action-adjusted history and fundamentals not independently reconciled"
+      ],
+      "scenario": "Daily ATR geometry only; 50% T1 / 50% T2 with gross entry-stop after T1",
+      "short_policy": "Overnight cash short requires a verified borrowing/product model; intraday fees cannot validate daily holding",
+      "simulator": "scaleout_validation.py: next-Open, sequential positions, partial exits, adverse ambiguity, time exits, per-fill costs",
+      "simulator_tested_is_not_strategy_validated": true,
+      "status": "BLOCKED"
+    },
+    "own_history_status": "READY",
+    "wf_accuracy": 50.5,
+    "wf_baseline": 55.8,
+    "wf_edge": -5.3,
+    "wf_std": 11.41,
+    "wf_n": 380,
+    "wf_models": [
+      "gradient_boosting",
+      "random_forest",
+      "logistic_regression",
+      "xgboost"
+    ],
+    "official": {
+      "exchange": "BSE",
+      "fields": {
+        "Close": {
+          "official": 119.2,
+          "provider": 119.2,
+          "status": "MATCH"
+        },
+        "High": {
+          "official": 121.65,
+          "provider": 121.65,
+          "status": "MATCH"
+        },
+        "Low": {
+          "official": 115.0,
+          "provider": 115.0,
+          "status": "MATCH"
+        },
+        "Open": {
+          "official": 115.5,
+          "provider": 115.5,
+          "status": "MATCH"
+        },
+        "Volume": {
+          "official": 23103.0,
+          "provider": 23103.0,
+          "status": "MATCH"
+        }
+      },
+      "official_isin": "INE603A01013",
+      "refresh_command": "python tools/refresh_official_eod.py",
+      "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+      "session": "2026-10-09",
+      "source": {
+        "sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449",
+        "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20261009_F_0000.CSV"
+      },
+      "status": "MATCH",
+      "symbol": "PRAKASH"
+    },
+    "input_hash_matches": true,
+    "passed": true
+  },
+  {
+    "symbol": "LGEINDIA",
+    "exchange": "BSE",
+    "status": 200,
+    "seconds": 4.32,
+    "close": 1755.9,
+    "rank_session": "2026-10-09",
+    "qty": 0,
+    "kelly_pct": 0.0,
+    "risk_validation": {
+      "execution_ready": false,
+      "holding_horizon_bars": 20,
+      "reasons": [
+        "No independent out-of-sample validation of the full signal-conditioned scale-out strategy",
+        "Broker/product-specific per-fill fees, slippage and execution permissions not verified",
+        "Instrument tick size, lot size, price bands and borrowing permissions not verified",
+        "Corporate-action-adjusted history and fundamentals not independently reconciled"
+      ],
+      "scenario": "Daily ATR geometry only; 50% T1 / 50% T2 with gross entry-stop after T1",
+      "short_policy": "Overnight cash short requires a verified borrowing/product model; intraday fees cannot validate daily holding",
+      "simulator": "scaleout_validation.py: next-Open, sequential positions, partial exits, adverse ambiguity, time exits, per-fill costs",
+      "simulator_tested_is_not_strategy_validated": true,
+      "status": "BLOCKED"
+    },
+    "own_history_status": "INSUFFICIENT_HISTORY",
+    "wf_accuracy": 55.0,
+    "wf_baseline": 43.3,
+    "wf_edge": 11.7,
+    "wf_std": 8.66,
+    "wf_n": 60,
+    "wf_models": [
+      "gradient_boosting",
+      "random_forest",
+      "logistic_regression",
+      "xgboost"
+    ],
+    "official": {
+      "exchange": "BSE",
+      "fields": {
+        "Close": {
+          "official": 1755.9,
+          "provider": 1755.9,
+          "status": "MATCH"
+        },
+        "High": {
+          "official": 1764.0,
+          "provider": 1764.0,
+          "status": "MATCH"
+        },
+        "Low": {
+          "official": 1714.0,
+          "provider": 1714.0,
+          "status": "MATCH"
+        },
+        "Open": {
+          "official": 1728.0,
+          "provider": 1728.0,
+          "status": "MATCH"
+        },
+        "Volume": {
+          "official": 35992.0,
+          "provider": 35992.0,
+          "status": "MATCH"
+        }
+      },
+      "official_isin": "INE324D01010",
+      "refresh_command": "python tools/refresh_official_eod.py",
+      "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+      "session": "2026-10-09",
+      "source": {
+        "sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449",
+        "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20261009_F_0000.CSV"
+      },
+      "status": "MATCH",
+      "symbol": "LGEINDIA"
+    },
+    "input_hash_matches": true,
+    "passed": true
+  }
+]

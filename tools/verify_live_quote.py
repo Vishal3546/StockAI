@@ -934,7 +934,7 @@ check('Yahoo tier _bse_closed par skip hota hai',
 check('/api/stock market_open exchange-aware hai',
       "'market_open': is_market_open(exchange=req_exch)" in app_src)
 check('partial_today bhi exchange-aware hai',
-      'is_market_open(now_ist, exchange=req_exch)' in app_src)
+      'last_completed_session(now_ist, exchange=req_exch)' in app_src)
 check('Yahoo quote payload exchange-aware market_open bhejta hai',
       "'market_open': is_market_open(exchange=prefer_exch)" in app_src)
 check('NSE ka official endpoint NSE hi rehta hai (exchange param nahi)',

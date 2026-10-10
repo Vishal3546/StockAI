@@ -137,12 +137,15 @@ check("no bare **CONFIG[...] unpack left in app.py",
       '**CONFIG[' not in app_src,
       f"count = {app_src.count('**CONFIG[')}")
 check("ml_params() helper defined", 'def ml_params(key: str) -> Mapping[str, Any]:' in app_src)
-check("all 4 ML param keys routed through ml_params",
-      app_src.count("ml_params('ML_GB_PARAMS')") == 2
+check("final models use guarded ml_params; WF moved to separately guarded ensemble helper",
+      app_src.count("ml_params('ML_GB_PARAMS')") == 1
       and app_src.count("ml_params('ML_RF_PARAMS')") == 1
       and app_src.count("ml_params('ML_LR_PARAMS')") == 1
       and app_src.count("ml_params('ML_XGB_PARAMS')") == 1,
       f"GB x{app_src.count(chr(109) + 'l_params(' + chr(39) + 'ML_GB_PARAMS' + chr(39) + ')')}")
+wf_src = (ROOT / 'validation_metrics.py').read_text(encoding='utf-8')
+check('WF parameters independently guarded and all models configured',
+      'isinstance(params, Mapping)' in wf_src and all(k in wf_src for k in ('ML_GB_PARAMS','ML_RF_PARAMS','ML_LR_PARAMS','ML_XGB_PARAMS')))
 check("Mapping imported from collections.abc (typing.Mapping is deprecated)",
       'from collections.abc import Mapping' in app_src)
 
