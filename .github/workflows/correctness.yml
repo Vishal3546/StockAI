@@ -34,5 +34,6 @@ jobs:
       - run: python tools/verify_fix102.py
       - run: python tools/verify_fix103.py
       - run: python tools/verify_fix104.py
+      - run: python tools/verify_fix105.py
       - run: node tools/verify_fix102_render.js
       - run: node tools/verify_fix103_render.js

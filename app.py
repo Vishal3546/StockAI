@@ -44,6 +44,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import score_calibration as SCORE_CAL
+import own_history as OWN_HISTORY
 
 from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
@@ -3753,7 +3754,7 @@ def load_ml_study(exchange='NSE'):
             return None
 
 
-def ml_study_payload(exchange='NSE'):
+def ml_study_payload(exchange='NSE', symbol=None):
     """UI/API ke liye compact study block (+ staleness note)."""
     doc = load_ml_study(exchange)
     if not doc:
@@ -3788,6 +3789,11 @@ def ml_study_payload(exchange='NSE'):
         'period': doc.get('period'),
         'as_of': (doc.get('generated_at_utc') or '')[:10],
         'symbols': doc.get('symbols_scored') or [],
+        'selected_symbol': symbol,
+        'selected_symbol_in_study': (symbol in (doc.get('symbols_scored') or []) if symbol else None),
+        'selected_symbol_note': ('Selected stock not included in this study; cohort verdict is not a stock-specific test.'
+                                 if symbol and symbol not in (doc.get('symbols_scored') or []) else
+                                 'Selected stock included in the research cohort; pooled results are not a stock-specific or deployed-ensemble certification.'),
         'strategies': strategies,
         'permutation_null': doc.get('permutation_null'),
         'verdict': doc.get('verdict'),
@@ -4608,8 +4614,11 @@ def stock_api(symbol):
     # maangne par chupchap NSE ka frame mil jaata tha (Yahoo ke paas BSE
     # historicals nahi hote), aur dashboard NSE ke numbers BSE ki tarah dikha
     # deta tha. Ab cross-exchange data nahi milta — saaf error milta hai.
-    df, active_source = DATA_MANAGER.smart_fetch(resolved, period='2y', interval='1d',
-                                                 n_bars=CONFIG['CHART_CANDLES'] * 2,
+    # Outside the pooled cohort, request enough REAL history for an automatic
+    # own-history diagnostic (500 completed inputs; cushion for partial bars).
+    own_scope = resolved not in SCORE_CAL.UNIVERSE
+    df, active_source = DATA_MANAGER.smart_fetch(resolved, period='3y' if own_scope else '2y', interval='1d',
+                                                 n_bars=max(550, CONFIG['CHART_CANDLES'] * 2) if own_scope else CONFIG['CHART_CANDLES'] * 2,
                                                  prefer_exch=req_exch, strict_exch=True)
     if df is not None and exchange_from_source(active_source) != req_exch:
         return jsonify({'error': 'Historical provider exchange unverified or mismatched; response refused', 'requested_exchange': req_exch}), 503
@@ -4631,7 +4640,9 @@ def stock_api(symbol):
                         f"{req_exch} ki jagah nahi dikha rahe.",
             }), 409
         _cache_put(_FAIL_CACHE, _miss_key, time.time() + 300)  # FIX-99
-        return jsonify({'error': f"Stock '{symbol}' data not available across all 3 engines!"}), 404
+        return jsonify({'error': f"No usable {req_exch} history for '{symbol}'.",
+                        'error_code': 'SYMBOL_OR_HISTORY_UNAVAILABLE',
+                        'hint': 'Check the ticker and exchange using stock search. A provider miss does not prove that a company is unlisted; no similar ticker was substituted.'}), 404
 
     try:
         df = calculate_all_indicators(df)
@@ -4720,6 +4731,20 @@ def stock_api(symbol):
                              data_fresh='STALE' not in str(daily_source).upper(),
                              exchange=req_exch)
         ens['calibration']['reference_session'] = rank_session
+        if own_scope:
+            own = OWN_HISTORY.describe(
+                ranked_df, symbol=resolved, exchange=req_exch, source=daily_source,
+                formula_hash=score_formula_hash(),
+                engines=(engine_volume_profile, engine_rvol_cvd, engine_vcp, engine_smc),
+                current_day=now_ist.date().isoformat(),
+                fresh='STALE' not in str(daily_source).upper())
+            if own.get('ready') and own.get('score') != ens.get('score'):
+                own.update(ready=False, status='DEFINITION_MISMATCH', relative_rank_pct=None,
+                           reason='Live and historical score definitions disagree; rank refused.')
+            # Descriptive only: NEVER replace pooled calibration or risk gates.
+            ens['own_history'] = own
+            ens['calibration']['coverage_mode'] = 'own_history_only'
+            ens['calibration']['remediation'] = ('Own-history rank is built automatically when 500 real completed bars are available; pooled cross-stock action bands are not applied.')
         # FIX-30: ML ka measured accuracy bhi bhejo — risk plan ab apna win-rate
         # assumption disclose karta hai (pehle 0.62/0.55/0.45 chup-chaap use hote the)
         _ml_acc = ml_res.get('ensemble_accuracy') if isinstance(ml_res, dict) else None
@@ -4831,7 +4856,7 @@ def stock_api(symbol):
             'ml': ml_res,
             # FIX-41 (C-2): recorded OOS study — internal `ml` number sirf
             # diagnostic hai; UI/API ka "edge hai ya nahi" jawaab yahaan se aata hai.
-            'ml_study': ml_study_payload(req_exch),
+            'ml_study': ml_study_payload(req_exch, resolved),
             'engines': {
                 'vol_profile': e1,
                 'rvol_cvd': e2,

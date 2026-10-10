@@ -1446,7 +1446,9 @@ function render(d) {
     const _frameEx = String(d.frame_exchange || '').toUpperCase();
     const _calLine = (d.ensemble?.calibration?.ready === true && _calEx === _frameEx)
       ? `Relative rank fitted on ${_calEx} history; not a profit probability or trade signal.`
-      : `Score UNFITTED for this ${_frameEx || 'unknown'} frame; no fitted rank or directional action.`;
+      : d.ensemble?.own_history?.ready
+        ? 'Own-history descriptive rank available; cross-stock cohort not covered. No calibrated directional action.'
+        : `Score UNFITTED for this ${_frameEx || 'unknown'} frame; no fitted rank or directional action.`;
     if (d.frame_exchange === 'BSE') {
       exchEl.style.display = 'block';
       exchEl.textContent = 'History exchange: BSE. NSE and BSE prices can differ; they are not interchangeable. ' + _calLine;
@@ -1478,6 +1480,12 @@ function render(d) {
     const th = fit.thresholds || {};
     scoreCal.textContent = `📊 Score FIT: ${fit.sessions} past sessions, ${fit.samples} stock-scores (as-of ${fit.asof_session}, current bar ${fit.reference_session || '—'}). Relative rank ${svd(fit.relative_rank_pct)}% · p80 ≥ ${svd(th.buy_dip)} · p95 ≥ ${svd(th.buy_breakout)}. Percentile = rank, NOT profit probability. Regime → exposure; MTF → diagnostic only.`;
     scoreCal.style.color = 'var(--accent-cyan)';
+  } else if (scoreCal && ens.own_history) {
+    const own = ens.own_history;
+    scoreCal.textContent = own.ready
+      ? `📊 OWN-HISTORY percentile: ${svd(own.relative_rank_pct)}% · ${own.sessions} prior scores · ${own.exchange} ${own.symbol} · sample ${own.first_session} to ${own.asof_session}, reference ${own.reference_session}. Compares this stock ONLY with its own history; NOT cross-stock rank or profit probability. Cross-stock cohort: not covered. No calibrated directional action. ${own.note || ''}`
+      : `Own-history rank: ${own.status || 'UNAVAILABLE'} — ${own.reason || 'History unavailable'}. Completed bars ${own.bars_available}/${own.bars_required}. Cross-stock cohort: not covered. No calibrated directional action.`;
+    scoreCal.style.color = own.ready ? 'var(--accent-cyan)' : 'var(--color-yellow)';
   } else if (scoreCal) {
     const reason = String(fit?.note || 'score history unavailable').replace(/^UNFITTED\s*[—-]\s*/i, '');
     const history = fit?.bars_available != null ? ` Completed bars: ${fit.bars_available}/${fit.bars_required || 250} required.` : '';
@@ -1592,6 +1600,7 @@ function render(d) {
           🎯 <b>${archived ? 'ARCHIVED OOS study — NOT current validation' : 'Recorded OOS study — not live validation'}</b> · purged walk-forward · ${sv(study.period, '?')} · ${sv(study.as_of, '?')}${study.stale ? ' · ⚠️ stale' : ''}
           <div class="mono" style="color:${stColor};margin:3px 0"><b>${sv(study.verdict, '—')}</b></div>
           <div>${sv(study.exchange, 'Exchange unspecified')} · ${sv(study.model_scope, 'Research scope unspecified')} · cohort: ${(study.symbols || []).join(', ')}</div>
+          <div style="color:var(--color-yellow)">${sv(study.selected_symbol_note, 'Study coverage for selected stock not supplied.')}</div>
           ${raw(stRows)}
           ${raw(nullLine)}
           <div style="color:var(--text-muted);margin-top:3px">${sv(study.disclosure, 'Predictive-edge test only; profitability ka proof nahi.')} Net-of-cost: RESEARCH_REPORT.md</div>

@@ -64,13 +64,13 @@ class Research(unittest.TestCase):
    root=Path(t);p=root/'sample.py';p.write_bytes(b'a=1\nb=2\n')
    with patch.object(P,'ROOT',root),patch.object(P,'FILES',('sample.py',)):
     a=P.pipeline_fingerprint();p.write_bytes(b'a=1\r\nb=2\r\n');self.assertEqual(a,P.pipeline_fingerprint());p.write_bytes(b'a=3\r\nb=2\r\n');self.assertNotEqual(a,P.pipeline_fingerprint())
- def test_current_exchange_specific_fingerprints(self):
+ def test_exchange_specific_studies_are_honestly_archived_after_fix105(self):
   for ex in ('NSE','BSE'):
-   p=A.ml_study_payload(ex);self.assertTrue(p['ready']);self.assertFalse(p['rebuild_required']);self.assertEqual(p['exchange'],ex);self.assertFalse(p['execution_validated']);self.assertIn('NOT the deployed',p['model_scope']);self.assertEqual(len(p['data_manifest']),6)
+   p=A.ml_study_payload(ex);self.assertTrue(p['ready']);self.assertTrue(p['rebuild_required']);self.assertIn('ARCHIVED',p['disclosure']);self.assertEqual(p['exchange'],ex);self.assertFalse(p['execution_validated']);self.assertIn('NOT the deployed',p['model_scope']);self.assertEqual(len(p['data_manifest']),6)
  def test_wrong_fingerprint_is_archived(self):
   d=json.loads((ROOT/'ml_edge_study.json').read_text());d['pipeline_fingerprint']='wrong'
   with patch.object(A,'load_ml_study',return_value=d):self.assertTrue(A.ml_study_payload()['rebuild_required'])
- def test_net_cost_study_ran_current_code_without_execution_claim(self):
-  d=json.loads((ROOT/'reports/study_results.json').read_text());self.assertEqual(d['pipeline_fingerprint'],pipeline_fingerprint());self.assertFalse(d['execution_validated']);self.assertEqual(len(d['per_symbol']),6);self.assertEqual(d['config']['exec_lag'],1)
+ def test_fix104_net_cost_study_is_not_relabelled_as_current(self):
+  d=json.loads((ROOT/'reports/study_results.json').read_text());self.assertNotEqual(d['pipeline_fingerprint'],pipeline_fingerprint());self.assertFalse(d['execution_validated']);self.assertEqual(len(d['per_symbol']),6);self.assertEqual(d['config']['exec_lag'],1)
 
 if __name__=='__main__':unittest.main(verbosity=2)

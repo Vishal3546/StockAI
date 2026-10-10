@@ -1,0 +1,45 @@
+{
+  "scope": "Sample daily CLOSE reconciliation only; not all OHLCV, history or tick validation",
+  "rows": [
+    {
+      "symbol": "TORNTPHARM",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE685A01028",
+      "official_close": 4656.9,
+      "provider_close": 4656.9,
+      "status": "MATCH",
+      "primary_file_sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c"
+    },
+    {
+      "symbol": "PRAKASH",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE603A01013",
+      "official_close": 119.2,
+      "provider_close": 119.2,
+      "status": "MATCH",
+      "primary_file_sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449"
+    },
+    {
+      "symbol": "LGEINDIA",
+      "exchange": "BSE",
+      "session": "2026-10-09",
+      "isin": "INE324D01010",
+      "official_close": 1755.9,
+      "provider_close": 1755.9,
+      "status": "MATCH",
+      "primary_file_sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449"
+    },
+    {
+      "symbol": "EMIL",
+      "exchange": "NSE",
+      "session": "2026-10-09",
+      "isin": "INE02YR01019",
+      "official_close": 191.17,
+      "provider_close": 191.17,
+      "status": "MATCH",
+      "primary_file_sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c"
+    }
+  ]
+}

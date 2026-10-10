@@ -2,7 +2,7 @@
 import hashlib
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ('app.py','tv_history.py','safety.py','research/provenance.py',
+FILES = ('app.py','own_history.py','tv_history.py','safety.py','research/provenance.py',
          'research/data.py','research/features.py','research/ml_lab.py',
          'research/backtest.py','research/costs.py','research/run_study.py',
          'tools/build_ml_edge_study.py')

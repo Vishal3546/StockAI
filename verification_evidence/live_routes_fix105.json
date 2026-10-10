@@ -1,0 +1,712 @@
+[
+  {
+    "symbol": "TORNTPHARM",
+    "exchange": "NSE",
+    "http_status": 200,
+    "frame_exchange": "NSE",
+    "frame_close": 4656.9,
+    "rank_session": "2026-10-09",
+    "calibration_ready": false,
+    "own_history": {
+      "asof_session": "2026-10-08",
+      "bars_available": 550,
+      "bars_required": 500,
+      "cache_hit": false,
+      "directional_signal": false,
+      "exchange": "NSE",
+      "execution_validated": false,
+      "first_session": "2025-10-06",
+      "formula_hash": "f1b822d8ca26e4d04a353a4fe027ed02570f6e1e1ab8e33a9eb145b6b749ad2d",
+      "input_sha256": "2bde41a6c2c5beeb9cedb8b8cc0c06548afe888befa8492b8fd821460b054824",
+      "model": "own-history-daily4-v1",
+      "note": "Own-history percentile is not cross-stock rank, win probability or evidence of an edge. Overlapping windows are not independent trials. Provider corporate-action conventions are not independently reconciled.",
+      "ready": true,
+      "reason": "Descriptive own-history rank only; pooled action bands remain unavailable.",
+      "reference_session": "2026-10-09",
+      "relative_rank_pct": 84.8,
+      "samples": 250,
+      "scope": "own_history",
+      "score": 56,
+      "sessions": 250,
+      "source": "TradingView Direct (NSE)",
+      "status": "READY",
+      "symbol": "TORNTPHARM"
+    },
+    "bars": 550,
+    "qty": 0,
+    "direction": "NONE",
+    "plan_available": false,
+    "study": {
+      "age_days": 0,
+      "as_of": "2026-10-10",
+      "data_manifest": {
+        "CANBK": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "6cf1a59643812336edb8ee7fd72001e11feadd68c14dd596e9050879c7d3fc81"
+        },
+        "EMIL": {
+          "bars": 984,
+          "first_session": "2022-10-17",
+          "last_session": "2026-10-09",
+          "sha256": "d2d9f3f5e7e6554ae86083a4c9ecba98dad274a2b5ddf411a2207c7ec830e149"
+        },
+        "HDFCBANK": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "2cdefca32a381b30f19c9d253bd1a0fbdbbe54920848f5b11d00574196f3a44a"
+        },
+        "JIOFIN": {
+          "bars": 775,
+          "first_session": "2023-08-21",
+          "last_session": "2026-10-09",
+          "sha256": "eff49da9715f2ad44b1d55feb223d24e7f3f678088786c29a1ad5dfa74eac2c1"
+        },
+        "RELIANCE": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "f3d87ef52042a2cf80a54ef29fc0a40797b2cd4dd6a2c0444608658f6c349651"
+        },
+        "TCS": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "ae686e46dd7b4f8e66a3df51d173a04f4abf07a2d10d5f6be139de817ca07b75"
+        }
+      },
+      "disclosure": "ARCHIVED or different-exchange study: content fingerprint/scope mismatch; rebuild with the current research code. Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof nahi hai; costs/slippage ke baad ke numbers research/run_study.py aur RESEARCH_REPORT.md me hain.",
+      "edge_found": false,
+      "exchange": "NSE",
+      "execution_validated": false,
+      "method": "purged + embargoed expanding walk-forward (5 folds, embargo = label horizon), baseline = train-only majority evaluated on OOS folds; approximate binomial 95% CI (not dependence-adjusted), shuffled-label permutation null",
+      "model": "ml-edge-purged-wf-v1",
+      "model_scope": "GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy",
+      "period": "5y",
+      "permutation_null": {
+        "max_pct": 61.6,
+        "mean_pct": 58.32,
+        "min_pct": 51.83,
+        "n_symbols": 6,
+        "perms_per_symbol": 3
+      },
+      "pipeline_version": "fix104",
+      "ready": true,
+      "rebuild_required": true,
+      "selected_symbol": "TORNTPHARM",
+      "selected_symbol_in_study": false,
+      "selected_symbol_note": "Selected stock not included in this study; cohort verdict is not a stock-specific test.",
+      "stale": false,
+      "strategies": {
+        "S1_ml_dir1_app28": {
+          "accuracy_pct": 50.3,
+          "baseline_pct": 51.75,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.45,
+          "features": 28,
+          "label": "dir1",
+          "n_oos": 4891,
+          "note": "app.py ka current design (28 features, next-day direction)",
+          "symbols_with_positive_edge": 1
+        },
+        "S2_ml_dir1_small10": {
+          "accuracy_pct": 49.79,
+          "baseline_pct": 51.75,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.96,
+          "features": 10,
+          "label": "dir1",
+          "n_oos": 4891,
+          "note": "wahi label, chhota feature set",
+          "symbols_with_positive_edge": 1
+        },
+        "S3_ml_ret5atr_small10": {
+          "accuracy_pct": 54.72,
+          "baseline_pct": 64.62,
+          "ci95_pp": 1.4,
+          "edge_pp": -9.9,
+          "features": 10,
+          "label": "ret5_atr",
+          "n_oos": 4867,
+          "note": "proposed redesign (volatility-adjusted 5-day label)",
+          "symbols_with_positive_edge": 0
+        }
+      },
+      "symbols": [
+        "CANBK",
+        "EMIL",
+        "HDFCBANK",
+        "JIOFIN",
+        "RELIANCE",
+        "TCS"
+      ],
+      "verdict": "NO EDGE \u2014 accuracy 54.7% shuffled-label ceiling 61.6% se neeche/barabar hai"
+    },
+    "seconds": 16.08,
+    "passed": true
+  },
+  {
+    "symbol": "PRAKASH",
+    "exchange": "BSE",
+    "http_status": 200,
+    "frame_exchange": "BSE",
+    "frame_close": 119.2,
+    "rank_session": "2026-10-09",
+    "calibration_ready": false,
+    "own_history": {
+      "asof_session": "2026-10-08",
+      "bars_available": 550,
+      "bars_required": 500,
+      "cache_hit": false,
+      "directional_signal": false,
+      "exchange": "BSE",
+      "execution_validated": false,
+      "first_session": "2025-10-06",
+      "formula_hash": "f1b822d8ca26e4d04a353a4fe027ed02570f6e1e1ab8e33a9eb145b6b749ad2d",
+      "input_sha256": "e7d6e6db9dd3b0e7aa49de5cf24b38a12afadf0bb8a08945443fb8364d57a4e6",
+      "model": "own-history-daily4-v1",
+      "note": "Own-history percentile is not cross-stock rank, win probability or evidence of an edge. Overlapping windows are not independent trials. Provider corporate-action conventions are not independently reconciled.",
+      "ready": true,
+      "reason": "Descriptive own-history rank only; pooled action bands remain unavailable.",
+      "reference_session": "2026-10-09",
+      "relative_rank_pct": 24.8,
+      "samples": 250,
+      "scope": "own_history",
+      "score": 41,
+      "sessions": 250,
+      "source": "TradingView Direct (BSE)",
+      "status": "READY",
+      "symbol": "PRAKASH"
+    },
+    "bars": 550,
+    "qty": 0,
+    "direction": "NONE",
+    "plan_available": false,
+    "study": {
+      "age_days": 0,
+      "as_of": "2026-10-10",
+      "data_manifest": {
+        "CANBK": {
+          "bars": 1234,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "e77206551dacdf193a29d0f940079b8d5d7dcc45d76d2e11d8ff184f8404845b"
+        },
+        "EMIL": {
+          "bars": 981,
+          "first_session": "2022-10-17",
+          "last_session": "2026-10-09",
+          "sha256": "ae811ccbd1751956b8c368834f53ba871f57fd03e2681db900154561d4051dbf"
+        },
+        "HDFCBANK": {
+          "bars": 1235,
+          "first_session": "2021-10-19",
+          "last_session": "2026-10-09",
+          "sha256": "5ceb92ea3593fa2259f174c129b1331f728bb3c5a8e360fd2a95cec8981662a5"
+        },
+        "JIOFIN": {
+          "bars": 772,
+          "first_session": "2023-08-21",
+          "last_session": "2026-10-09",
+          "sha256": "75380b4fe810c9ce588a4284ff1d5b81536c480ea4f05b97cc2ca9a94cecc547"
+        },
+        "RELIANCE": {
+          "bars": 1235,
+          "first_session": "2021-10-19",
+          "last_session": "2026-10-09",
+          "sha256": "e37c5bd094cc82ae8336fc0dc8cf9620b81af95d601426e5da85c676c42bbd48"
+        },
+        "TCS": {
+          "bars": 1233,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "72ba4b00a27717f037db27a7a343659dc31af92def2ce168db882d45377011f5"
+        }
+      },
+      "disclosure": "ARCHIVED or different-exchange study: content fingerprint/scope mismatch; rebuild with the current research code. Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof nahi hai; costs/slippage ke baad ke numbers research/run_study.py aur RESEARCH_REPORT.md me hain.",
+      "edge_found": false,
+      "exchange": "BSE",
+      "execution_validated": false,
+      "method": "purged + embargoed expanding walk-forward (5 folds, embargo = label horizon), baseline = train-only majority evaluated on OOS folds; approximate binomial 95% CI (not dependence-adjusted), shuffled-label permutation null",
+      "model": "ml-edge-purged-wf-v1",
+      "model_scope": "GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy",
+      "period": "5y",
+      "permutation_null": {
+        "max_pct": 64.88,
+        "mean_pct": 59.9,
+        "min_pct": 53.34,
+        "n_symbols": 6,
+        "perms_per_symbol": 3
+      },
+      "pipeline_version": "fix104",
+      "ready": true,
+      "rebuild_required": true,
+      "selected_symbol": "PRAKASH",
+      "selected_symbol_in_study": false,
+      "selected_symbol_note": "Selected stock not included in this study; cohort verdict is not a stock-specific test.",
+      "stale": false,
+      "strategies": {
+        "S1_ml_dir1_app28": {
+          "accuracy_pct": 49.47,
+          "baseline_pct": 51.37,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.91,
+          "features": 28,
+          "label": "dir1",
+          "n_oos": 4878,
+          "note": "app.py ka current design (28 features, next-day direction)",
+          "symbols_with_positive_edge": 1
+        },
+        "S2_ml_dir1_small10": {
+          "accuracy_pct": 49.2,
+          "baseline_pct": 51.37,
+          "ci95_pp": 1.4,
+          "edge_pp": -2.17,
+          "features": 10,
+          "label": "dir1",
+          "n_oos": 4878,
+          "note": "wahi label, chhota feature set",
+          "symbols_with_positive_edge": 0
+        },
+        "S3_ml_ret5atr_small10": {
+          "accuracy_pct": 55.17,
+          "baseline_pct": 64.5,
+          "ci95_pp": 1.4,
+          "edge_pp": -9.33,
+          "features": 10,
+          "label": "ret5_atr",
+          "n_oos": 4854,
+          "note": "proposed redesign (volatility-adjusted 5-day label)",
+          "symbols_with_positive_edge": 0
+        }
+      },
+      "symbols": [
+        "CANBK",
+        "EMIL",
+        "HDFCBANK",
+        "JIOFIN",
+        "RELIANCE",
+        "TCS"
+      ],
+      "verdict": "NO EDGE \u2014 accuracy 55.2% shuffled-label ceiling 64.9% se neeche/barabar hai"
+    },
+    "seconds": 14.88,
+    "passed": true
+  },
+  {
+    "symbol": "LGEINDIA",
+    "exchange": "BSE",
+    "http_status": 200,
+    "frame_exchange": "BSE",
+    "frame_close": 1755.9,
+    "rank_session": "2026-10-09",
+    "calibration_ready": false,
+    "own_history": {
+      "bars_available": 245,
+      "bars_required": 500,
+      "directional_signal": false,
+      "exchange": "BSE",
+      "execution_validated": false,
+      "model": "own-history-daily4-v1",
+      "note": "Own-history percentile is not cross-stock rank, win probability or evidence of an edge. Overlapping windows are not independent trials. Provider corporate-action conventions are not independently reconciled.",
+      "ready": false,
+      "reason": "245/500 completed daily bars; do not pad history. 300 bars do not supply 250 prior 250-bar score windows.",
+      "reference_session": "2026-10-09",
+      "relative_rank_pct": null,
+      "samples": 0,
+      "scope": "own_history",
+      "sessions": 0,
+      "source": "TradingView Direct (BSE)",
+      "status": "INSUFFICIENT_HISTORY",
+      "symbol": "LGEINDIA"
+    },
+    "bars": 245,
+    "qty": 0,
+    "direction": "NONE",
+    "plan_available": false,
+    "study": {
+      "age_days": 0,
+      "as_of": "2026-10-10",
+      "data_manifest": {
+        "CANBK": {
+          "bars": 1234,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "e77206551dacdf193a29d0f940079b8d5d7dcc45d76d2e11d8ff184f8404845b"
+        },
+        "EMIL": {
+          "bars": 981,
+          "first_session": "2022-10-17",
+          "last_session": "2026-10-09",
+          "sha256": "ae811ccbd1751956b8c368834f53ba871f57fd03e2681db900154561d4051dbf"
+        },
+        "HDFCBANK": {
+          "bars": 1235,
+          "first_session": "2021-10-19",
+          "last_session": "2026-10-09",
+          "sha256": "5ceb92ea3593fa2259f174c129b1331f728bb3c5a8e360fd2a95cec8981662a5"
+        },
+        "JIOFIN": {
+          "bars": 772,
+          "first_session": "2023-08-21",
+          "last_session": "2026-10-09",
+          "sha256": "75380b4fe810c9ce588a4284ff1d5b81536c480ea4f05b97cc2ca9a94cecc547"
+        },
+        "RELIANCE": {
+          "bars": 1235,
+          "first_session": "2021-10-19",
+          "last_session": "2026-10-09",
+          "sha256": "e37c5bd094cc82ae8336fc0dc8cf9620b81af95d601426e5da85c676c42bbd48"
+        },
+        "TCS": {
+          "bars": 1233,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "72ba4b00a27717f037db27a7a343659dc31af92def2ce168db882d45377011f5"
+        }
+      },
+      "disclosure": "ARCHIVED or different-exchange study: content fingerprint/scope mismatch; rebuild with the current research code. Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof nahi hai; costs/slippage ke baad ke numbers research/run_study.py aur RESEARCH_REPORT.md me hain.",
+      "edge_found": false,
+      "exchange": "BSE",
+      "execution_validated": false,
+      "method": "purged + embargoed expanding walk-forward (5 folds, embargo = label horizon), baseline = train-only majority evaluated on OOS folds; approximate binomial 95% CI (not dependence-adjusted), shuffled-label permutation null",
+      "model": "ml-edge-purged-wf-v1",
+      "model_scope": "GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy",
+      "period": "5y",
+      "permutation_null": {
+        "max_pct": 64.88,
+        "mean_pct": 59.9,
+        "min_pct": 53.34,
+        "n_symbols": 6,
+        "perms_per_symbol": 3
+      },
+      "pipeline_version": "fix104",
+      "ready": true,
+      "rebuild_required": true,
+      "selected_symbol": "LGEINDIA",
+      "selected_symbol_in_study": false,
+      "selected_symbol_note": "Selected stock not included in this study; cohort verdict is not a stock-specific test.",
+      "stale": false,
+      "strategies": {
+        "S1_ml_dir1_app28": {
+          "accuracy_pct": 49.47,
+          "baseline_pct": 51.37,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.91,
+          "features": 28,
+          "label": "dir1",
+          "n_oos": 4878,
+          "note": "app.py ka current design (28 features, next-day direction)",
+          "symbols_with_positive_edge": 1
+        },
+        "S2_ml_dir1_small10": {
+          "accuracy_pct": 49.2,
+          "baseline_pct": 51.37,
+          "ci95_pp": 1.4,
+          "edge_pp": -2.17,
+          "features": 10,
+          "label": "dir1",
+          "n_oos": 4878,
+          "note": "wahi label, chhota feature set",
+          "symbols_with_positive_edge": 0
+        },
+        "S3_ml_ret5atr_small10": {
+          "accuracy_pct": 55.17,
+          "baseline_pct": 64.5,
+          "ci95_pp": 1.4,
+          "edge_pp": -9.33,
+          "features": 10,
+          "label": "ret5_atr",
+          "n_oos": 4854,
+          "note": "proposed redesign (volatility-adjusted 5-day label)",
+          "symbols_with_positive_edge": 0
+        }
+      },
+      "symbols": [
+        "CANBK",
+        "EMIL",
+        "HDFCBANK",
+        "JIOFIN",
+        "RELIANCE",
+        "TCS"
+      ],
+      "verdict": "NO EDGE \u2014 accuracy 55.2% shuffled-label ceiling 64.9% se neeche/barabar hai"
+    },
+    "seconds": 3.62,
+    "passed": true
+  },
+  {
+    "symbol": "EMIL",
+    "exchange": "NSE",
+    "http_status": 200,
+    "frame_exchange": "NSE",
+    "frame_close": 191.17,
+    "rank_session": "2026-10-09",
+    "calibration_ready": true,
+    "own_history": {},
+    "bars": 300,
+    "qty": 0,
+    "direction": "NONE",
+    "plan_available": false,
+    "study": {
+      "age_days": 0,
+      "as_of": "2026-10-10",
+      "data_manifest": {
+        "CANBK": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "6cf1a59643812336edb8ee7fd72001e11feadd68c14dd596e9050879c7d3fc81"
+        },
+        "EMIL": {
+          "bars": 984,
+          "first_session": "2022-10-17",
+          "last_session": "2026-10-09",
+          "sha256": "d2d9f3f5e7e6554ae86083a4c9ecba98dad274a2b5ddf411a2207c7ec830e149"
+        },
+        "HDFCBANK": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "2cdefca32a381b30f19c9d253bd1a0fbdbbe54920848f5b11d00574196f3a44a"
+        },
+        "JIOFIN": {
+          "bars": 775,
+          "first_session": "2023-08-21",
+          "last_session": "2026-10-09",
+          "sha256": "eff49da9715f2ad44b1d55feb223d24e7f3f678088786c29a1ad5dfa74eac2c1"
+        },
+        "RELIANCE": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "f3d87ef52042a2cf80a54ef29fc0a40797b2cd4dd6a2c0444608658f6c349651"
+        },
+        "TCS": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "ae686e46dd7b4f8e66a3df51d173a04f4abf07a2d10d5f6be139de817ca07b75"
+        }
+      },
+      "disclosure": "ARCHIVED or different-exchange study: content fingerprint/scope mismatch; rebuild with the current research code. Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof nahi hai; costs/slippage ke baad ke numbers research/run_study.py aur RESEARCH_REPORT.md me hain.",
+      "edge_found": false,
+      "exchange": "NSE",
+      "execution_validated": false,
+      "method": "purged + embargoed expanding walk-forward (5 folds, embargo = label horizon), baseline = train-only majority evaluated on OOS folds; approximate binomial 95% CI (not dependence-adjusted), shuffled-label permutation null",
+      "model": "ml-edge-purged-wf-v1",
+      "model_scope": "GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy",
+      "period": "5y",
+      "permutation_null": {
+        "max_pct": 61.6,
+        "mean_pct": 58.32,
+        "min_pct": 51.83,
+        "n_symbols": 6,
+        "perms_per_symbol": 3
+      },
+      "pipeline_version": "fix104",
+      "ready": true,
+      "rebuild_required": true,
+      "selected_symbol": "EMIL",
+      "selected_symbol_in_study": true,
+      "selected_symbol_note": "Selected stock included in the research cohort; pooled results are not a stock-specific or deployed-ensemble certification.",
+      "stale": false,
+      "strategies": {
+        "S1_ml_dir1_app28": {
+          "accuracy_pct": 50.3,
+          "baseline_pct": 51.75,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.45,
+          "features": 28,
+          "label": "dir1",
+          "n_oos": 4891,
+          "note": "app.py ka current design (28 features, next-day direction)",
+          "symbols_with_positive_edge": 1
+        },
+        "S2_ml_dir1_small10": {
+          "accuracy_pct": 49.79,
+          "baseline_pct": 51.75,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.96,
+          "features": 10,
+          "label": "dir1",
+          "n_oos": 4891,
+          "note": "wahi label, chhota feature set",
+          "symbols_with_positive_edge": 1
+        },
+        "S3_ml_ret5atr_small10": {
+          "accuracy_pct": 54.72,
+          "baseline_pct": 64.62,
+          "ci95_pp": 1.4,
+          "edge_pp": -9.9,
+          "features": 10,
+          "label": "ret5_atr",
+          "n_oos": 4867,
+          "note": "proposed redesign (volatility-adjusted 5-day label)",
+          "symbols_with_positive_edge": 0
+        }
+      },
+      "symbols": [
+        "CANBK",
+        "EMIL",
+        "HDFCBANK",
+        "JIOFIN",
+        "RELIANCE",
+        "TCS"
+      ],
+      "verdict": "NO EDGE \u2014 accuracy 54.7% shuffled-label ceiling 61.6% se neeche/barabar hai"
+    },
+    "seconds": 4.53,
+    "passed": true
+  },
+  {
+    "symbol": "TORNTPHARM",
+    "exchange": "NSE",
+    "http_status": 200,
+    "frame_exchange": "NSE",
+    "frame_close": 4656.9,
+    "rank_session": "2026-10-09",
+    "calibration_ready": false,
+    "own_history": {
+      "asof_session": "2026-10-08",
+      "bars_available": 550,
+      "bars_required": 500,
+      "cache_hit": true,
+      "directional_signal": false,
+      "exchange": "NSE",
+      "execution_validated": false,
+      "first_session": "2025-10-06",
+      "formula_hash": "f1b822d8ca26e4d04a353a4fe027ed02570f6e1e1ab8e33a9eb145b6b749ad2d",
+      "input_sha256": "2bde41a6c2c5beeb9cedb8b8cc0c06548afe888befa8492b8fd821460b054824",
+      "model": "own-history-daily4-v1",
+      "note": "Own-history percentile is not cross-stock rank, win probability or evidence of an edge. Overlapping windows are not independent trials. Provider corporate-action conventions are not independently reconciled.",
+      "ready": true,
+      "reason": "Descriptive own-history rank only; pooled action bands remain unavailable.",
+      "reference_session": "2026-10-09",
+      "relative_rank_pct": 84.8,
+      "samples": 250,
+      "scope": "own_history",
+      "score": 56,
+      "sessions": 250,
+      "source": "TradingView Direct (NSE)",
+      "status": "READY",
+      "symbol": "TORNTPHARM"
+    },
+    "bars": 550,
+    "qty": 0,
+    "direction": "NONE",
+    "plan_available": false,
+    "study": {
+      "age_days": 0,
+      "as_of": "2026-10-10",
+      "data_manifest": {
+        "CANBK": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "6cf1a59643812336edb8ee7fd72001e11feadd68c14dd596e9050879c7d3fc81"
+        },
+        "EMIL": {
+          "bars": 984,
+          "first_session": "2022-10-17",
+          "last_session": "2026-10-09",
+          "sha256": "d2d9f3f5e7e6554ae86083a4c9ecba98dad274a2b5ddf411a2207c7ec830e149"
+        },
+        "HDFCBANK": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "2cdefca32a381b30f19c9d253bd1a0fbdbbe54920848f5b11d00574196f3a44a"
+        },
+        "JIOFIN": {
+          "bars": 775,
+          "first_session": "2023-08-21",
+          "last_session": "2026-10-09",
+          "sha256": "eff49da9715f2ad44b1d55feb223d24e7f3f678088786c29a1ad5dfa74eac2c1"
+        },
+        "RELIANCE": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "f3d87ef52042a2cf80a54ef29fc0a40797b2cd4dd6a2c0444608658f6c349651"
+        },
+        "TCS": {
+          "bars": 1236,
+          "first_session": "2021-10-11",
+          "last_session": "2026-10-09",
+          "sha256": "ae686e46dd7b4f8e66a3df51d173a04f4abf07a2d10d5f6be139de817ca07b75"
+        }
+      },
+      "disclosure": "ARCHIVED or different-exchange study: content fingerprint/scope mismatch; rebuild with the current research code. Selected-cohort retrospective research, not an untouched external holdout. Three permutations are a diagnostic, not a significance certificate. Out-of-sample predictive-edge test only. Ye profitability ka proof nahi hai; costs/slippage ke baad ke numbers research/run_study.py aur RESEARCH_REPORT.md me hain.",
+      "edge_found": false,
+      "exchange": "NSE",
+      "execution_validated": false,
+      "method": "purged + embargoed expanding walk-forward (5 folds, embargo = label horizon), baseline = train-only majority evaluated on OOS folds; approximate binomial 95% CI (not dependence-adjusted), shuffled-label permutation null",
+      "model": "ml-edge-purged-wf-v1",
+      "model_scope": "GradientBoosting research candidates; NOT the deployed four-model ensemble or executable strategy",
+      "period": "5y",
+      "permutation_null": {
+        "max_pct": 61.6,
+        "mean_pct": 58.32,
+        "min_pct": 51.83,
+        "n_symbols": 6,
+        "perms_per_symbol": 3
+      },
+      "pipeline_version": "fix104",
+      "ready": true,
+      "rebuild_required": true,
+      "selected_symbol": "TORNTPHARM",
+      "selected_symbol_in_study": false,
+      "selected_symbol_note": "Selected stock not included in this study; cohort verdict is not a stock-specific test.",
+      "stale": false,
+      "strategies": {
+        "S1_ml_dir1_app28": {
+          "accuracy_pct": 50.3,
+          "baseline_pct": 51.75,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.45,
+          "features": 28,
+          "label": "dir1",
+          "n_oos": 4891,
+          "note": "app.py ka current design (28 features, next-day direction)",
+          "symbols_with_positive_edge": 1
+        },
+        "S2_ml_dir1_small10": {
+          "accuracy_pct": 49.79,
+          "baseline_pct": 51.75,
+          "ci95_pp": 1.4,
+          "edge_pp": -1.96,
+          "features": 10,
+          "label": "dir1",
+          "n_oos": 4891,
+          "note": "wahi label, chhota feature set",
+          "symbols_with_positive_edge": 1
+        },
+        "S3_ml_ret5atr_small10": {
+          "accuracy_pct": 54.72,
+          "baseline_pct": 64.62,
+          "ci95_pp": 1.4,
+          "edge_pp": -9.9,
+          "features": 10,
+          "label": "ret5_atr",
+          "n_oos": 4867,
+          "note": "proposed redesign (volatility-adjusted 5-day label)",
+          "symbols_with_positive_edge": 0
+        }
+      },
+      "symbols": [
+        "CANBK",
+        "EMIL",
+        "HDFCBANK",
+        "JIOFIN",
+        "RELIANCE",
+        "TCS"
+      ],
+      "verdict": "NO EDGE \u2014 accuracy 54.7% shuffled-label ceiling 61.6% se neeche/barabar hai"
+    },
+    "seconds": 1.93,
+    "passed": true
+  }
+]

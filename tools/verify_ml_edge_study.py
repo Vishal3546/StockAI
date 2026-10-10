@@ -124,7 +124,7 @@ def main():
 
     print('[5] API + Dashboard')
     src = (ROOT / 'app.py').read_text(encoding='utf-8')
-    ok("'ml_study': ml_study_payload(req_exch)" in src, '/api/stock payload includes ml_study')
+    ok("'ml_study': ml_study_payload(req_exch, resolved)" in src, '/api/stock payload includes exchange- and selected-symbol-scoped ml_study')
     ok('ML accuracy is a single 80/20 split' not in src, 'stale in-sample disclaimer removed')
     dash = (ROOT / 'Dashboard.html').read_text(encoding='utf-8')
     ok('d.ml_study' in dash, 'Dashboard reads ml_study')

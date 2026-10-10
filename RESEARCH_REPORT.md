@@ -1,4 +1,6 @@
-# Current research report — FIX104 (10 October 2026)
+# Archived research results — FIX104 (10 October 2026)
+
+**FIX105 notice:** app/source fingerprints changed for automatic descriptive own-history ranks and study coverage disclosure. These FIX104 studies were NOT rerun or re-stamped. They remain historical evidence, not current-code validation. Own-history percentiles have no predictive/profitability validation; execution remains disabled. TORNTPHARM and PRAKASH were not members of this study.
 
 Fresh predictive and net-of-cost studies were run for RELIANCE, TCS, HDFCBANK, JIOFIN, EMIL and CANBK. These are selected-cohort research results, not an independent validation of the deployed four-model ensemble or licensed execution.
 
@@ -15,7 +17,7 @@ Fresh predictive and net-of-cost studies were run for RELIANCE, TCS, HDFCBANK, J
 ## Evidence and method
 
 - [Full FIX104 review, official-close table, methods and limitations](FIX104_REVIEW_AND_RELEASE.md)
-- [Current net-of-cost table](reports/study_table.md)
+- [FIX104 net-of-cost table](reports/study_table.md)
 - Machine-readable: `reports/study_results.json`, `ml_edge_study.json`, `ml_edge_study_bse.json`.
 - Fingerprints identify the executed research code; per-symbol manifests disclose actual dates and bar counts. Requested five-year ranges do not invent pre-listing history.
 - Purged walk-forward, train-only baseline, next-Open fills, configured cost/slippage model. No untouched external/live holdout, full point-in-time corporate-action database or exact BSE/broker bill is claimed.
