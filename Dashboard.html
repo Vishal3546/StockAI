@@ -1613,7 +1613,7 @@ function render(d) {
         </div>`;
     }
     mlh += safeHtml`
-        <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Trained: ${svd(ml.train_days)}D | Tested: ${svd(ml.test_days)}D</div>
+        <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Holdout train: ${svd(ml.train_days)}D | Test: ${svd(ml.test_days)}D | Live refit: ${svd(ml.live_refit_train_days)}D</div>
         <div style="font-size:0.65rem;color:var(--color-yellow);margin-top:2px">
           📊 Baseline: ${sv(ml.baseline_accuracy, '?')}% | Single-split best edge: ${isMissing(ml.best_edge) ? '—' : (ml.best_edge > 0 ? '+' : '') + ml.best_edge + '%'} | UP Days: ${sv(ml.pos_rate, '?')}%
         </div>

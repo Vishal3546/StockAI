@@ -27,7 +27,7 @@ import json
 import pathlib
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -37,8 +37,8 @@ import numpy as np  # noqa: E402
 import nifty_scanner as S  # noqa: E402  (asli functions — re-implementation nahi)
 from research.data import load  # noqa: E402
 
-SCHEMA = 1
-MODEL = 'scanner-bands-ens-percentile-v1'
+SCHEMA = S.BANDS_SCHEMA
+MODEL = S.BANDS_MODEL
 ARTIFACT_PATH = ROOT / 'scanner_bands.json'
 ML_NEUTRAL = 50.0
 
@@ -63,8 +63,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--sessions', type=int, default=250)
     ap.add_argument('--period', default='5y')
+    ap.add_argument('--fit-end', default=None, help='YYYY-MM-DD cutoff; default reserves the last 92 calendar days for evaluation')
     ap.add_argument('--output', type=pathlib.Path, default=ARTIFACT_PATH)
     args = ap.parse_args()
+    if args.fit_end is None:
+        args.fit_end = (datetime.now(timezone.utc)-timedelta(days=92)).date().isoformat()
 
     syms = list(S.NIFTY_STOCKS)
     print(f"C-3 · scanner band fitting — {len(syms)} symbols × {args.sessions} sessions "
@@ -73,6 +76,11 @@ def main():
     ens_rows, comp_rows, used, skipped = [], [], [], []
     for sym in syms:
         df = load(sym, period=args.period)
+        if df is not None:
+            import pandas as pd
+            from daily_context import completed
+            df=completed(df,'NSE')
+            df=df[df.index<=pd.Timestamp(args.fit_end)]
         if df is None or len(df) < args.sessions + 210:
             skipped.append(f'{sym}(bars={0 if df is None else len(df)})')
             print(f"  SKIP {sym:<12} insufficient history")
@@ -120,7 +128,7 @@ def main():
     artifact = {
         'schema': SCHEMA, 'model': MODEL,
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
-        'period': args.period, 'sessions_per_symbol': args.sessions,
+        'fit_end': args.fit_end, 'period': args.period, 'sessions_per_symbol': args.sessions,
         'symbols_scored': used, 'symbols_skipped': skipped,
         'n_stock_sessions': total,
         'signal_score': ('ensemble score (nifty_scanner.calculate_ensemble) — '

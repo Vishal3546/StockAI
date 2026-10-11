@@ -130,7 +130,7 @@ const NUM = /[-+]?\d[\d,]*\.\d{2}/;
     JSON.stringify(tcs.slice(12, 15)));
   check('koi bhi cell "0.00" nahi hai (null ko 0 nahi banaya)',
     !s.cells.flat().includes('0.00'), JSON.stringify(s.cells.flat().filter((c) => c === '0.00')));
-  check('mlnote legend dikhta hai', s.mlnote.includes('ML+') && s.mlnote.includes('edge < 0'));
+  check('mlnote legend dikhta hai', s.mlnote.includes('legacy') && s.mlnote.includes('select a stock'));
   check('sector dropdown facets se bana (counts ke saath)',
     s.sectors.includes('Banking (4)') && s.sectors.includes('IT (4)'), s.sectors.join(' | '));
   check('signal dropdown facets se bana', s.signals.includes('SELL (14)')

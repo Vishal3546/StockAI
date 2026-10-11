@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StockAI · Screener</title>
+<title>StockAI · Scanner & Deep Analysis</title>
 <style>
   :root{--bg:#0b1020;--card:#141a30;--line:#232b4a;--text:#e8ecf8;--mut:#8f9ac0;--green:#22c55e;--red:#ef4444;--cyan:#22d3ee;--amber:#f59e0b}
   *{box-sizing:border-box;margin:0;padding:0}
@@ -43,10 +43,13 @@
   .spin{display:inline-block;animation:sp 1s linear infinite}
   @keyframes sp{to{transform:rotate(360deg)}}
   #rstat{font-size:11.5px;color:var(--mut);margin-top:8px}
+.workspace{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(360px,1fr);gap:16px}.workspace>div{min-width:0}#deep{align-self:start;position:sticky;top:12px}#deep p{margin:10px 0}#deep button{margin:8px 0}#deep pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}#deep h2{font-size:18px}#deep h3{font-size:14px;margin-top:15px}.select-stock{color:var(--cyan)}@media(max-width:1100px){.workspace{grid-template-columns:1fr}#deep{position:static}}
+#scan-table:not(.legacy-scan) tr>*:nth-child(n+9):nth-child(-n+15){display:none}
 </style>
 </head>
 <body>
-<h1>🔎 AI Screener</h1>
+<h1>🔎 Scanner & Deep Analysis</h1>
+<p class="sub">Completed DAILY analysis · curated research cohort, not the official current NIFTY 50 list · select a symbol for details. No intraday or execution approval.</p>
 <div class="sub">Scanner ka ranked output, filter ke saath ·
   <a href="/">← Dashboard</a> · <a href="/cockpit">Cockpit</a> ·
   <a href="/options">Options</a> · <a href="/calculators">Calculators</a> ·
@@ -56,6 +59,7 @@
 <div id="stale" class="banner b-old" style="display:none"></div>
 <div id="err" class="err" style="display:none"></div>
 
+<div class="workspace"><div>
 <div class="panel">
   <div class="row">
     <div class="fld"><label>Symbol</label><input id="f_q" placeholder="e.g. INFY"></div>
@@ -63,12 +67,12 @@
     <div class="fld"><label>Signal</label><select id="f_signal"><option value="">Sab</option></select></div>
     <div class="fld"><label>Min score</label><input id="f_score" type="number" step="1" placeholder="0"></div>
     <div class="fld"><label>Min vol ratio</label><input id="f_vol" type="number" step="0.1" placeholder="0"></div>
-    <div class="fld"><label>ML composite me</label>
+    <div class="fld"><label>ML composite (legacy rows)</label>
       <select id="f_ml"><option value="">Sab</option><option value="true">Sirf used</option><option value="false">Sirf not-used</option></select></div>
     <div class="fld"><label>Sort</label>
-      <select id="f_sort"><option value="signal_score">Signal score</option><option value="composite">Composite</option>
+      <select id="f_sort"><option value="signal_score">Signal score</option><option value="composite">Composite (legacy)</option>
         <option value="ensemble">Ensemble</option><option value="rsi">RSI</option><option value="vol_ratio">Vol ratio</option>
-        <option value="change_pct">Change %</option><option value="ml_edge">ML edge</option><option value="symbol">Symbol</option></select></div>
+        <option value="change_pct">Change %</option><option value="ml_edge">ML edge (legacy)</option><option value="symbol">Symbol</option></select></div>
     <div class="fld" style="max-width:90px"><label>Order</label>
       <select id="f_order"><option value="desc">↓ desc</option><option value="asc">↑ asc</option></select></div>
     <div><button id="f_reset">Reset</button></div>
@@ -79,7 +83,7 @@
 </div>
 
 <div class="panel scroll">
-  <table>
+  <table id="scan-table">
     <thead><tr>
       <th data-k="symbol">Symbol</th><th data-k="sector">Sector</th>
       <th class="n" data-k="price">Price</th><th class="n" data-k="change_pct">Chg%</th>
@@ -95,28 +99,30 @@
 
 <div class="muted" id="mlnote"></div>
 
+</div><aside id="deep" class="panel" aria-live="polite"><h2>Selected stock · Deep analysis</h2><p id="deep-status" class="muted">Select a symbol in the table. Deep ML runs only for the selected stock, not the entire scan.</p><div id="deep-result"></div></aside></div>
 <div class="disc">
   <strong>Ye kya hai aur kya nahi:</strong> Score (signal_score / composite / ensemble) ek
   <strong>relative rank</strong> hai — probability ya accuracy <em>nahi</em>. ML columns
   diagnostic hain: <code>ml_acc</code> ek hi holdout split ka hai, walk-forward validated nahi,
   aur jahan <span class="mldot mln">ML–</span> likha hai wahan ML composite me use hi nahi hua.
-  Ye scanner <strong>manually</strong> chalta hai — data kitna purana hai upar banner me hai.
+  Corrected scanner rows do not calculate ML composites: ML is on-demand in the selected-stock panel. Older saved rows may still show legacy diagnostics. BUY/SELL names are percentile bands, not executable advice. This scanner <strong>refresh</strong> par chalta hai — data kitna purana hai upar banner me hai.
   StockAI SEBI-registered advisor nahi hai — ye investment advice nahi hai.
 </div>
 
 <script>
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function n2(v){ return (v===null||v===undefined) ? '—' : Number(v).toFixed(2); }
 function cls(v){ return (v===null||v===undefined) ? 'mut' : (v>0 ? 'green' : (v<0 ? 'red' : 'mut')); }
 function sgn(v){ return (v !== null && v !== undefined && v > 0) ? '+' : ''; }
 function pill(s){
   var k = (s||'').indexOf('SELL')>=0 ? 'p-sell' : ((s||'').indexOf('BUY')>=0 ? 'p-buy' : 'p-watch');
-  return '<span class="pill '+k+'">'+(s||'—')+'</span>';
+  return '<span class="pill '+k+'">'+esc(s||'—')+'</span>';
 }
 
 function fill(sel, obj, keep){
   var el = document.getElementById(sel), cur = keep !== undefined ? keep : el.value;
   var opts = '<option value="">Sab</option>';
-  Object.keys(obj||{}).forEach(function(k){ opts += '<option value="'+k+'">'+k+' ('+obj[k]+')</option>'; });
+  Object.keys(obj||{}).forEach(function(k){ opts += '<option value="'+esc(k)+'">'+esc(k)+' ('+obj[k]+')</option>'; });
   el.innerHTML = opts; el.value = cur || '';
 }
 
@@ -144,14 +150,16 @@ function render(j){
   }
 
   document.getElementById('count').textContent =
-    j.matched + ' / ' + j.total + ' stocks · sort: ' + j.sort.key + ' ' + j.sort.order;
+    j.matched + ' / ' + j.total + ' stocks · sort: ' + j.sort.key + ' ' + j.sort.order + ' · attempted: '+(j.attempted??'?')+' · failed: '+(j.failures||[]).length;
 
+  document.getElementById('scan-table').classList.toggle('legacy-scan',j.rows.some(r=>r.ml_prob!=null||r.composite!=null||r.t1!=null));
   var tb = document.getElementById('tbody');
+  document.getElementById('count').title=JSON.stringify(j.failures||[]);
   if(!j.rows.length){ tb.innerHTML = '<tr><td class="muted">Koi stock in filters se match nahi hua.</td></tr>'; }
   else {
     var h = '';
     j.rows.forEach(function(r){
-      h += '<tr><td><b>'+r.symbol+'</b></td><td class="mut">'+(r.sector||'—')+'</td>'+
+      h += '<tr><td><button class="select-stock" data-symbol="'+esc(r.symbol)+'" data-exchange="'+esc(r.exchange||'NSE')+'" data-hash="'+esc(r.input_hash||'')+'">'+esc(r.symbol)+'</button><br><small>'+esc(r.data_as_of||'legacy timestamp unavailable')+(r.historical_only?' · HISTORICAL':'')+'</small></td><td class="mut">'+esc(r.sector||'—')+'</td>'+
         '<td class="n">'+n2(r.price)+'</td>'+
         '<td class="n '+cls(r.change_pct)+'">'+sgn(r.change_pct)+n2(r.change_pct)+'</td>'+
         '<td class="n">'+n2(r.rsi)+'</td><td class="n">'+n2(r.vol_ratio)+'</td>'+
@@ -159,19 +167,21 @@ function render(j){
         '<td class="n"><b>'+n2(r.signal_score)+'</b></td>'+
         '<td class="n">'+n2(r.composite)+'</td><td class="n">'+n2(r.ensemble)+'</td>'+
         '<td class="n">'+n2(r.ml_prob)+' <span class="mldot '+(r.ml_used_in_composite?'mly':'mln')+'" title="'+
-          (r.ml_used_in_composite?j.ml_note_used:j.ml_note_unused)+'">'+(r.ml_used_in_composite?'ML+':'ML−')+'</span></td>'+
+          esc(r.ml_used_in_composite?j.ml_note_used:j.ml_note_unused)+'">'+(r.ml_used_in_composite?'ML+':'ML−')+'</span></td>'+
         '<td class="n '+cls(r.ml_edge)+'">'+sgn(r.ml_edge)+n2(r.ml_edge)+'</td>'+
         '<td class="n mut">'+n2(r.t1)+'</td><td class="n mut">'+n2(r.t2)+'</td>'+
-        '<td class="n mut">'+n2(r.sl)+'</td><td class="mut">'+(r.source||'—')+'</td></tr>';
+        '<td class="n mut">'+n2(r.sl)+'</td><td class="mut">'+esc(r.source||'—')+'</td></tr>';
     });
     tb.innerHTML = h;
   }
   if(j.refresh) rstat(j.refresh);
   document.getElementById('mlnote').textContent =
-    'ML+ = ML composite me use hua · ML− = use nahi hua (edge < 0).  ' + j.ml_note_unused;
+    'New scans: ML not run in ranking; select a stock for shared ensemble diagnostics. Older saved ML+/ML− rows are legacy results.';
 }
 
+var scanRequest=0;
 function load(){
+  var requestId=++scanRequest;
   var p = [];
   var map = {f_q:'q', f_sector:'sector', f_signal:'signal', f_score:'min_score',
              f_vol:'min_vol', f_ml:'ml_used', f_sort:'sort', f_order:'order'};
@@ -182,11 +192,13 @@ function load(){
   fetch('/api/screener' + (p.length ? '?'+p.join('&') : ''))
     .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); })
     .then(function(res){
+      if(requestId!==scanRequest) return;
       if(!res.ok && res.j && res.j.error){ res.j.ok = false; return render(res.j); }
       if(!res.ok) throw new Error('HTTP '+res.status);
-      render(res.j);
+      if(requestId===scanRequest) render(res.j);
     })
     .catch(function(err){
+      if(requestId!==scanRequest) return;
       var e = document.getElementById('err');
       e.style.display = 'block'; e.className = 'err';
       e.textContent = 'Load fail: ' + err.message;
@@ -274,6 +286,43 @@ Array.prototype.forEach.call(document.querySelectorAll('th[data-k]'), function(t
   });
 });
 load();
+
+let deepRequest=0,deepController=null;
+function deepEl(tag,text,parent){const el=document.createElement(tag);el.textContent=text;parent.appendChild(el);return el;}
+async function selectDeep(symbol,exchange,scanHash){
+ const id=++deepRequest;if(deepController)deepController.abort();deepController=new AbortController();
+ const status=document.getElementById('deep-status'),out=document.getElementById('deep-result');
+ out.replaceChildren();status.textContent=symbol+' · '+exchange+' · loading daily analysis (may take several minutes)…';
+ const controller=deepController,timer=setTimeout(()=>controller.abort(),300000);
+ try{
+  const response=await fetch('/api/deep-analysis/'+encodeURIComponent(symbol)+'?exchange='+encodeURIComponent(exchange),{signal:controller.signal});const d=await response.json();
+  if(id!==deepRequest)return;if(!response.ok)throw Error(d.error||'Analysis unavailable');
+  status.textContent=d.symbol+' · '+d.exchange+' · DAILY · '+d.data.as_of+(d.data.historical_only?' · HISTORICAL ONLY':'');
+  deepEl('p',d.note,out);
+  deepEl('p','Official EOD check: '+(d.official_eod?.status||'UNVERIFIED')+' · latest daily OHLCV only, not all history/fundamentals.',out);deepEl('p','Source: '+d.data.source+' · '+d.data.adjustment,out);
+  if(scanHash&&scanHash!==d.data.input_hash)deepEl('p','Data fingerprint differs from scan. Refresh/review before comparing results.',out);
+  const m=d.ml;deepEl('h3','Matched ensemble walk-forward diagnostics',out);
+  if(!m.available)deepEl('p',m.error||'Unavailable',out);else{
+   deepEl('p','Accuracy '+n2(m.walk_forward_accuracy)+'% · matched baseline '+n2(m.walk_forward_baseline)+'% · gap '+n2(m.walk_forward_edge)+' pp',out);
+   deepEl('p','Input window: '+(m.reproducibility?.bars??'?')+' bars · '+(m.reproducibility?.first_session??'?')+' → '+(m.reproducibility?.last_session??'?')+'. Compare only identical input windows; Dashboard can use a different window.',out);
+   deepEl('p','OOS observations '+m.wf_n_oos+' · observed fold SD '+n2(m.wf_fold_std_pp)+' pp (not a confidence interval)',out);
+   const policy=m.wf_neutral_policy||{};deepEl('p','45/55 selection coverage '+n2(policy.policy_coverage_pct)+'% · selected accuracy '+n2(policy.policy_accuracy)+'% vs selected baseline '+n2(policy.policy_baseline)+'%',out);
+   deepEl('p',m.prediction+' · uncalibrated UP score '+n2(m.probability)+'% (not win probability). '+m.prediction_training_note,out);
+   deepEl('p','Same Dashboard ML pipeline; no independent intraday model. Classification accuracy is not net trading performance.',out);
+  }
+  const r=d.risk;deepEl('h3','Historical asset risk — NOT strategy results',out);
+  if(r.available){deepEl('p','CAGR '+n2(r.cagr)+'% · annual volatility '+n2(r.annual_volatility)+'% · max drawdown '+n2(r.max_drawdown)+'%',out);
+   deepEl('p','Sharpe '+n2(r.sharpe_ratio)+' · Sortino '+n2(r.sortino_ratio)+' · Calmar '+n2(r.calmar_ratio)+' · historical 95% VaR loss '+n2(r.var_95)+'%',out);
+   deepEl('p',r.win_rate_label+': '+n2(r.win_rate)+'%. Risk-free assumption '+n2(100*r.risk_free_assumption)+'%; '+r.trading_days_assumption+' annual sessions assumed.',out);
+  }else deepEl('p',r.error||'Unavailable',out);
+  const b=d.sector;deepEl('h3','Stock vs NIFTY — matched endpoints, not sector strength',out);
+  deepEl('p',b.available?'Relative return '+n2(b.relative_strength)+' pp · beta '+n2(b.beta)+' · correlation '+n2(b.correlation)+' · '+b.first_session+' → '+b.last_session+' ('+b.aligned_sessions+' shared sessions). '+b.note:'Benchmark comparison unavailable; no default beta or zero return substituted.',out);
+  deepEl('h3','Provider-reported fundamentals',out);const f=d.fundamentals;deepEl('p','P/E '+n2(f.pe)+' · ROE '+n2(f.roe==null?null:f.roe*100)+'% · market cap ₹'+n2(f.mcap==null?null:f.mcap/1e7)+' crore. '+f.verification,out);
+  const details=deepEl('details','',out);deepEl('summary','Audit fields and per-model diagnostics',details);deepEl('pre',JSON.stringify(d,null,2),details);
+ }catch(e){if(id===deepRequest)status.textContent=e.name==='AbortError'?'Browser stopped waiting. Server work may continue; retry later.':e.message;}finally{clearTimeout(timer);}
+}
+document.getElementById('tbody').addEventListener('click',e=>{const b=e.target.closest('button.select-stock');if(b)selectDeep(b.dataset.symbol,b.dataset.exchange,b.dataset.hash);});
+
 </script>
 </body>
 </html>

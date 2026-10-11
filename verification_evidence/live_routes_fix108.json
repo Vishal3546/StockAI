@@ -1,0 +1,874 @@
+[
+  {
+    "symbol": "INFY",
+    "exchange": "NSE",
+    "status": 200,
+    "seconds": 15.36,
+    "result": {
+      "available": true,
+      "data": {
+        "adjustment": "TradingView requested splits adjustment; not independently reconciled",
+        "as_of": "2026-10-09",
+        "exchange": "NSE",
+        "expected_session": "2026-10-09",
+        "historical_only": false,
+        "input_hash": "e7e941e099f0334de601d3bbf6bec5d8425c99ed4573ef6c0a216c94ce329dc4",
+        "interval": "1d",
+        "requested_period": "2y",
+        "source": "TradingView Direct (NSE)"
+      },
+      "exchange": "NSE",
+      "execution_authorized": false,
+      "fundamentals": {
+        "debt_equity": 9.541,
+        "div_yield": 5.02,
+        "mcap": 4145121853440,
+        "pe": 13.583755,
+        "roe": 0.32,
+        "verification": "Provider reported; historical as-of and fundamentals NOT independently verified"
+      },
+      "interval": "1d",
+      "ml": {
+        "available": true,
+        "baseline_accuracy": 61.1,
+        "best_edge": 0.0,
+        "confidence": "HIGH",
+        "confidence_note": "Model agreement only, not statistical confidence",
+        "ensemble_accuracy": 58.9,
+        "ensemble_prob": 35.7,
+        "last_known_label_feature_session": "2026-10-08 00:00:00",
+        "live_refit_train_days": 450,
+        "metric_scope": "Per-model and ensemble accuracy: purged 80/20 holdout. Probabilities: full known-label refit. Walk-forward: matched ensemble folds.",
+        "models": {
+          "gradient_boosting": {
+            "accuracy": 54.4,
+            "edge": -6.7,
+            "prob": 30.7
+          },
+          "logistic_regression": {
+            "accuracy": 61.1,
+            "edge": 0.0,
+            "prob": 42.5
+          },
+          "random_forest": {
+            "accuracy": 56.7,
+            "edge": -4.4,
+            "prob": 41.5
+          },
+          "xgboost": {
+            "accuracy": 57.8,
+            "edge": -3.3,
+            "prob": 32.7
+          }
+        },
+        "pos_rate": 38.9,
+        "prediction": "DOWN",
+        "prediction_as_of": "2026-10-09 00:00:00",
+        "prediction_training_note": "Live score refitted on all known labels; holdout and walk-forward metrics remain out of sample",
+        "probability": 35.7,
+        "probability_note": "Uncalibrated model score, not trade win probability",
+        "reproducibility": {
+          "bars": 500,
+          "config_sha256": "83e6a87a95fe3ea99de87bdb097ffff351aa2fecc112d005731ac7027f7dfb32",
+          "first_session": "2024-10-04 00:00:00",
+          "input_sha256": "5767cff2348279b53698adc3a776fff4bffcc944952b2f5bac2add6647a6dbbf",
+          "last_session": "2026-10-09 00:00:00",
+          "model_parameters": {
+            "ML_GB_PARAMS": {
+              "learning_rate": 0.05,
+              "max_depth": 3,
+              "n_estimators": 120,
+              "random_state": 42,
+              "subsample": 0.8
+            },
+            "ML_LR_PARAMS": {
+              "max_iter": 1000,
+              "random_state": 42
+            },
+            "ML_MIN_DAYS": 50,
+            "ML_RF_PARAMS": {
+              "max_depth": 5,
+              "min_samples_leaf": 6,
+              "n_estimators": 150,
+              "random_state": 42
+            },
+            "ML_WEIGHTS_3": [
+              0.45,
+              0.35,
+              0.2
+            ],
+            "ML_WEIGHTS_4": [
+              0.35,
+              0.25,
+              0.15,
+              0.25
+            ],
+            "ML_XGB_PARAMS": {
+              "eval_metric": "logloss",
+              "learning_rate": 0.05,
+              "max_depth": 3,
+              "n_estimators": 120,
+              "random_state": 42,
+              "verbosity": 0
+            }
+          },
+          "pipeline_sha256": "01e35ecf8bfadd4395aa409e7dcdcc4c58fee83558e17378faa7fbf96ba1d063",
+          "platform": "Linux-6.1.158+-x86_64-with-glibc2.41",
+          "python": "3.13.16",
+          "scope": "Compare input bytes, config, model availability and dependency versions before expecting identical predictions. Not a bitwise cross-platform guarantee.",
+          "versions": {
+            "numpy": "2.3.5",
+            "pandas": "2.3.3",
+            "scikit-learn": "1.7.2",
+            "xgboost": "2.1.4"
+          }
+        },
+        "test_days": 90,
+        "top_features": [
+          {
+            "importance": 6.7,
+            "name": "close_pos"
+          },
+          {
+            "importance": 5.7,
+            "name": "stoch_rsi"
+          },
+          {
+            "importance": 5.6,
+            "name": "vwap_dist"
+          },
+          {
+            "importance": 5.5,
+            "name": "hl_range"
+          },
+          {
+            "importance": 5.2,
+            "name": "macd_hist"
+          }
+        ],
+        "total_features": 28,
+        "train_days": 359,
+        "walk_forward_accuracy": 52.8,
+        "walk_forward_baseline": 54.7,
+        "walk_forward_edge": -1.9,
+        "walk_forward_stability": 10.8,
+        "walk_forward_windows": 16,
+        "wf_fold_std_pp": 10.8,
+        "wf_folds": [
+          {
+            "baseline_correct": 10,
+            "correct": 13,
+            "first_session": "2025-06-11 00:00:00",
+            "last_session": "2025-07-08 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 13,
+            "policy_n": 20,
+            "training_majority": 1
+          },
+          {
+            "baseline_correct": 7,
+            "correct": 10,
+            "first_session": "2025-07-09 00:00:00",
+            "last_session": "2025-08-05 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 4,
+            "policy_correct": 6,
+            "policy_n": 12,
+            "training_majority": 1
+          },
+          {
+            "baseline_correct": 11,
+            "correct": 11,
+            "first_session": "2025-08-06 00:00:00",
+            "last_session": "2025-09-04 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 9,
+            "policy_correct": 10,
+            "policy_n": 16,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 11,
+            "correct": 11,
+            "first_session": "2025-09-05 00:00:00",
+            "last_session": "2025-10-03 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 9,
+            "policy_n": 18,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 12,
+            "correct": 12,
+            "first_session": "2025-10-06 00:00:00",
+            "last_session": "2025-11-03 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 12,
+            "policy_correct": 12,
+            "policy_n": 18,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 8,
+            "correct": 11,
+            "first_session": "2025-11-04 00:00:00",
+            "last_session": "2025-12-02 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 11,
+            "policy_n": 18,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 10,
+            "correct": 11,
+            "first_session": "2025-12-03 00:00:00",
+            "last_session": "2025-12-31 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 11,
+            "policy_n": 20,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 9,
+            "correct": 13,
+            "first_session": "2026-01-01 00:00:00",
+            "last_session": "2026-01-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 10,
+            "policy_n": 16,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 15,
+            "correct": 6,
+            "first_session": "2026-02-01 00:00:00",
+            "last_session": "2026-02-26 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 15,
+            "policy_correct": 5,
+            "policy_n": 19,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 10,
+            "correct": 11,
+            "first_session": "2026-02-27 00:00:00",
+            "last_session": "2026-03-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 6,
+            "policy_correct": 8,
+            "policy_n": 14,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 10,
+            "correct": 11,
+            "first_session": "2026-04-01 00:00:00",
+            "last_session": "2026-04-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 10,
+            "policy_n": 15,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 12,
+            "correct": 5,
+            "first_session": "2026-05-04 00:00:00",
+            "last_session": "2026-06-01 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 5,
+            "policy_n": 17,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 14,
+            "correct": 11,
+            "first_session": "2026-06-02 00:00:00",
+            "last_session": "2026-06-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 9,
+            "policy_correct": 7,
+            "policy_n": 12,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 10,
+            "correct": 10,
+            "first_session": "2026-07-01 00:00:00",
+            "last_session": "2026-07-28 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 9,
+            "policy_correct": 9,
+            "policy_n": 16,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 11,
+            "correct": 12,
+            "first_session": "2026-07-29 00:00:00",
+            "last_session": "2026-08-25 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 11,
+            "policy_n": 16,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 15,
+            "correct": 11,
+            "first_session": "2026-08-26 00:00:00",
+            "last_session": "2026-09-23 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 9,
+            "policy_correct": 3,
+            "policy_n": 11,
+            "training_majority": 0
+          }
+        ],
+        "wf_model_scope": "Weighted ensemble, same configured models/weights; threshold 0.5",
+        "wf_models": [
+          "gradient_boosting",
+          "random_forest",
+          "logistic_regression",
+          "xgboost"
+        ],
+        "wf_n_oos": 320,
+        "wf_neutral_policy": {
+          "policy_accuracy": 54.3,
+          "policy_baseline": 57.0,
+          "policy_coverage_pct": 80.6,
+          "policy_n": 258
+        },
+        "wf_uncertainty_note": "Observed sample SD across fold accuracies, NOT a confidence interval or independence-adjusted significance test.",
+        "wf_window_sigma": 10.8
+      },
+      "note": "Completed daily descriptive analysis; not intraday or a trade approval",
+      "official_eod": {
+        "exchange": "NSE",
+        "fields": {
+          "Close": {
+            "official": 1023.4,
+            "provider": 1023.4,
+            "status": "MATCH"
+          },
+          "High": {
+            "official": 1030.9,
+            "provider": 1030.9,
+            "status": "MATCH"
+          },
+          "Low": {
+            "official": 1007.3,
+            "provider": 1007.3,
+            "status": "MATCH"
+          },
+          "Open": {
+            "official": 1007.3,
+            "provider": 1007.3,
+            "status": "MATCH"
+          },
+          "Volume": {
+            "official": 14094234.0,
+            "provider": 14094234.0,
+            "status": "MATCH"
+          }
+        },
+        "official_isin": "INE009A01021",
+        "refresh_command": "python tools/refresh_official_eod.py",
+        "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+        "session": "2026-10-09",
+        "source": {
+          "sha256": "8adbb3410c8cf4372290484a9b1798490ef279d30fc2439c93f082cc20ed198c",
+          "url": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20261009_F_0000.csv.zip"
+        },
+        "status": "MATCH",
+        "symbol": "INFY"
+      },
+      "price": 1023.4,
+      "risk": {
+        "adjustment_note": "Provider-adjusted price series; not independently verified total returns",
+        "annual_return": -27.16,
+        "annual_return_basis": "Arithmetic mean \u00d7 247 assumed sessions/year",
+        "annual_volatility": 27.99,
+        "available": true,
+        "cagr": -26.82,
+        "calmar_ratio": -0.529,
+        "max_drawdown": -50.73,
+        "profit_factor": 0.842,
+        "profit_factor_label": "Sum positive / absolute sum negative asset returns, not trade P&L",
+        "rating": "DESCRIPTIVE ONLY",
+        "return_percentile_5": -2.848,
+        "risk_free_assumption": 0.065,
+        "scope": "Historical asset price returns; NOT a traded-strategy backtest",
+        "sharpe_ratio": -1.203,
+        "sortino_ratio": -1.631,
+        "trading_days_assumption": 247,
+        "var_95": 2.848,
+        "win_rate": 46.89,
+        "win_rate_label": "Positive close-return intervals (%) \u2014 NOT trade win rate"
+      },
+      "sector": {
+        "aligned_return_intervals": 125,
+        "aligned_sessions": 126,
+        "available": true,
+        "beta": 0.864,
+        "beta_type": "Market",
+        "correlation": 0.297,
+        "first_session": "2026-04-09",
+        "last_session": "2026-10-09",
+        "nifty_return_6m": -5.28,
+        "nifty_span_days": 183,
+        "note": "Up to 6 months on shared endpoints; beta uses aligned intervals, potentially multi-session gaps. NIFTY benchmark, not a sector index.",
+        "relative_strength": -17.87,
+        "stock_return_6m": -23.15,
+        "stock_span_days": 183,
+        "vs_nifty": "UNDERPERFORM"
+      },
+      "symbol": "INFY",
+      "timestamp": "2026-10-11T04:24:23.092786+00:00"
+    },
+    "same_input_dashboard_core_exact": true
+  },
+  {
+    "symbol": "EMIL",
+    "exchange": "BSE",
+    "status": 200,
+    "seconds": 13.67,
+    "result": {
+      "available": true,
+      "data": {
+        "adjustment": "TradingView requested splits adjustment; not independently reconciled",
+        "as_of": "2026-10-09",
+        "exchange": "BSE",
+        "expected_session": "2026-10-09",
+        "historical_only": false,
+        "input_hash": "7a351a83bc8a094cf23cbc561badf8e22ee39b7e3d943c06e95781a0fb124e80",
+        "interval": "1d",
+        "requested_period": "2y",
+        "source": "TradingView Direct (BSE)"
+      },
+      "exchange": "BSE",
+      "execution_authorized": false,
+      "fundamentals": {
+        "debt_equity": 122.806,
+        "div_yield": 0.0,
+        "mcap": 73660153856,
+        "pe": 35.71828,
+        "roe": null,
+        "verification": "Provider reported; historical as-of and fundamentals NOT independently verified"
+      },
+      "interval": "1d",
+      "ml": {
+        "available": true,
+        "baseline_accuracy": 50.0,
+        "best_edge": 12.2,
+        "confidence": "HIGH",
+        "confidence_note": "Model agreement only, not statistical confidence",
+        "ensemble_accuracy": 56.7,
+        "ensemble_prob": 49.1,
+        "last_known_label_feature_session": "2026-10-08 00:00:00",
+        "live_refit_train_days": 450,
+        "metric_scope": "Per-model and ensemble accuracy: purged 80/20 holdout. Probabilities: full known-label refit. Walk-forward: matched ensemble folds.",
+        "models": {
+          "gradient_boosting": {
+            "accuracy": 57.8,
+            "edge": 7.8,
+            "prob": 53.1
+          },
+          "logistic_regression": {
+            "accuracy": 50.0,
+            "edge": 0.0,
+            "prob": 44.1
+          },
+          "random_forest": {
+            "accuracy": 62.2,
+            "edge": 12.2,
+            "prob": 47.3
+          },
+          "xgboost": {
+            "accuracy": 60.0,
+            "edge": 10.0,
+            "prob": 48.5
+          }
+        },
+        "pos_rate": 50.0,
+        "prediction": "NEUTRAL",
+        "prediction_as_of": "2026-10-09 00:00:00",
+        "prediction_training_note": "Live score refitted on all known labels; holdout and walk-forward metrics remain out of sample",
+        "probability": 49.1,
+        "probability_note": "Uncalibrated model score, not trade win probability",
+        "reproducibility": {
+          "bars": 500,
+          "config_sha256": "83e6a87a95fe3ea99de87bdb097ffff351aa2fecc112d005731ac7027f7dfb32",
+          "first_session": "2024-10-04 00:00:00",
+          "input_sha256": "5906f78af2848d1c4e49cdc28fa3fb57331d9f0b89fcc34322a45124fc95c442",
+          "last_session": "2026-10-09 00:00:00",
+          "model_parameters": {
+            "ML_GB_PARAMS": {
+              "learning_rate": 0.05,
+              "max_depth": 3,
+              "n_estimators": 120,
+              "random_state": 42,
+              "subsample": 0.8
+            },
+            "ML_LR_PARAMS": {
+              "max_iter": 1000,
+              "random_state": 42
+            },
+            "ML_MIN_DAYS": 50,
+            "ML_RF_PARAMS": {
+              "max_depth": 5,
+              "min_samples_leaf": 6,
+              "n_estimators": 150,
+              "random_state": 42
+            },
+            "ML_WEIGHTS_3": [
+              0.45,
+              0.35,
+              0.2
+            ],
+            "ML_WEIGHTS_4": [
+              0.35,
+              0.25,
+              0.15,
+              0.25
+            ],
+            "ML_XGB_PARAMS": {
+              "eval_metric": "logloss",
+              "learning_rate": 0.05,
+              "max_depth": 3,
+              "n_estimators": 120,
+              "random_state": 42,
+              "verbosity": 0
+            }
+          },
+          "pipeline_sha256": "01e35ecf8bfadd4395aa409e7dcdcc4c58fee83558e17378faa7fbf96ba1d063",
+          "platform": "Linux-6.1.158+-x86_64-with-glibc2.41",
+          "python": "3.13.16",
+          "scope": "Compare input bytes, config, model availability and dependency versions before expecting identical predictions. Not a bitwise cross-platform guarantee.",
+          "versions": {
+            "numpy": "2.3.5",
+            "pandas": "2.3.3",
+            "scikit-learn": "1.7.2",
+            "xgboost": "2.1.4"
+          }
+        },
+        "test_days": 90,
+        "top_features": [
+          {
+            "importance": 6.7,
+            "name": "vol_change"
+          },
+          {
+            "importance": 6.5,
+            "name": "adx"
+          },
+          {
+            "importance": 6.1,
+            "name": "atr_pct"
+          },
+          {
+            "importance": 5.8,
+            "name": "hl_range"
+          },
+          {
+            "importance": 5.7,
+            "name": "vol_ratio"
+          }
+        ],
+        "total_features": 28,
+        "train_days": 359,
+        "walk_forward_accuracy": 54.4,
+        "walk_forward_baseline": 54.4,
+        "walk_forward_edge": 0.0,
+        "walk_forward_stability": 13.4,
+        "walk_forward_windows": 16,
+        "wf_fold_std_pp": 13.4,
+        "wf_folds": [
+          {
+            "baseline_correct": 9,
+            "correct": 7,
+            "first_session": "2025-06-11 00:00:00",
+            "last_session": "2025-07-08 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 6,
+            "policy_correct": 6,
+            "policy_n": 17,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 14,
+            "correct": 7,
+            "first_session": "2025-07-09 00:00:00",
+            "last_session": "2025-08-05 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 9,
+            "policy_correct": 6,
+            "policy_n": 11,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 9,
+            "correct": 14,
+            "first_session": "2025-08-06 00:00:00",
+            "last_session": "2025-09-04 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 7,
+            "policy_correct": 10,
+            "policy_n": 15,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 13,
+            "correct": 12,
+            "first_session": "2025-09-05 00:00:00",
+            "last_session": "2025-10-03 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 10,
+            "policy_n": 17,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 9,
+            "correct": 12,
+            "first_session": "2025-10-06 00:00:00",
+            "last_session": "2025-11-03 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 7,
+            "policy_correct": 8,
+            "policy_n": 15,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 14,
+            "correct": 7,
+            "first_session": "2025-11-04 00:00:00",
+            "last_session": "2025-12-02 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 4,
+            "policy_n": 11,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 13,
+            "correct": 16,
+            "first_session": "2025-12-03 00:00:00",
+            "last_session": "2025-12-31 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 12,
+            "policy_n": 14,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 14,
+            "correct": 12,
+            "first_session": "2026-01-01 00:00:00",
+            "last_session": "2026-01-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 10,
+            "policy_correct": 9,
+            "policy_n": 14,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 8,
+            "correct": 11,
+            "first_session": "2026-02-01 00:00:00",
+            "last_session": "2026-02-26 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 7,
+            "policy_n": 15,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 12,
+            "correct": 8,
+            "first_session": "2026-02-27 00:00:00",
+            "last_session": "2026-03-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 12,
+            "policy_correct": 8,
+            "policy_n": 20,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 8,
+            "correct": 13,
+            "first_session": "2026-04-01 00:00:00",
+            "last_session": "2026-04-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 9,
+            "policy_n": 13,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 12,
+            "correct": 10,
+            "first_session": "2026-05-04 00:00:00",
+            "last_session": "2026-06-01 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 4,
+            "policy_correct": 4,
+            "policy_n": 9,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 9,
+            "correct": 9,
+            "first_session": "2026-06-02 00:00:00",
+            "last_session": "2026-06-30 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 9,
+            "policy_correct": 7,
+            "policy_n": 16,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 9,
+            "correct": 12,
+            "first_session": "2026-07-01 00:00:00",
+            "last_session": "2026-07-28 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 7,
+            "policy_correct": 9,
+            "policy_n": 16,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 8,
+            "correct": 13,
+            "first_session": "2026-07-29 00:00:00",
+            "last_session": "2026-08-25 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 8,
+            "policy_correct": 11,
+            "policy_n": 18,
+            "training_majority": 0
+          },
+          {
+            "baseline_correct": 13,
+            "correct": 11,
+            "first_session": "2026-08-26 00:00:00",
+            "last_session": "2026-09-23 00:00:00",
+            "n": 20,
+            "policy_baseline_correct": 12,
+            "policy_correct": 10,
+            "policy_n": 17,
+            "training_majority": 0
+          }
+        ],
+        "wf_model_scope": "Weighted ensemble, same configured models/weights; threshold 0.5",
+        "wf_models": [
+          "gradient_boosting",
+          "random_forest",
+          "logistic_regression",
+          "xgboost"
+        ],
+        "wf_n_oos": 320,
+        "wf_neutral_policy": {
+          "policy_accuracy": 54.6,
+          "policy_baseline": 56.7,
+          "policy_coverage_pct": 74.4,
+          "policy_n": 238
+        },
+        "wf_uncertainty_note": "Observed sample SD across fold accuracies, NOT a confidence interval or independence-adjusted significance test.",
+        "wf_window_sigma": 13.4
+      },
+      "note": "Completed daily descriptive analysis; not intraday or a trade approval",
+      "official_eod": {
+        "exchange": "BSE",
+        "fields": {
+          "Close": {
+            "official": 191.45,
+            "provider": 191.45,
+            "status": "MATCH"
+          },
+          "High": {
+            "official": 199.3,
+            "provider": 199.3,
+            "status": "MATCH"
+          },
+          "Low": {
+            "official": 190.25,
+            "provider": 190.25,
+            "status": "MATCH"
+          },
+          "Open": {
+            "official": 196.15,
+            "provider": 196.15,
+            "status": "MATCH"
+          },
+          "Volume": {
+            "official": 107505.0,
+            "provider": 107505.0,
+            "status": "MATCH"
+          }
+        },
+        "official_isin": "INE02YR01019",
+        "refresh_command": "python tools/refresh_official_eod.py",
+        "scope": "Latest completed daily OHLCV only; not intraday or complete historical/corporate-action verification",
+        "session": "2026-10-09",
+        "source": {
+          "sha256": "417d7a1829d006e559ae045020f40a15c6819e92575152b6c6c02e3a4b465449",
+          "url": "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_20261009_F_0000.CSV"
+        },
+        "status": "MATCH",
+        "symbol": "EMIL"
+      },
+      "price": 191.45,
+      "risk": {
+        "adjustment_note": "Provider-adjusted price series; not independently verified total returns",
+        "annual_return": 6.51,
+        "annual_return_basis": "Arithmetic mean \u00d7 247 assumed sessions/year",
+        "annual_volatility": 47.69,
+        "available": true,
+        "cagr": -4.49,
+        "calmar_ratio": -0.074,
+        "max_drawdown": -61.05,
+        "profit_factor": 1.025,
+        "profit_factor_label": "Sum positive / absolute sum negative asset returns, not trade P&L",
+        "rating": "DESCRIPTIVE ONLY",
+        "return_percentile_5": -3.757,
+        "risk_free_assumption": 0.065,
+        "scope": "Historical asset price returns; NOT a traded-strategy backtest",
+        "sharpe_ratio": 0.0,
+        "sortino_ratio": 0.0,
+        "trading_days_assumption": 247,
+        "var_95": 3.757,
+        "win_rate": 44.89,
+        "win_rate_label": "Positive close-return intervals (%) \u2014 NOT trade win rate"
+      },
+      "sector": {
+        "aligned_return_intervals": 125,
+        "aligned_sessions": 126,
+        "available": true,
+        "beta": 1.106,
+        "beta_type": "Market",
+        "correlation": 0.254,
+        "first_session": "2026-04-09",
+        "last_session": "2026-10-09",
+        "nifty_return_6m": -5.28,
+        "nifty_span_days": 183,
+        "note": "Up to 6 months on shared endpoints; beta uses aligned intervals, potentially multi-session gaps. NIFTY benchmark, not a sector index.",
+        "relative_strength": 95.83,
+        "stock_return_6m": 90.55,
+        "stock_span_days": 183,
+        "vs_nifty": "OUTPERFORM"
+      },
+      "symbol": "EMIL",
+      "timestamp": "2026-10-11T04:24:36.775496+00:00"
+    },
+    "same_input_dashboard_core_exact": true
+  }
+]

@@ -1136,9 +1136,8 @@ print('\n-- FIX-58: teen NSE-hardcoded fetch JAAN-BOOJH kar hain (guard)')
 _deep = (ROOT / 'deep_analyzer.py').read_text(encoding='utf-8')
 _scan = (ROOT / 'nifty_scanner.py').read_text(encoding='utf-8')
 _rdata = (ROOT / 'research' / 'data.py').read_text(encoding='utf-8')
-check('deep_analyzer NSE-hardcoded hai (app.py se import NAHI hota)',
-      "exchange='NSE'" in _deep and 'import deep_analyzer' not in app_src
-      and 'from deep_analyzer' not in app_src)
+check('deep_analyzer uses shared requested-exchange fetch and registered web adapter',
+      'fetch(symbol,period,exchange)' in _deep and 'register_deep_web' in app_src)
 check('nifty_scanner NSE-hardcoded hai (app.py se import NAHI hota)',
       "exchange='NSE'" in _scan and 'import nifty_scanner' not in app_src
       and 'from nifty_scanner' not in app_src)

@@ -370,7 +370,7 @@ check("route '/screener' hai", "@app.route('/screener')" in appsrc)
 check('Screener.html serve hoti hai', "'Screener.html'" in appsrc)
 check('import screener as _scr', 'import screener as _scr' in appsrc)
 check('Dashboard me /screener link', 'href="/screener"' in dash)
-check('page title', '<title>StockAI · Screener</title>' in page)
+check('page title', '<title>StockAI · Scanner & Deep Analysis</title>' in page)
 check('page /api/screener fetch karta hai', "'/api/screener'" in page)
 check('page me localhost/127.0.0.1/:5000 nahi',
       not re.search(r'localhost|127\.0\.0\.1|:5000', page))

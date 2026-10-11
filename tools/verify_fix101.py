@@ -91,7 +91,10 @@ class HistoryTests(unittest.TestCase):
         for name in ('app.py', 'deep_analyzer.py', 'nifty_scanner.py', 'research/data.py',
                      'tools/study_new_signals.py', 'tools/study_oi_signal.py'):
             source = (ROOT / name).read_text(encoding='utf-8')
-            self.assertIn('from tv_history import HistoryDatafeed as TvDatafeed', source, name)
+            if name == 'deep_analyzer.py':
+                self.assertIn('from daily_context import fetch', source)
+            else:
+                self.assertIn('from tv_history import HistoryDatafeed as TvDatafeed', source, name)
             self.assertNotIn('from tvDatafeed import TvDatafeed', source, name)
 
     def test_readiness_message_does_not_claim_connection(self):

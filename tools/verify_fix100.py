@@ -122,7 +122,9 @@ class JournalAndMath(unittest.TestCase):
    self.assertNotEqual(a['close'],b['close']);self.assertEqual(f.call_count,2)
  def test_no_target_backfill_or_unknown_label_zero(self):
   for name in ('app.py','deep_analyzer.py','nifty_scanner.py'):
-   src=(ROOT/name).read_text();self.assertNotIn('.bfill()',src);self.assertIn('.where(c.shift(-1).notna())',src)
+   src=(ROOT/name).read_text();self.assertNotIn('.bfill()',src)
+   if name=='app.py': self.assertIn('.where(c.shift(-1).notna())',src)
+   else: self.assertIn('host().ml_engine',src)  # shared label construction, no duplicate targets
  def test_next_open_does_not_capture_unowned_overnight_gap(self):
   ix=pd.date_range('2026-01-01',periods=4)
   d=pd.DataFrame({'Open':[100,120,120,120],'Close':[100,120,120,120]},index=ix)

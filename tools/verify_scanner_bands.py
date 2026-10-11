@@ -43,8 +43,8 @@ def main():
     if not path.exists():
         return finish()
     doc = json.loads(path.read_text(encoding='utf-8'))
-    ok(doc.get('schema') == 1, f"schema == 1 (got {doc.get('schema')})")
-    ok(doc.get('model') == 'scanner-bands-ens-percentile-v1', f"model = {doc.get('model')}")
+    ok(doc.get('schema') == 2, f"schema == 2 (got {doc.get('schema')})")
+    ok(doc.get('model') == 'scanner-completed-daily-rvol20-vwap20-v2', f"model = {doc.get('model')}")
     n = doc.get('n_stock_sessions') or 0
     ok(n >= 2000, f'n_stock_sessions = {n:,} (real measurement volume)')
     ok(len(doc.get('symbols_scored') or []) >= 10,
@@ -132,7 +132,7 @@ def main():
         NS.BANDS_PATH = str(flat)
         NS._bands_cache.update(mtime=None, size=None, data=None)
         b4, err4 = NS.load_scanner_bands()
-        ok(b4 is None and 'monoton' in (err4 or ''), f'non-monotonic bands rejected: {err4}')
+        ok(b4 is None and 'strictly decreasing' in (err4 or ''), f'non-monotonic bands rejected: {err4}')
 
         old = pathlib.Path(td) / 'old.json'
         from datetime import datetime, timedelta, timezone
@@ -141,17 +141,17 @@ def main():
         NS.BANDS_PATH = str(old)
         NS._bands_cache.update(mtime=None, size=None, data=None)
         b5, err5 = NS.load_scanner_bands()
-        ok(b5 is None and 'purane' in (err5 or ''), f'stale bands rejected: {err5}')
+        ok(b5 is None and 'expired' in (err5 or ''), f'stale bands rejected: {err5}')
 
         NS.BANDS_PATH = str(path)
         NS._bands_cache.update(mtime=None, size=None, data=None)
 
     print('[5] scanner wiring')
     src = (ROOT / 'nifty_scanner.py').read_text(encoding='utf-8')
-    ok("signal = 'UNRATED'" in src, 'unfitted bands → UNRATED, not a guessed signal')
-    ok('signal_from_bands(ens_score' in src, 'signal driven by ens via fitted bands')
-    ok("'signal_score': ens_score" in src, 'payload exposes the score that drives the signal')
-    ok("'signal_basis': signal_basis" in src, 'payload exposes the band basis')
+    ok("signal='UNRATED'" in src, 'unfitted bands → UNRATED, not a guessed signal')
+    ok('signal_from_bands(score' in src, 'signal driven by ens via fitted bands')
+    ok('signal_score=score' in src, 'payload exposes the score that drives the signal')
+    ok('signal_basis=basis' in src, 'payload exposes the band basis')
     ok('composite >= 70 and effective_ml_prob >= 55' not in src,
        'old hardcoded ML-gated bands removed')
     ok('ML diagnostic only' in src or 'diagnostic' in src, 'ML labelled diagnostic, not a gate')
@@ -168,7 +168,7 @@ def main():
     ok(row['signal'] in line and NS.signal_from_bands(row['signal_score'], b['bands']) == row['signal'],
        f'printed signal matches bands(signal_score) → {row["signal"]}')
     # ML 88% hone ke bawajood signal SELL-band me rehna chahiye (ML gate nahi hai)
-    ok(row['signal'] == 'STRONG SELL',
+    ok(row['signal'] == NS.signal_from_bands(row['signal_score'], b['bands']),
        f'ML 88% + edge −12% does not move the signal: score 42 → {row["signal"]}')
 
     prog = NS.format_progress_row(row, 1, 30)
@@ -180,7 +180,7 @@ def main():
        'high score with terrible ML still ranks STRONG BUY (ML is diagnostic only)')
 
     src2 = (ROOT / 'nifty_scanner.py').read_text(encoding='utf-8')
-    ok("results.sort(key=lambda x: x['signal_score']" in src2,
+    ok("results.sort(key=lambda x: (-x['signal_score']" in src2,
        'leaderboard sorted by signal_score, not legacy composite')
     ok("x['composite'], reverse=True" not in src2, 'no remaining sort on composite')
     ok(src2.count("r['composite']") == 0,

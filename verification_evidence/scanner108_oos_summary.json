@@ -1,0 +1,236 @@
+{
+  "scope": "Exploratory chronological diagnostic; not independently untouched validation or portfolio returns",
+  "calibration_end": "2026-07-10",
+  "first_evaluation_signal": "2026-07-13",
+  "last_outcome": "2026-10-09",
+  "band_sha256": "8355c597a7a6b30b9c60128544c9c798e7ae3004bc43afd9b8edaaf931eca99f",
+  "n": 1860,
+  "selected_n": 1203,
+  "coverage_pct": 64.6774193548387,
+  "directional_accuracy_pct": 53.11720698254364,
+  "matched_selected_baseline_pct": 48.21280133000832,
+  "long_scenario_n": 186,
+  "long_scenario_mean_net_rupees": -210.5592250022748,
+  "all_sessions_scenario_mean_net_rupees": -288.8233289647496,
+  "long_scenario_positive_pct": 40.86021505376344,
+  "scenario": "Independent fixed-notional round trips, next open to same-session close, NSE intraday, 5bp each side, estimated Angel One fees; no stops or scale-outs; not portfolio total return",
+  "limitations": [
+    "Survivorship: current curated cohort, not historical index membership",
+    "Provider bars/corporate actions not independently reconciled",
+    "No liquidity/spread/circuit model",
+    "Historical data already used in prior project research; not untouched holdout"
+  ],
+  "inputs": [
+    {
+      "symbol": "RELIANCE",
+      "input_hash": "aae4d19db2f922885095265beb727843a9a52c1d63716df2dfc214020afc871c",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "TCS",
+      "input_hash": "a83a87cb825adf8e2ecfcc5d9697c8aaa69d4a09cf252f1ffbf5506a2986850c",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "HDFCBANK",
+      "input_hash": "b7dc66cecd1bebf1245a10266917f360e5178b29915210b7671d62be4a30e8f5",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "INFY",
+      "input_hash": "7124b6dc2ae30d44a66a6ed0d4d35c0d56c06d90355e4389d7771b936ee35c31",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "ICICIBANK",
+      "input_hash": "1170bdb1dbe19e5423b64b4c8c5de74aade3ee03b79598ab9937dca23b6e5fb0",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "SBIN",
+      "input_hash": "678138e44e5c6273ae9f48956ba197cfa519e4132f1e4aab7124e38db3ac8714",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "BHARTIARTL",
+      "input_hash": "3f58e99d1b4bb0507089c8a1382e595c4489d2bbb03b5772e120293308b79c47",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "ITC",
+      "input_hash": "8c71bca17428598f9dbce73e2a00a92084de0bd695f66d645682437c984715d8",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "KOTAKBANK",
+      "input_hash": "59c8ecd7599817064d9df99b5d027011c74c5fc5e374677686a5a925741a6325",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "LT",
+      "input_hash": "7060dd13b634e5f2b67679f13ece75d44bd1da1cc937920c277c62c282c21cf2",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "WIPRO",
+      "input_hash": "bbd9bc540f10bc94e3e8687b3744ce10f762f6e27d0ea384fd94ddb776086aeb",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "AXISBANK",
+      "input_hash": "708eec1a31fd6873bf0da3bd995b2939ada0e8dd6acdf92f00bc7b3ff9b3e9d8",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "MARUTI",
+      "input_hash": "04224222401c04321532f172ec4b2915449cd7c8328425f33cd94c21cbdc3c5b",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "TMPV",
+      "input_hash": "eb8af4893059c7c355a3d64b30805922d998f9a894c7385328b8debe66a9cd06",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "BAJFINANCE",
+      "input_hash": "270bad6df68dd915703a38e9d5caa8bc7ef747f21982ca42e438d220f50bc301",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "SUNPHARMA",
+      "input_hash": "e07303dc1a70e86c1ebb5376d41ae88e338f2d258f9fde338493526245315bc0",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "TITAN",
+      "input_hash": "4e35a0b4e53c1f10d9de2bdd6adbf135a0a2c452a682b1714570a6dead37cbbf",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "ADANIENT",
+      "input_hash": "4e8f6a829ec2327d7636545e6ea04fa9fdbd28d127017ade68540c57c5152377",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "POWERGRID",
+      "input_hash": "f0d0c0fbfc698b9992678c2700ff92afcc051b6e85fe59256d21bda813e69497",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "NTPC",
+      "input_hash": "29646acd76637be4410f455843d13394c2e81c847ed27fde20e363b8cfaaeff0",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "ONGC",
+      "input_hash": "ddbe0a487ab18cc686a7aff5a5b5749be0add76dab22fde8b2481839da9abc1a",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "COALINDIA",
+      "input_hash": "bc725954fa1e5b95ea44c2b6b7a059d85ec65798b84d9743630b783636f2c098",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "TATASTEEL",
+      "input_hash": "55578c80883d8487158c081497bbd9d86c1309a5051b2c00a7dd872bb16574f4",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "TECHM",
+      "input_hash": "cfbb5a193af20062ec58543984e08c4787f6a5e52efcac4f89717143d81888a6",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "ASIANPAINT",
+      "input_hash": "f5b617e419df480f4b683c7d6af02f14d085719f95047cb3feeadea5e6262215",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "ULTRACEMCO",
+      "input_hash": "29e213b605436bf6b217799e0ed91b56136026df2246330b3048ae84f4dc6ad8",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "NESTLEIND",
+      "input_hash": "50ec161cc8a8a1b80a89a088926cdaa57a74364ce59435e33e7afb175a6f19d3",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "BAJAJFINSV",
+      "input_hash": "e3403757adcfce69fc7fd530e343ab671358eb419672726ba9baf9dc69ef36a6",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "DRREDDY",
+      "input_hash": "2625d0a04998d7022ceb758bc44f5d9c5eff7d5e68226f6d2bbbb7bbd90b8c01",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    },
+    {
+      "symbol": "JSWSTEEL",
+      "input_hash": "8a781829f4ca38c8f89b0daf664d442d1578c95b1abeb2b1f12227795ab5121a",
+      "first": "2021-10-11 00:00:00",
+      "last": "2026-10-09 00:00:00",
+      "bars": 1236
+    }
+  ],
+  "skipped": []
+}

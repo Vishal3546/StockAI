@@ -252,7 +252,7 @@ def _client_ip():
 
 def _protected_path(path):
     p = (path or '/').lower()
-    return p == '/' or p in ('/dashboard.html', '/manual-planner') or p.startswith('/api/')
+    return p == '/' or p in ('/dashboard.html', '/manual-planner', '/screener') or p.startswith('/api/')
 
 
 def _rate_limited(ip):
@@ -2470,8 +2470,25 @@ def _ml_engine_uncached(df):
 
         if wf_models and sorted(models) != sorted(wf_models):
             raise ValueError('walk-forward and final prediction model availability disagree')
+        # FIX108: holdout metrics remain frozen BEFORE full-label live refit.
+        # Average individual-model accuracy is not weighted-ensemble accuracy.
+        fitted_models = {'gradient_boosting': gb, 'random_forest': rf, 'logistic_regression': lr}
+        if 'xgboost' in models:
+            fitted_models['xgboost'] = xgb
         weights = weights[:len(all_probs)]
         w_sum = sum(weights)
+        held_prob = sum(model.predict_proba(X_te_s)[:, list(model.classes_).index(1)] * w
+                        for model, w in zip(fitted_models.values(), weights)) / w_sum
+        held_accuracy = round(accuracy_score(y_test, (held_prob >= .5).astype(int)) * 100, 1)
+        live_scaler = StandardScaler()
+        live_X = live_scaler.fit_transform(d_clean[feats].values)
+        live_today = live_scaler.transform(d[feats].iloc[-1:].values)
+        all_probs = []
+        for name, model in fitted_models.items():
+            model.fit(live_X, d_clean['target'].values)
+            p = float(model.predict_proba(live_today)[0][list(model.classes_).index(1)])
+            models[name]['prob'] = round(p * 100, 1)
+            all_probs.append(p)
         ens_prob = round(sum(p * w / w_sum for p, w in zip(all_probs, weights)) * 100, 1)
 
         pred = 'UP' if ens_prob >= 55 else 'DOWN' if ens_prob <= 45 else 'NEUTRAL'
@@ -2492,7 +2509,7 @@ def _ml_engine_uncached(df):
             'probability': float(ens_prob),
             'confidence': conf,
             'models': models,
-            'ensemble_accuracy': round(sum(m['accuracy'] for m in models.values()) / len(models), 1),
+            'ensemble_accuracy': held_accuracy,
             'baseline_accuracy': baseline_acc,
             'pos_rate': round(pos_rate * 100, 1),
             'best_edge': best_edge,
@@ -2507,7 +2524,11 @@ def _ml_engine_uncached(df):
             'wf_model_scope': 'Weighted ensemble, same configured models/weights; threshold 0.5',
             'wf_uncertainty_note': 'Observed sample SD across fold accuracies, NOT a confidence interval or independence-adjusted significance test.',
             'top_features': [{'name': str(f[0]), 'importance': round(float(f[1]) * 100, 1)} for f in top_f],
-            'train_days': int(train_n),
+            'train_days': int(max(0, train_n - 1)),
+            'live_refit_train_days': int(len(d_clean)),
+            'prediction_as_of': str(d.index[-1]),
+            'last_known_label_feature_session': str(d_clean.index[-1]),
+            'metric_scope': 'Per-model and ensemble accuracy: purged 80/20 holdout. Probabilities: full known-label refit. Walk-forward: matched ensemble folds.',
             'test_days': int(len(d_clean) - train_n),
             'total_features': len(feats)
         }
@@ -5493,6 +5514,8 @@ def api_screener():
     return jsonify({
         'ok': True,
         'as_of': scan.get('timestamp'),
+        'attempted': scan.get('attempted'), 'failures': scan.get('failed', []),
+        'universe_note': scan.get('universe_note'),
         'age_label': st['age_label'],
         'age_verdict': st['verdict'],
         'total': len(rows),
@@ -6462,6 +6485,8 @@ for _pg89 in ('Backtest', 'Watchlist', 'Heatmap', 'Alerts'):
 import sys
 from manual_planner import register as register_manual_planner
 register_manual_planner(app, sys.modules[__name__])
+from deep_web import register as register_deep_web
+register_deep_web(app, sys.modules[__name__])
 
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 5000))

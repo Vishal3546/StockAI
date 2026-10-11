@@ -35,7 +35,7 @@ DISPLAY_FIELDS = ('symbol', 'sector', 'price', 'change_pct', 'rsi', 'vol_ratio',
                   'signal', 'signal_score', 'composite', 'ensemble',
                   'ml_prob', 'ml_acc', 'ml_baseline', 'ml_edge',
                   'ml_used_in_composite', 't1', 't2', 'sl', 'source',
-                  'signal_basis')
+                  'signal_basis','exchange','data_as_of','input_hash','ml_status','vwap_label','historical_only')
 
 _NUM_FIELDS = ('price', 'change_pct', 'rsi', 'vol_ratio', 'signal_score',
                'composite', 'ensemble', 'ml_prob', 'ml_acc', 'ml_baseline',
@@ -65,6 +65,9 @@ def normalize_rows(results):
         if not sym:
             continue
         row = {'symbol': sym}
+        for f in ('exchange','data_as_of','input_hash','ml_status','vwap_label'):
+            row[f] = str(r.get(f) or '')
+        row['historical_only'] = bool(r.get('historical_only', True))
         for f in _NUM_FIELDS:
             row[f] = _num(r.get(f))
         for f in ('sector', 'signal', 'source', 'signal_basis'):
@@ -99,6 +102,7 @@ def load_scan(path):
         return {'error': 'scan_results.json me koi valid row nahi hai'}
     return {
         'timestamp': str(d.get('timestamp') or ''),
+        'attempted': d.get('attempted'), 'failed': d.get('failed', []), 'universe_note': d.get('universe_note'),
         'total_scanned': _num(d.get('total_scanned')),
         'scan_time_seconds': _num(d.get('scan_time_seconds')),
         'rows': rows,

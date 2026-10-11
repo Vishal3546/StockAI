@@ -1,11 +1,6 @@
-"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  StockAI V6.0 — Multi-Tech Parallel NIFTY Scanner V3.5                      ║
-║  • 3-Tier Multi-Tech Engine (TradingView 0s -> NSE Direct -> Yahoo)          ║
-║  • Negative Edge ML Penalty Filter (Eliminates Fake ML Buy Signals)          ║
-║  • Off-Market Volume Ratio Fix (No more 0.0x Volume errors)                  ║
-║  • 100% Crash-Proof Parallel Worker Execution                               ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+"""StockAI FIX108 — completed-daily curated scanner. Relative rank only.
+Shared exchange-specific fetch; no invented volume; selected-stock ML on demand.
+Not official NIFTY membership, a live feed or a trade approval.
 """
 
 import yfinance as yf
@@ -30,54 +25,36 @@ _IST = ZoneInfo('Asia/Kolkata')
 # → scanner_bands.json), hardcoded 70/60/45/35 se nahi. Missing/stale/invalid
 # artifact → signal 'UNRATED' (fail CLOSED): purane bands ML-neutralised case me
 # 96.4% WATCH dete the aur BUY/STRONG BUY kabhi nahi de sakte the.
-BANDS_PATH = 'scanner_bands.json'
-BANDS_SCHEMA = 1
-BANDS_MODEL = 'scanner-bands-ens-percentile-v1'
+from pathlib import Path
+BANDS_PATH = Path(__file__).resolve().with_name('scanner_bands.json')
+BANDS_SCHEMA = 2
+BANDS_MODEL = 'scanner-completed-daily-rvol20-vwap20-v2'
 BANDS_MAX_AGE_DAYS = 60
 _bands_cache = {'mtime': None, 'size': None, 'data': None}
 _bands_lock = threading.Lock()
 
 
 def load_scanner_bands():
-    """(bands_dict, None) ya (None, reason). Kabhi bhi guess nahi karta."""
-    import os
+    # Recheck age on EVERY call, including unchanged files. Reject future dates,
+    # booleans/non-finite thresholds and the old cumulative-VWAP calibration.
     from datetime import datetime, timezone
     try:
-        st = os.stat(BANDS_PATH)
-    except OSError:
-        return None, ('signal bands absent — python tools/build_scanner_bands.py '
-                      'chalayein (hardcoded bands measured distribution se match '
-                      'nahi karte the)')
-    with _bands_lock:
-        if (_bands_cache['mtime'] == st.st_mtime and _bands_cache['size'] == st.st_size
-                and _bands_cache['data'] is not None):
-            return _bands_cache['data'], None
-        try:
-            doc = json.loads(open(BANDS_PATH, encoding='utf-8').read())
-            if doc.get('schema') != BANDS_SCHEMA or doc.get('model') != BANDS_MODEL:
-                return None, f'signal bands schema/model mismatch ({doc.get("model")})'
-            b = doc.get('bands') or {}
-            for k in ('STRONG BUY', 'BUY', 'WATCH', 'SELL'):
-                if not isinstance(b.get(k), (int, float)):
-                    return None, f'signal bands incomplete (missing {k})'
-            if not (b['STRONG BUY'] > b['BUY'] > b['WATCH'] > b['SELL']):
-                return None, 'signal bands not monotonically decreasing'
-            age = None
-            try:
-                ts = datetime.fromisoformat(doc['generated_at_utc'])
-                age = (datetime.now(timezone.utc) - ts).days
-            except Exception:
-                pass
-            if age is None:
-                return None, 'signal bands have no valid generated_at_utc'
-            if age > BANDS_MAX_AGE_DAYS:
-                return None, (f'signal bands {age}d purane hain (max {BANDS_MAX_AGE_DAYS}d) — '
-                              'python tools/build_scanner_bands.py dobara chalayein')
-            doc['_age_days'] = age
-            _bands_cache.update(mtime=st.st_mtime, size=st.st_size, data=doc)
-            return doc, None
-        except Exception as exc:
-            return None, f'signal bands unreadable ({type(exc).__name__})'
+        doc=json.loads(Path(BANDS_PATH).read_text(encoding='utf-8'))
+        if doc.get('schema')!=BANDS_SCHEMA or doc.get('model')!=BANDS_MODEL:
+            raise ValueError('signal bands schema/model mismatch; rebuild corrected scanner bands')
+        b=doc.get('bands',{})
+        values=[b[k] for k in ('STRONG BUY','BUY','WATCH','SELL')]
+        if any(isinstance(v,bool) or not isinstance(v,(float,int)) or not math.isfinite(v) or not 0<=v<=100 for v in values):
+            raise ValueError('invalid/non-finite band thresholds')
+        if not all(a>b for a,b in zip(values,values[1:])): raise ValueError('bands not strictly decreasing')
+        ts=datetime.fromisoformat(doc['generated_at_utc'])
+        age=(datetime.now(timezone.utc)-ts).total_seconds()/86400
+        if not 0<=age<=BANDS_MAX_AGE_DAYS: raise ValueError('future or expired band timestamp')
+        if not isinstance(doc.get('n_stock_sessions'),int) or doc['n_stock_sessions']<2000: raise ValueError('insufficient band fit sample')
+        doc['_age_days']=int(age)
+        return doc,None
+    except Exception as exc:
+        return None,f'Signal bands unavailable: {exc}; python tools/build_scanner_bands.py'
 
 
 def signal_from_bands(score, bands):
@@ -98,20 +75,12 @@ def signal_icon(signal):
 
 
 def format_progress_row(r, idx, total):
-    """FIX-44: Score = signal_score (jo signal decide karta hai), composite nahi."""
-    edge_flag = "⚠️ NEG-EDGE" if r['ml_edge'] < 0 else "✅ POS-EDGE"
-    return (f"  [{idx:02d}/{total}] {r['source'][:2]} {r['symbol']:<11} {signal_icon(r['signal'])} "
-            f"Score:{r['signal_score']:>3}/100 ({r['signal']:<11}) "
-            f"ML:{r['ml_prob']:>5.1f}% [{edge_flag}]")
+    return f"  [{idx:02d}/{total}] {r['symbol']:<11} Score:{r['signal_score']:>3}/100 ({r['signal']}) · ML: select for deep analysis"
 
 
 def format_leaderboard_row(r, rank):
-    """FIX-44: 'Score' column = signal_score. ML%/Edge diagnostic hain, gate nahi."""
-    return (f"  {rank:<3} {r['symbol']:<12} {r['sector']:<10} "
-            f"₹{r['price']:>7.0f} {r['change_pct']:>+5.1f}% "
-            f"{r['rsi']:>5.0f} {r['vol_ratio']:>4.1f}x "
-            f"{r['ml_prob']:>5.1f}% "
-            f"{r['ml_edge']:>+6.1f}% {r['signal_score']:>5} {signal_icon(r['signal'])} {r['signal']}")
+    vol='N/A' if r.get('vol_ratio') is None else f"{r['vol_ratio']:.2f}x"
+    return f"  {rank:<3} {r['symbol']:<12} {r['sector']:<10} ₹{r['price']:.2f} RVOL:{vol} Score:{r['signal_score']} {r['signal']}"
 
 
 def format_summary_line(results: list) -> str:
@@ -156,8 +125,7 @@ def _nan_safe(o):
     return o
 from datetime import datetime   # timedelta unused tha (pyflakes) — hataya
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import warnings
-warnings.filterwarnings('ignore')
+
 
 # FIX-33: scanner ka ML composite calibration ke liye KABHI use nahi hota.
 # FIX104: scanner bands retain their separately fitted 30-symbol cohort.
@@ -183,47 +151,15 @@ SECTOR_MAP = {
 #  3-TIER SMART DATA FETCH FOR SCANNER
 # ═══════════════════════════════════════════════════════════
 def fetch_scanner_data(symbol):
-    """FIX-S1: shared TradingView connection, then a pure Yahoo fallback."""
-    clean_sym = symbol.replace('.NS', '').replace('.BO', '').upper()
-
-    if _TV_OK[0]:
-        try:
-            from tvDatafeed import Interval
-            with _TV_LOCK:
-                df = _tv_connection().get_hist(symbol=clean_sym, exchange='NSE',
-                                               interval=Interval.in_daily, n_bars=300)
-            if df is not None and not df.empty:
-                df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low',
-                                        'close': 'Close', 'volume': 'Volume'})
-                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-                df = df.dropna(subset=['Close'])
-                if len(df) >= 30:
-                    return df, 'TradingView Direct'
-            else:
-                _TV_OK[0] = False      # feed degraded → stop retrying for this scan
-        except Exception:
-            _TV_OK[0] = False
-
+    from daily_context import fetch
     try:
-        df = yf.download(f"{clean_sym}.NS", period='2y', interval='1d', progress=False, threads=False)
-        if (df is None or df.empty):
-            df = yf.download(f"{clean_sym}.BO", period='2y', interval='1d', progress=False, threads=False)
-        if df is not None and not df.empty:
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            df = df.dropna(subset=['Close'])
-            if len(df) >= 30:
-                return df, 'Yahoo Finance'
-    except Exception:
-        pass
-
-    return None, 'None'
+        df=fetch(symbol,'2y','NSE')
+        return df,df.attrs.get('source','Unavailable')
+    except Exception as exc:
+        return None,f'{type(exc).__name__}: {exc}'
 
 def calculate_indicators(df):
+    df = df.copy()
     c = df['Close'].astype(float)
     h = df['High'].astype(float)
     l = df['Low'].astype(float)
@@ -250,90 +186,23 @@ def calculate_indicators(df):
     df['ATR'] = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
 
     tp = (h + l + c) / 3
-    df['VWAP'] = (tp * v).cumsum() / (v.cumsum() + 1e-10)
-    
-    # Volume SMA Fix (Takes previous valid volume if today volume is 0)
-    valid_v = v.replace(0, np.nan).ffill().fillna(10000)
-    df['Vol_SMA'] = valid_v.rolling(20).mean()
-    df['Vol_Ratio'] = valid_v / (df['Vol_SMA'] + 1)
-
-    # FIX-S2: RVOL from the last COMPLETED session. Measured before the fix:
-    # vol_ratio was 0.21-0.92 for ALL 30 stocks because the in-progress
-    # session was divided by a full-day average — a permanent market-wide
-    # penalty. Only applies during market hours on a trading day.
-    partial = False
-    try:
-        _last = pd.to_datetime(df.index[-1])
-        _last = _last.tz_localize(None) if getattr(_last, 'tzinfo', None) else _last
-        _now = datetime.now(_IST)
-        partial = (_last.date() == _now.date()) and (_now.time() < _dtime(15, 30))
-    except Exception:
-        partial = False
-    if partial and len(valid_v) > 22:
-        hist = valid_v.iloc[:-1]
-        df.loc[df.index[-1], 'Vol_Ratio'] = float(hist.iloc[-1]) / (float(hist.iloc[-21:-1].mean()) + 1)
-    df['SESSION_IN_PROGRESS'] = partial
+    df['VWAP'] = (tp*v).rolling(20).sum()/v.rolling(20).sum().replace(0,np.nan)
+    df['Vol_SMA'] = v.shift(1).rolling(20).mean()
+    df['Vol_Ratio'] = v/df['Vol_SMA'].replace(0,np.nan)
+    df['SESSION_IN_PROGRESS'] = False  # fetch boundary removed partial daily bars
 
     return df
 
 
 def calculate_real_ml(df):
-    try:
-        from sklearn.ensemble import GradientBoostingClassifier
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.metrics import accuracy_score
-
-        d = df.copy()
-        c = d['Close'].astype(float)
-
-        d['ret_1'] = c.pct_change(1)
-        d['ret_3'] = c.pct_change(3)
-        d['ret_5'] = c.pct_change(5)
-        d['ret_10'] = c.pct_change(10)
-        d['rsi'] = d['RSI']
-        d['macd_h'] = d['MACD'] - d['MACD_Sig']
-        d['atr_pct'] = d['ATR'] / (c + 1e-10) * 100
-        d['vol_r'] = d['Vol_Ratio']
-        d['ema_cross'] = (d['EMA_9'] - d['EMA_21']) / (c + 1e-10) * 100
-        d['price_50'] = (c - d['SMA_50']) / (d['SMA_50'] + 1e-10) * 100
-        d['target'] = (c.shift(-1) > c).astype(float).where(c.shift(-1).notna())
-
-        feats = ['ret_1', 'ret_3', 'ret_5', 'ret_10', 'rsi', 'macd_h', 'atr_pct', 'vol_r', 'ema_cross', 'price_50']
-
-        d[feats] = d[feats].replace([np.inf, -np.inf], np.nan).ffill()
-        d_clean = d.dropna(subset=feats + ['target'])
-
-        if len(d_clean) < 50:
-            return 50.0, 0.0, 50.0, 0.0
-
-        train_n = int(len(d_clean) * 0.8)
-        X_train = np.nan_to_num(d_clean[feats].iloc[:max(0, train_n - 1)].values)
-        y_train = d_clean['target'].iloc[:max(0, train_n - 1)].values
-        X_test = np.nan_to_num(d_clean[feats].iloc[train_n:].values)
-        y_test = d_clean['target'].iloc[train_n:].values
-
-        scaler = StandardScaler()
-        X_tr_s = scaler.fit_transform(X_train)
-        X_te_s = scaler.transform(X_test)
-
-        gb = GradientBoostingClassifier(n_estimators=100, max_depth=3, learning_rate=0.05, random_state=42)
-        gb.fit(X_tr_s, y_train)
-
-        acc = round(accuracy_score(y_test, gb.predict(X_te_s)) * 100, 1)
-
-        pos_rate = float(y_test.mean())
-        baseline = round(float((y_test == int(y_train.mean() >= 0.5)).mean()) * 100, 1)
-        edge = round(acc - baseline, 1)
-
-        today = scaler.transform(np.nan_to_num(d[feats].iloc[-1:].values))
-        prob = round(float(gb.predict_proba(today)[0][1]) * 100, 1)
-
-        return prob, acc, baseline, edge
-    except Exception:
-        return 50.0, 0.0, 50.0, 0.0
+    """Compatibility diagnostic; no second independently configured classifier."""
+    from daily_context import host
+    r=host().ml_engine(df)
+    return (r.get('probability'),r.get('walk_forward_accuracy'),r.get('walk_forward_baseline'),r.get('walk_forward_edge'))
 
 
 def calculate_ensemble(df):
+    if len(df)<200: raise ValueError('200 completed bars required; no fake bearish SMA200')
     L = df.iloc[-1]
     scores = []
 
@@ -361,8 +230,9 @@ def calculate_ensemble(df):
     if vr > 1.5: s += 15
     elif vr < 0.5: s -= 10
     vwap = float(L.get('VWAP', 0)) if pd.notna(L.get('VWAP')) else 0
-    if float(L['Close']) > vwap: s += 10
-    else: s -= 10
+    if pd.notna(L.get('VWAP')):
+        if float(L['Close']) > vwap: s += 10
+        else: s -= 10
     scores.append(max(10, min(95, s)))
 
     # EMA Cross
@@ -385,101 +255,56 @@ def calculate_ensemble(df):
 
 
 def scan_stock(symbol):
-    try:
-        df, src = fetch_scanner_data(symbol)
-        if df is None:
-            return None
-
-        df = calculate_indicators(df)
-        L = df.iloc[-1]
-        prev = df.iloc[-2]
-
-        ens_score, eng_scores = calculate_ensemble(df)
-        ml_prob, ml_acc, ml_baseline, ml_edge = calculate_real_ml(df)
-
-        # ML probability diagnostic ke liye hai. Negative edge par neutralise —
-        # lekin ab ye signal ko GATE nahi karta (FIX-43/C-3): FIX-41 ne 53,295 OOS
-        # predictions par dikhaya ki ML edge +1.14pp ±0.74 hai, yaani noise. Ek
-        # noise number par BUY gate lagana matlab signal ko coin-flip se rokna.
-        if ml_edge < 0:
-            effective_ml_prob = 50.0  # Neutralize ML contribution if model underperforms baseline
-        else:
-            effective_ml_prob = ml_prob
-
-        # Legacy composite — sirf continuity/diagnostic ke liye payload me rehta hai.
-        composite = int(ens_score * 0.55 + effective_ml_prob * 0.45)
-
-        # FIX-43 (C-3): signal ab FITTED percentile bands se aata hai
-        # (scanner_bands.json), purane hardcoded 70/60/45/35 se nahi. Measurement
-        # (7,250 stock-sessions) ne dikhaya tha ki purane bands ML-neutralised case
-        # me STRONG BUY/BUY/STRONG SELL kabhi nahi de sakte: 96.4% WATCH, 3.6% SELL.
-        bands, bands_err = load_scanner_bands()
-        if bands is None:
-            signal = 'UNRATED'
-            signal_basis = bands_err
-        else:
-            signal = signal_from_bands(ens_score, bands['bands'])
-            signal_basis = (f"fitted ens percentiles p95/p80/p40/p10 = "
-                            f"{bands['bands']['STRONG BUY']:.0f}/"
-                            f"{bands['bands']['BUY']:.0f}/"
-                            f"{bands['bands']['WATCH']:.0f}/"
-                            f"{bands['bands']['SELL']:.0f} "
-                            f"({bands['n_stock_sessions']:,} sessions, as-of "
-                            f"{bands['generated_at_utc'][:10]}); ML diagnostic only")
-
-        atr = float(L['ATR']) if pd.notna(L['ATR']) else float(L['Close']) * 0.02
-        price = float(L['Close'])
-
-        return {
-            'symbol': symbol,
-            'source': src,
-            'sector': SECTOR_MAP.get(symbol, 'General'),
-            'price': round(price, 2),
-            'change_pct': round(float((price - float(prev['Close'])) / float(prev['Close']) * 100), 2),
-            'rsi': round(float(L['RSI']), 1) if pd.notna(L['RSI']) else 50,
-            'vol_ratio': round(float(L['Vol_Ratio']), 2) if pd.notna(L['Vol_Ratio']) else 1.0,
-            'ensemble': ens_score,
-            'ml_prob': ml_prob,
-            'ml_acc': ml_acc,
-            'ml_baseline': ml_baseline,
-            'ml_edge': ml_edge,
-            # FIX-S3: the probability the composite ACTUALLY used (a negative-edge
-            # name is neutralised to 50 — the old UI showed the raw 93% anyway)
-            'ml_effective': 50.0 if ml_edge < 0 else ml_prob,
-            'ml_used_in_composite': ml_edge >= 0,
-            'composite': composite,
-            'signal': signal,
-            # FIX-43 (C-3): signal kis basis par bana — fitted bands ya 'absent'.
-            # Score jo signal drive karta hai wo ens hai, composite nahi.
-            'signal_score': ens_score,
-            'signal_basis': signal_basis,
-            'sl': round(price - 1.5 * atr, 2),
-            't1': round(price + 2.0 * atr, 2),
-            't2': round(price + 3.5 * atr, 2)
-        }
-    except Exception:      # `e` unused tha (pyflakes)
-        return None
+    df,src=fetch_scanner_data(symbol)
+    if df is None or len(df)<200: return None
+    df=calculate_indicators(df);L=df.iloc[-1];price=float(L.Close)
+    score,_=calculate_ensemble(df)
+    bands,err=load_scanner_bands()
+    stale=bool(df.attrs.get('historical_only',True))
+    signal='UNRATED' if bands is None or stale else signal_from_bands(score,bands['bands'])
+    basis=('Historical-only data; rank withheld' if stale else err if bands is None else
+        f"Corrected daily relative percentile bands; {bands['n_stock_sessions']} fitted sessions; NOT expected profit")
+    return _nan_safe(dict(symbol=symbol,exchange='NSE',source=src,sector=SECTOR_MAP.get(symbol,'General'),
+        price=round(price,2),change_pct=round((price/float(df.Close.iloc[-2])-1)*100,2),
+        rsi=round(float(L.RSI),1),vol_ratio=round(float(L.Vol_Ratio),2),ensemble=score,
+        signal_score=score,signal=signal,signal_basis=basis,composite=None,
+        ml_prob=None,ml_acc=None,ml_baseline=None,ml_edge=None,ml_effective=None,ml_used_in_composite=False,
+        ml_status='NOT_RUN: select stock for shared full-ensemble walk-forward diagnostics',
+        sl=None,t1=None,t2=None,plan_note='No executable plan inferred from relative ranking',
+        data_as_of=df.attrs.get('as_of'),historical_only=stale,input_hash=df.attrs.get('input_hash'),
+        vwap_label='20 completed daily bars typical-price volume proxy — NOT session VWAP',execution_authorized=False))
 
 
 def run_full_scan():
     print("\n" + "=" * 78)
-    print("  📡 NIFTY SMART SCANNER V3.5 (MULTI-TECH 3-TIER + ML FILTER)")
+    print("  📡 NIFTY SMART SCANNER V3.5 (MULTI-TECH DAILY RANK; DEEP ML ON SELECTION)")
     print(f"  📅 {datetime.now().strftime('%d %b %Y %H:%M:%S')}")
     print(f"  🎯 Scanning {len(NIFTY_STOCKS)} stocks (5 parallel threads)")
+    print('  Curated research cohort; NOT current official NIFTY 50 membership. DAILY data only.')
     print("=" * 78)
 
     results = []
+    failures = []
+    progress_lock = threading.Lock()
     start_time = time.time()
     completed = [0]
     total = len(NIFTY_STOCKS)
 
     def scan_with_log(symbol):
-        r = scan_stock(symbol)
-        completed[0] += 1
+        try:
+            r = scan_stock(symbol)
+        except Exception as exc:
+            with progress_lock: failures.append({'symbol':symbol,'reason':str(exc)})
+            r = None
+        with progress_lock:
+            completed[0] += 1
+            progress_index = completed[0]
+            if r is None and not any(x['symbol']==symbol for x in failures):
+                failures.append({'symbol':symbol,'reason':'No valid 200-bar completed NSE history'})
         if r:
-            print(format_progress_row(r, completed[0], total))
+            print(format_progress_row(r, progress_index, total))
         else:
-            print(f"  [{completed[0]:02d}/{total}] ⚠️ {symbol:<11} Skipped")
+            print(f"  [{progress_index:02d}/{total}] ⚠️ {symbol:<11} Skipped")
         return r
 
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -495,7 +320,7 @@ def run_full_scan():
     elapsed = round(time.time() - start_time, 1)
     # FIX-44: leaderboard usi score par sort hota hai jo signal deta hai. Pehle
     # composite par sort hota tha → #2 par STRONG SELL aur #13 par BUY aa jaata tha.
-    results.sort(key=lambda x: x['signal_score'], reverse=True)
+    results.sort(key=lambda x: (-x['signal_score'], x['symbol']))
 
     scan_data = {
         # FIX-79: pehle `datetime.now().isoformat()` tha = NAIVE local time.
@@ -506,18 +331,20 @@ def run_full_scan():
         # se defined tha.
         'timestamp': datetime.now(_IST).isoformat(),
         'total_scanned': len(results),
+        'attempted': total, 'failed': failures, 'schema': 2,
+        'universe_note': 'Curated 30-stock research cohort; NOT current official NIFTY 50 membership',
         'scan_time_seconds': elapsed,
         'results': results
     }
     # FIX-S4: strict-JSON output (no NaN/Infinity tokens)
-    with open('scan_results.json', 'w', encoding='utf-8') as f:
-        json.dump(_nan_safe(scan_data), f, indent=2, allow_nan=False)
+    from daily_context import atomic_json, ROOT
+    if not results: raise RuntimeError('All scanner symbols failed; previous scan retained')
+    atomic_json(ROOT/'scan_results.json',scan_data)
 
     print(f"\n{'='*78}")
     print(f"  🏆 RANKED LEADERBOARD (⏱️ {elapsed}s)")
     print(f"{'='*78}")
-    print(f"  {'#':<3} {'Stock':<12} {'Sector':<10} {'Price':>8} {'Chg%':>6} "
-          f"{'RSI':>5} {'Vol':>5} {'ML%':>6} {'Edge':>6} {'Score':>5} {'Signal':<12}")
+    print('  #   Stock        Sector      Completed close · prior-20 RVOL · relative score · band')
     print("-" * 78)
 
     for i, r in enumerate(results):

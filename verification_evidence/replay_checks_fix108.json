@@ -1,0 +1,14 @@
+[
+  {
+    "symbol": "INFY",
+    "exchange": "NSE",
+    "exact_numeric_ml_and_risk_replay": true,
+    "input_hash_exact": true
+  },
+  {
+    "symbol": "EMIL",
+    "exchange": "BSE",
+    "exact_numeric_ml_and_risk_replay": true,
+    "input_hash_exact": true
+  }
+]
