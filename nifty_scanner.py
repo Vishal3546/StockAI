@@ -257,14 +257,21 @@ def calculate_ensemble(df):
 def scan_stock(symbol):
     df,src=fetch_scanner_data(symbol)
     if df is None or len(df)<200: return None
+    return analyze_frame(df,symbol,'NSE',src)
+
+
+def analyze_frame(df,symbol,exchange='NSE',src=None):
+    if len(df)<200: raise ValueError('200 completed bars required')
     df=calculate_indicators(df);L=df.iloc[-1];price=float(L.Close)
     score,_=calculate_ensemble(df)
     bands,err=load_scanner_bands()
     stale=bool(df.attrs.get('historical_only',True))
-    signal='UNRATED' if bands is None or stale else signal_from_bands(score,bands['bands'])
+    eligible=exchange=='NSE' and symbol in NIFTY_STOCKS and bands is not None and symbol in bands.get('symbols_scored',[])
+    signal='UNRATED' if bands is None or stale or not eligible else signal_from_bands(score,bands['bands'])
     basis=('Historical-only data; rank withheld' if stale else err if bands is None else
         f"Corrected daily relative percentile bands; {bands['n_stock_sessions']} fitted sessions; NOT expected profit")
-    return _nan_safe(dict(symbol=symbol,exchange='NSE',source=src,sector=SECTOR_MAP.get(symbol,'General'),
+    if not eligible and not stale: basis='Outside fitted NSE cohort; raw technical score only, no fitted BUY/SELL band'
+    return _nan_safe(dict(symbol=symbol,exchange=exchange,source=src,sector=SECTOR_MAP.get(symbol,'General'),
         price=round(price,2),change_pct=round((price/float(df.Close.iloc[-2])-1)*100,2),
         rsi=round(float(L.RSI),1),vol_ratio=round(float(L.Vol_Ratio),2),ensemble=score,
         signal_score=score,signal=signal,signal_basis=basis,composite=None,

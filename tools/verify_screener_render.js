@@ -107,7 +107,7 @@ const NUM = /[-+]?\d[\d,]*\.\d{2}/;
   check('stale banner amber class me hai', s.staleCls.includes('b-old'), s.staleCls);
   check('banner me age + timestamp hai', s.stale.includes('3.2 days')
     && s.stale.includes('2026-10-03T12:27:39'), s.stale.slice(0, 80));
-  check('banner regenerate command batata hai', s.stale.includes('nifty_scanner.py'));
+  check('banner explains web refresh without requiring terminal', s.stale.includes('Use Refresh on this page'));
   check('count "2 / 30 stocks" dikhta hai', s.count.includes('2 / 30'), s.count);
   check('count me sort key/order dikhta hai', s.count.includes('signal_score desc'), s.count);
   check('KOTAKBANK row ke numbers sahi', s.rows[0].includes('418.35') && s.rows[0].includes('60.00')

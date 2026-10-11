@@ -5726,7 +5726,10 @@ def _run_scan_subprocess(reason):
     # hum dict ko rebind nahi karte, sirf .update() se mutate karte hain.
     t0 = _t77.time()
     ok, err = False, None
+    _lease = None
     try:
+        from market_scanner import Lease
+        _lease = Lease(MARKET_SCANNER.lease_path) if 'MARKET_SCANNER' in globals() else None
         p = _sp79.run([_sys79.executable, _SCAN_SCRIPT],
                       cwd=os.path.dirname(_SCAN_SCRIPT),
                       capture_output=True, text=True, encoding='utf-8', errors='replace',
@@ -5740,6 +5743,8 @@ def _run_scan_subprocess(reason):
         err = f'timeout ({_SCAN_TIMEOUT}s)'
     except Exception as e:
         err = f'{type(e).__name__}: {e}'
+    finally:
+        if _lease is not None: _lease.close()
     secs = round(_t77.time() - t0, 1)
     with _scan_lock:
         _SCAN_STATE.update({'running': False, 'last_ok': ok, 'last_at': _t77.time(),
@@ -6487,6 +6492,8 @@ from manual_planner import register as register_manual_planner
 register_manual_planner(app, sys.modules[__name__])
 from deep_web import register as register_deep_web
 register_deep_web(app, sys.modules[__name__])
+from market_scanner import register as register_market_scanner
+register_market_scanner(app, sys.modules[__name__])
 
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 5000))

@@ -380,7 +380,7 @@ check('page error ko red class me dikhata hai', "className = 'err'" in page or "
 check('page "relative rank" disclosure deta hai', 'relative rank' in page.lower())
 check('page "investment advice nahi" kehta hai', 'investment advice nahi' in page)
 check('page SEBI-registered nahi disclosure deta hai', 'SEBI-registered advisor nahi' in page)
-check('page batata hai scanner manually chalta hai', 'manually' in page)
+check('page offers web Refresh and truthful startup-only timing', 'Use Refresh on this page' in page and 'NOT a repeating timer' in page)
 check('page staleness banner dikhata hai', 'purana hai' in page and 'age_label' in page)
 check('page ML+/ML- distinction dikhata hai', 'ML+' in page and 'ML−' in page)
 check('page ml_used_in_composite se label decide karta hai', 'ml_used_in_composite' in page)

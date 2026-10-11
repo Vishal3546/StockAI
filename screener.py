@@ -85,12 +85,12 @@ def load_scan(path):
         with open(path, encoding='utf-8') as fh:
             txt = fh.read()
     except FileNotFoundError:
-        return {'error': ('scan_results.json nahi mila. Scanner chalao: '
+        return {'error': ('scan_results.json nahi mila. Screener par Refresh click karein (optional CLI): '
                           'python nifty_scanner.py')}
     except Exception as e:
         return {'error': f'scan_results.json padha nahi gaya: {type(e).__name__}: {e}'}
     if not txt.strip():
-        return {'error': 'scan_results.json khaali hai. Scanner chalao: python nifty_scanner.py'}
+        return {'error': 'scan_results.json khaali hai. Screener par Refresh click karein (optional CLI): python nifty_scanner.py'}
     try:
         d = json.loads(txt)
     except Exception as e:
