@@ -216,7 +216,7 @@ function navSection() {
   const actions = d.querySelector('.nav-actions');
   check('.nav-actions container hai', !!actions);
   const btns = actions ? [...actions.querySelectorAll('.btn-go')] : [];
-  check('11 nav buttons hain (Analyze + 10 pages)', btns.length === 11,
+  check('12 nav buttons hain (Analyze + 11 pages, including manual planner)', btns.length === 12,
     String(btns.length));
   check('har nav button me <svg class="ic"><use …> hai',
     btns.length > 0 && btns.every((b) => b.querySelector('svg.ic use')));

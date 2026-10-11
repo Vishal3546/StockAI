@@ -252,7 +252,7 @@ def _client_ip():
 
 def _protected_path(path):
     p = (path or '/').lower()
-    return p == '/' or p in ('/dashboard.html',) or p.startswith('/api/')
+    return p == '/' or p in ('/dashboard.html', '/manual-planner') or p.startswith('/api/')
 
 
 def _rate_limited(ip):
@@ -6457,6 +6457,11 @@ for _pg89 in ('Backtest', 'Watchlist', 'Heatmap', 'Alerts'):
         return _view
     app.add_url_rule('/' + _pg89.lower(), 'page_' + _pg89.lower(), _mk89(_pg89))
 
+
+# FIX107: isolated manual planner; never calls order placement or ML/Kelly sizing.
+import sys
+from manual_planner import register as register_manual_planner
+register_manual_planner(app, sys.modules[__name__])
 
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 5000))

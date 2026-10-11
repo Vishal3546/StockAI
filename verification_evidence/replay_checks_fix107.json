@@ -1,0 +1,30 @@
+[
+  {
+    "symbol": "INFY",
+    "exchange": "NSE",
+    "mode": "intraday",
+    "hash_exact": true,
+    "context_numeric_replay_exact": true
+  },
+  {
+    "symbol": "INFY",
+    "exchange": "NSE",
+    "mode": "delivery",
+    "hash_exact": true,
+    "context_numeric_replay_exact": true
+  },
+  {
+    "symbol": "EMIL",
+    "exchange": "BSE",
+    "mode": "intraday",
+    "hash_exact": true,
+    "context_numeric_replay_exact": true
+  },
+  {
+    "symbol": "EMIL",
+    "exchange": "BSE",
+    "mode": "delivery",
+    "hash_exact": true,
+    "context_numeric_replay_exact": true
+  }
+]
